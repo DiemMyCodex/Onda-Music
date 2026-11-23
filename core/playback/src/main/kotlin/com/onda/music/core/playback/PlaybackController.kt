@@ -1,0 +1,243 @@
+package com.onda.music.core.playback
+
+import android.content.ComponentName
+import android.content.Context
+import android.view.Surface
+import android.view.SurfaceView
+import android.view.TextureView
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
+import com.onda.music.core.database.OndaPreferences
+import com.onda.music.core.database.SongDao
+import com.onda.music.core.database.toEntity
+import com.onda.music.core.model.EqConfig
+import com.onda.music.core.model.PlaybackState
+import com.onda.music.core.model.RepeatMode
+import com.onda.music.core.model.Track
+import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
+import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.guava.await
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
+@UnstableApi
+@Singleton
+class PlaybackController @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val sessionStore: PlaybackSessionStore,
+    private val streamResolver: StreamResolver,
+    private val audioEffectsEngine: AudioEffectsEngine,
+    private val ondaPreferences: OndaPreferences,
+    private val songDao: SongDao
+) {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val controllerMutex = Mutex()
+    private var mediaController: MediaController? = null
+    private var sleepTimerJob: Job? = null
+
+    val playbackState: StateFlow<PlaybackState> = sessionStore.playbackState
+    val activePlayerFlow: StateFlow<Player?> = sessionStore.activePlayer
+    val eqConfig: StateFlow<EqConfig> = audioEffectsEngine.eqConfig
+
+    fun getActivePlayer(): Player? {
+        return sessionStore.activePlayer.value ?: mediaController
+    }
+
+    fun attachVideoSurface(surface: Surface?) {
+        val player = getActivePlayer() ?: return
+        if (surface == null) {
+            player.clearVideoSurface()
+        } else {
+            player.setVideoSurface(surface)
+        }
+    }
+
+    fun attachVideoSurfaceView(surfaceView: SurfaceView?) {
+        val player = getActivePlayer() ?: return
+        if (surfaceView == null) {
+            player.clearVideoSurface()
+        } else {
+            player.setVideoSurfaceView(surfaceView)
+        }
+    }
+
+    fun attachVideoTextureView(textureView: TextureView?) {
+        val player = getActivePlayer() ?: return
+        if (textureView == null) {
+            player.clearVideoSurface()
+        } else {
+            player.setVideoTextureView(textureView)
+        }
+    }
+
+    fun playTrack(track: Track) {
+        playQueue(listOf(track), startIndex = 0)
+    }
+
+    fun playQueue(tracks: List<Track>, startIndex: Int = 0) {
+        if (tracks.isEmpty()) return
+        val safeIndex = startIndex.coerceIn(0, tracks.lastIndex)
+        sessionStore.registerTracks(tracks)
+        tracks.forEach { streamResolver.resetRotationState(it.id) }
+        scope.launch(Dispatchers.IO) {
+            songDao.upsertAndMergeAll(tracks.map { it.toEntity() })
+        }
+        scope.launch {
+            val controller = ensureController() ?: return@launch
+            val mediaItems = tracks.map { OndaMediaService.trackToMediaItem(it) }
+            controller.setMediaItems(mediaItems, safeIndex, 0L)
+            controller.prepare()
+            controller.play()
+        }
+    }
+
+    fun togglePlayPause() {
+        scope.launch {
+            val controller = ensureController() ?: return@launch
+            if (controller.isPlaying) {
+                controller.pause()
+            } else {
+                if (controller.playbackState == Player.STATE_IDLE && controller.mediaItemCount > 0) {
+                    controller.prepare()
+                }
+                controller.play()
+            }
+        }
+    }
+
+    fun seekTo(positionMs: Long) {
+        scope.launch {
+            val controller = ensureController() ?: return@launch
+            controller.seekTo(positionMs.coerceAtLeast(0L))
+        }
+    }
+
+    fun skipNext() {
+        scope.launch {
+            val controller = ensureController() ?: return@launch
+            if (controller.hasNextMediaItem()) {
+                controller.seekToNextMediaItem()
+            } else if (controller.mediaItemCount > 0) {
+                controller.seekTo(0, 0L)
+            }
+            controller.play()
+        }
+    }
+
+    fun skipPrevious() {
+        scope.launch {
+            val controller = ensureController() ?: return@launch
+            if (controller.currentPosition > 3_000L || !controller.hasPreviousMediaItem()) {
+                controller.seekTo(0L)
+            } else {
+                controller.seekToPreviousMediaItem()
+            }
+        }
+    }
+
+    fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+        scope.launch {
+            val controller = ensureController() ?: return@launch
+            val count = controller.mediaItemCount
+            if (fromIndex !in 0 until count || toIndex !in 0 until count || fromIndex == toIndex) {
+                return@launch
+            }
+            controller.moveMediaItem(fromIndex, toIndex)
+        }
+    }
+
+    fun removeQueueItem(index: Int) {
+        scope.launch {
+            val controller = ensureController() ?: return@launch
+            if (index !in 0 until controller.mediaItemCount) return@launch
+            controller.removeMediaItem(index)
+        }
+    }
+
+    fun setRepeatMode(repeatMode: RepeatMode) {
+        scope.launch {
+            ondaPreferences.setRepeatMode(repeatMode)
+            val controller = ensureController() ?: return@launch
+            controller.repeatMode = when (repeatMode) {
+                RepeatMode.OFF -> Player.REPEAT_MODE_OFF
+                RepeatMode.ALL -> Player.REPEAT_MODE_ALL
+                RepeatMode.ONE -> Player.REPEAT_MODE_ONE
+            }
+        }
+    }
+
+    fun toggleShuffle() {
+        scope.launch {
+            val controller = ensureController() ?: return@launch
+            val next = !controller.shuffleModeEnabled
+            controller.shuffleModeEnabled = next
+            ondaPreferences.setShuffleEnabled(next)
+        }
+    }
+
+    fun startSleepTimer(durationMs: Long) {
+        sleepTimerJob?.cancel()
+        if (durationMs <= 0L) {
+            cancelSleepTimer()
+            return
+        }
+        val deadlineMs = System.currentTimeMillis() + durationMs
+        sessionStore.updateState { it.copy(sleepTimerRemainingMs = durationMs) }
+        sleepTimerJob = scope.launch {
+            while (isActive) {
+                val remaining = (deadlineMs - System.currentTimeMillis()).coerceAtLeast(0L)
+                sessionStore.updateState { it.copy(sleepTimerRemainingMs = remaining) }
+                if (remaining == 0L) {
+                    getActivePlayer()?.pause()
+                    sessionStore.updateState { it.copy(sleepTimerRemainingMs = null) }
+                    break
+                }
+                delay(1_000L)
+            }
+        }
+    }
+
+    fun cancelSleepTimer() {
+        sleepTimerJob?.cancel()
+        sleepTimerJob = null
+        sessionStore.updateState { it.copy(sleepTimerRemainingMs = null) }
+    }
+
+    fun updateEqConfig(config: EqConfig) {
+        audioEffectsEngine.applyEqConfig(config)
+        scope.launch(Dispatchers.IO) {
+            ondaPreferences.setEqConfig(config)
+        }
+    }
+
+    private suspend fun ensureController(): MediaController? {
+        mediaController?.let { existing ->
+            if (existing.isConnected) return existing
+        }
+        return controllerMutex.withLock {
+            mediaController?.let { existing ->
+                if (existing.isConnected) return@withLock existing
+            }
+            val token = SessionToken(
+                context,
+                ComponentName(context, OndaMediaService::class.java)
+            )
+            runCatching {
+                MediaController.Builder(context, token).buildAsync().await()
+            }.onSuccess { built ->
+                mediaController = built
+            }.getOrNull()
+        }
+    }
+}

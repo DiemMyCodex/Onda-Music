@@ -546,7 +546,7 @@ internal fun rememberSearchCollapseProgress(
 }
 
 @Immutable
-internal data class SearchLaunchOrigin(
+data class SearchLaunchOrigin(
     val bounds: Rect? = null,
     val cornerRadius: Dp = 18.dp
 )

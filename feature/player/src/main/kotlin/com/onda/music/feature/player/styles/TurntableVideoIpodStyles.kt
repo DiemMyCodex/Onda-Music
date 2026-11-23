@@ -12,6 +12,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -313,7 +314,7 @@ fun TurntablePlayerStyle(
                             awaitEachGesture {
                                 val down = awaitFirstDown(requireUnconsumed = false)
                                 val pivot = Offset(size.width * TURNTABLE_PIVOT_X, size.height * TURNTABLE_PIVOT_Y)
-                                val armLength = size.minDimension * 0.56f
+                                val armLength = minOf(size.width, size.height).toFloat() * 0.56f
                                 if (!isOnTurntableArm(down.position, pivot, currentTonearmAngle, armLength, slopPx)) {
                                     return@awaitEachGesture
                                 }
@@ -682,7 +683,7 @@ fun VideoPlayerStyle(
                 )
             }
 
-            AnimatedVisibility(
+            androidx.compose.animation.AnimatedVisibility(
                 visible = !hasVideoFrames,
                 enter = fadeIn(),
                 exit = fadeOut(),
@@ -967,7 +968,7 @@ fun IpodPlayerStyle(
                     var lastAngleRad = 0f
                     var workingFraction = baseProgress
                     var accumulatedForHaptic = 0f
-                    androidx.compose.foundation.gestures.detectDragGestures(
+                    detectDragGestures(
                         onDragStart = { start ->
                             val cx = size.width * 0.5f
                             val cy = size.height * 0.5f

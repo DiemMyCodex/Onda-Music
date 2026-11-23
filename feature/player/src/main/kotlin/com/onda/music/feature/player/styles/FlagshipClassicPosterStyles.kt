@@ -692,7 +692,6 @@ fun PosterPlayerStyle(
         )
     }
 
-    val currentArtworkHeightPx by rememberUpdatedState(with(density) { (maxHeight * 0.56f).toPx() })
     val currentDurationMs by rememberUpdatedState(durationMs)
     val currentOnSeekToFraction by rememberUpdatedState(ctx.onSeekToFraction)
     val currentHaptics by rememberUpdatedState(ctx.settings.hapticsEnabled)
@@ -751,6 +750,7 @@ fun PosterPlayerStyle(
     ) {
         val artworkHeight = maxHeight * 0.56f
         val artworkHeightPx = with(density) { artworkHeight.toPx() }
+        val currentArtworkHeightPx by rememberUpdatedState(artworkHeightPx)
         val activePlaybackScale by animateFloatAsState(
             targetValue = if (isPlaying && !reducedMotion) 1.03f else 1f,
             animationSpec = if (reducedMotion) snap() else tween(400),

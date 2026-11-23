@@ -2,9 +2,12 @@ package com.onda.music.feature.player
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -160,6 +163,7 @@ fun TrackArtworkImage(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SongCarousel(
     queue: List<Track>,
@@ -170,7 +174,8 @@ fun SongCarousel(
     artworkShape: Shape = RoundedCornerShape(GlassTokens.RadiusXl),
     contentPadding: PaddingValues = PaddingValues(horizontal = 24.dp),
     pageSpacing: Dp = 16.dp,
-    enablePress3D: Boolean = true
+    enablePress3D: Boolean = true,
+    onArtworkLongClick: (() -> Unit)? = null
 ) {
     val displayTracks = remember(queue, currentTrack) {
         when {
@@ -185,7 +190,18 @@ fun SongCarousel(
             artworkUrl = null,
             contentDescription = "No track artwork",
             shape = artworkShape,
-            modifier = modifier
+            modifier = modifier.then(
+                if (onArtworkLongClick != null) {
+                    Modifier.combinedClickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {},
+                        onLongClick = onArtworkLongClick
+                    )
+                } else {
+                    Modifier
+                }
+            )
         )
         return
     }
@@ -234,6 +250,18 @@ fun SongCarousel(
                     scaleY = scale
                     this.alpha = alpha
                 }
+                .then(
+                    if (onArtworkLongClick != null) {
+                        Modifier.combinedClickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = {},
+                            onLongClick = onArtworkLongClick
+                        )
+                    } else {
+                        Modifier
+                    }
+                )
                 .then(
                     if (enablePress3D && page == pagerState.currentPage) {
                         Modifier.press3D()

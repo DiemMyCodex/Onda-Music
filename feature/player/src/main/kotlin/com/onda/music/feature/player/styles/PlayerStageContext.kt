@@ -40,5 +40,6 @@ data class PlayerStageContext(
     val onRefreshLyrics: () -> Unit,
     val onAdjustLyricsOffset: (Long) -> Unit,
     val onAttachSurfaceView: (SurfaceView?) -> Unit,
-    val onAttachTextureView: (TextureView?) -> Unit
+    val onAttachTextureView: (TextureView?) -> Unit,
+    val onOpenOverflowMenu: () -> Unit = {}
 )

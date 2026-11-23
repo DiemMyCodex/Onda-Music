@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -28,7 +29,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
-import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Style
@@ -51,8 +51,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -205,7 +210,8 @@ fun FullPlayerOverlay(
             onRefreshLyrics = viewModel::refreshLyrics,
             onAdjustLyricsOffset = viewModel::adjustLyricsOffset,
             onAttachSurfaceView = viewModel::attachVideoSurfaceView,
-            onAttachTextureView = viewModel::attachVideoTextureView
+            onAttachTextureView = viewModel::attachVideoTextureView,
+            onOpenOverflowMenu = { showPosterOverflowMenu = true }
         )
     }
 
@@ -247,139 +253,144 @@ fun FullPlayerOverlay(
                         modifier = Modifier.fillMaxSize()
                     )
 
-                    Row(
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .statusBarsPadding()
+                            .padding(top = 10.dp)
+                            .width(42.dp)
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(Color(0x38FFFFFF))
+                    )
+
+                    IconButton(
+                        onClick = {
+                            onMorphFractionChange(0f)
+                            onCollapse()
+                        },
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .statusBarsPadding()
-                            .padding(top = 8.dp, end = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box {
-                            IconButton(
-                                onClick = { showPosterOverflowMenu = true },
-                                modifier = Modifier.defaultMinSize(
-                                    minWidth = DockMetrics.MinTapTarget,
-                                    minHeight = DockMetrics.MinTapTarget
-                                )
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0x40000000)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.MoreHoriz,
-                                        contentDescription = "Player options",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-
-                            DropdownMenu(
-                                expanded = showPosterOverflowMenu,
-                                onDismissRequest = { showPosterOverflowMenu = false },
-                                containerColor = Color(0xFF141414)
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("Player Style", color = Color.White) },
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Style,
-                                            contentDescription = null,
-                                            tint = Color.White
-                                        )
-                                    },
-                                    colors = MenuDefaults.itemColors(textColor = Color.White),
-                                    onClick = {
-                                        showPosterOverflowMenu = false
-                                        showStylePickerSheet = true
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Up Next Queue", color = Color.White) },
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = Icons.Rounded.QueueMusic,
-                                            contentDescription = null,
-                                            tint = Color.White
-                                        )
-                                    },
-                                    colors = MenuDefaults.itemColors(textColor = Color.White),
-                                    onClick = {
-                                        showPosterOverflowMenu = false
-                                        showQueueSheet = true
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            text = if (playbackState.sleepTimerRemainingMs != null) {
-                                                "Sleep Timer (${formatDurationMs(playbackState.sleepTimerRemainingMs ?: 0L)})"
-                                            } else {
-                                                "Sleep Timer"
-                                            },
-                                            color = Color.White
-                                        )
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Bedtime,
-                                            contentDescription = null,
-                                            tint = Color.White
-                                        )
-                                    },
-                                    colors = MenuDefaults.itemColors(textColor = Color.White),
-                                    onClick = {
-                                        showPosterOverflowMenu = false
-                                        showSleepTimerSheet = true
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Settings", color = Color.White) },
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Settings,
-                                            contentDescription = null,
-                                            tint = Color.White
-                                        )
-                                    },
-                                    colors = MenuDefaults.itemColors(textColor = Color.White),
-                                    onClick = {
-                                        showPosterOverflowMenu = false
-                                        onOpenSettings()
-                                    }
-                                )
-                            }
-                        }
-
-                        IconButton(
-                            onClick = {
-                                onMorphFractionChange(0f)
-                                onCollapse()
-                            },
-                            modifier = Modifier.defaultMinSize(
+                            .padding(top = 6.dp, end = 12.dp)
+                            .defaultMinSize(
                                 minWidth = DockMetrics.MinTapTarget,
                                 minHeight = DockMetrics.MinTapTarget
                             )
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(Color(0x24FFFFFF)),
+                            contentAlignment = Alignment.Center
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0x40000000)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.KeyboardArrowDown,
-                                    contentDescription = "Collapse player",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
+                                    .size(14.dp)
+                                    .drawWithCache {
+                                        val chevronPath = Path().apply {
+                                            moveTo(size.width * 0.18f, size.height * 0.34f)
+                                            lineTo(size.width * 0.50f, size.height * 0.68f)
+                                            lineTo(size.width * 0.82f, size.height * 0.34f)
+                                        }
+                                        val chevronStroke = Stroke(
+                                            width = 1.85.dp.toPx(),
+                                            cap = StrokeCap.Round,
+                                            join = StrokeJoin.Round
+                                        )
+                                        onDrawBehind {
+                                            drawPath(
+                                                path = chevronPath,
+                                                color = Color.White,
+                                                style = chevronStroke
+                                            )
+                                        }
+                                    }
+                            )
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .navigationBarsPadding()
+                            .padding(start = 20.dp, bottom = 72.dp)
+                    ) {
+                        DropdownMenu(
+                            expanded = showPosterOverflowMenu,
+                            onDismissRequest = { showPosterOverflowMenu = false },
+                            containerColor = Color(0xFF141414)
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Player Style", color = Color.White) },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Style,
+                                        contentDescription = null,
+                                        tint = Color.White
+                                    )
+                                },
+                                colors = MenuDefaults.itemColors(textColor = Color.White),
+                                onClick = {
+                                    showPosterOverflowMenu = false
+                                    showStylePickerSheet = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Up Next Queue", color = Color.White) },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Rounded.QueueMusic,
+                                        contentDescription = null,
+                                        tint = Color.White
+                                    )
+                                },
+                                colors = MenuDefaults.itemColors(textColor = Color.White),
+                                onClick = {
+                                    showPosterOverflowMenu = false
+                                    showQueueSheet = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = if (playbackState.sleepTimerRemainingMs != null) {
+                                            "Sleep Timer (${formatDurationMs(playbackState.sleepTimerRemainingMs ?: 0L)})"
+                                        } else {
+                                            "Sleep Timer"
+                                        },
+                                        color = Color.White
+                                    )
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Bedtime,
+                                        contentDescription = null,
+                                        tint = Color.White
+                                    )
+                                },
+                                colors = MenuDefaults.itemColors(textColor = Color.White),
+                                onClick = {
+                                    showPosterOverflowMenu = false
+                                    showSleepTimerSheet = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Settings", color = Color.White) },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Settings,
+                                        contentDescription = null,
+                                        tint = Color.White
+                                    )
+                                },
+                                colors = MenuDefaults.itemColors(textColor = Color.White),
+                                onClick = {
+                                    showPosterOverflowMenu = false
+                                    onOpenSettings()
+                                }
+                            )
                         }
                     }
                 }

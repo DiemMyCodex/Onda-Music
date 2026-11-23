@@ -2,6 +2,7 @@
 androidGradlePlugin = "9.0.0"
 kotlin = "2.3.10"
 compose = "1.10.2"
+composeMaterialIcons = "1.7.8"
 lifecycle = "2.10.0"
 material3 = "1.5.0-alpha18"
 appcompat = "1.7.1"
@@ -49,8 +50,8 @@ compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling", version.ref = 
 compose-animation = { module = "androidx.compose.animation:animation-graphics", version.ref = "compose" }
 compose-reorderable = { module = "sh.calvin.reorderable:reorderable", version.ref = "composeReorderable" }
 material3 = { module = "androidx.compose.material3:material3", version.ref = "material3" }
-compose-material-icons-core = { module = "androidx.compose.material:material-icons-core", version.ref = "compose" }
-compose-material-icons-extended = { module = "androidx.compose.material:material-icons-extended", version.ref = "compose" }
+compose-material-icons-core = { module = "androidx.compose.material:material-icons-core", version.ref = "composeMaterialIcons" }
+compose-material-icons-extended = { module = "androidx.compose.material:material-icons-extended", version.ref = "composeMaterialIcons" }
 
 viewmodel = { module = "androidx.lifecycle:lifecycle-viewmodel-ktx", version.ref = "lifecycle" }
 viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }

@@ -4,6 +4,7 @@ import android.os.Build
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -1026,10 +1027,16 @@ private fun PosterKineticLyrics(
                             fadeIn(tween(120)) togetherWith fadeOut(tween(90))
                         } else {
                             (fadeIn(tween(240)) + slideInVertically(
-                                animationSpec = AppMotion.SmoothSpring
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                    stiffness = Spring.StiffnessMediumLow
+                                )
                             ) { fullHeight -> fullHeight / 3 }) togetherWith
                                 (fadeOut(tween(160)) + slideOutVertically(
-                                    animationSpec = AppMotion.SmoothSpring
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioNoBouncy,
+                                        stiffness = Spring.StiffnessMediumLow
+                                    )
                                 ) { fullHeight -> -fullHeight / 3 })
                         }
                     },

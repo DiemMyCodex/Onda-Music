@@ -23,7 +23,6 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.node.CompositionLocalConsumerModifierNode
 import androidx.compose.ui.node.DelegatableNode
@@ -225,7 +224,7 @@ fun Modifier.pressBounce(
                         val stolenByScroll = active != null &&
                             active.isConsumed &&
                             (active.position - startPos).getDistance() > touchSlop
-                        if (event.type == PointerEventType.Cancel || active == null || stolenByScroll) {
+                        if (active == null || stolenByScroll) {
                             break
                         }
                     }
@@ -307,7 +306,7 @@ fun Modifier.springPress3D(
                         val stolenByScroll = active != null &&
                             active.isConsumed &&
                             (active.position - startPos).getDistance() > touchSlop
-                        if (event.type == PointerEventType.Cancel || active == null || stolenByScroll) {
+                        if (active == null || stolenByScroll) {
                             break
                         }
                         val nx = ((active.position.x / w) * 2f - 1f).coerceIn(-1f, 1f)

@@ -3,6 +3,7 @@ package com.onda.music.feature.settings
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
@@ -66,6 +67,7 @@ suspend fun SettingsScroll.reveal(target: LayoutCoordinates, density: Density) {
     state.animateScrollTo(desired)
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun Modifier.settingsHighlightTarget(key: String): Modifier = composed {
     val requester = remember(key) { BringIntoViewRequester() }

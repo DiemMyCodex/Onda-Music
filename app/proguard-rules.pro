@@ -1,0 +1,3 @@
+-keepattributes *Annotation*
+-keep class com.onda.music.core.model.** { *; }
+-dontwarn kotlinx.serialization.**

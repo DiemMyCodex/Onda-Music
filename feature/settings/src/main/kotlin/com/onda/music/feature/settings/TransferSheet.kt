@@ -484,9 +484,9 @@ private fun MomiPeekSummaryCard(
                 )
             }
         }
-        if (!peek.username.isNullOrBlank()) {
+        peek.username?.takeIf { it.isNotBlank() }?.let { username ->
             Text(
-                text = peek.username,
+                text = username,
                 style = MaterialTheme.typography.titleSmall,
                 color = colors.textPrimary
             )

@@ -5,6 +5,7 @@ import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -14,13 +15,23 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
+import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
+
+private const val MESH_LOOP_SECONDS = 100f
+private const val MESH_STEP_INTERVAL_SECONDS = 1f / 30f
+private const val MESH_DOWNSCALE = 4
 
 private const val ONDA_MESH_AGSL = """
 uniform float2 uResolution;
@@ -38,12 +49,12 @@ half4 main(float2 fragCoord) {
     float aspect = res.x / res.y;
     float2 p = float2((uv.x - 0.5) * aspect, uv.y - 0.5);
 
-    float t = uTime * 0.28;
+    float t = uTime * (6.2831853 / 100.0) * 4.0;
 
-    float2 c0 = float2(sin(t * 0.9) * 0.35 * aspect, cos(t * 0.7) * 0.30 - 0.12);
-    float2 c1 = float2(cos(t * 0.65) * 0.38 * aspect, sin(t * 0.85) * 0.32 + 0.10);
-    float2 c2 = float2(sin(t * 0.55 + 2.1) * 0.32 * aspect, cos(t * 0.75 + 1.3) * 0.28);
-    float2 c3 = float2(cos(t * 0.5 + 4.0) * 0.26 * aspect, sin(t * 0.6 + 2.4) * 0.25 - 0.05);
+    float2 c0 = float2(sin(t * 2.0) * 0.35 * aspect, cos(t * 1.0) * 0.30 - 0.12);
+    float2 c1 = float2(cos(t * 1.0) * 0.38 * aspect, sin(t * 2.0) * 0.32 + 0.10);
+    float2 c2 = float2(sin(t * 1.0 + 2.1) * 0.32 * aspect, cos(t * 2.0 + 1.3) * 0.28);
+    float2 c3 = float2(cos(t * 1.0 + 4.0) * 0.26 * aspect, sin(t * 1.0 + 2.4) * 0.25 - 0.05);
 
     float w0 = exp(-dot(p - c0, p - c0) * 2.4);
     float w1 = exp(-dot(p - c1, p - c1) * 2.1);
@@ -122,6 +133,29 @@ object AgslMesh {
         get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
 }
 
+private fun Modifier.downscaledMeshLayer(): Modifier = layout { measurable, constraints ->
+    if (!constraints.hasBoundedWidth || !constraints.hasBoundedHeight) {
+        val placeable = measurable.measure(constraints)
+        layout(placeable.width, placeable.height) {
+            placeable.place(0, 0)
+        }
+    } else {
+        val width = constraints.maxWidth
+        val height = constraints.maxHeight
+        val downWidth = ((width + MESH_DOWNSCALE - 1) / MESH_DOWNSCALE).coerceAtLeast(1)
+        val downHeight = ((height + MESH_DOWNSCALE - 1) / MESH_DOWNSCALE).coerceAtLeast(1)
+        val placeable = measurable.measure(Constraints.fixed(downWidth, downHeight))
+        layout(width, height) {
+            placeable.placeWithLayer(0, 0) {
+                scaleX = MESH_DOWNSCALE.toFloat()
+                scaleY = MESH_DOWNSCALE.toFloat()
+                transformOrigin = TransformOrigin(0f, 0f)
+                compositingStrategy = CompositingStrategy.Offscreen
+            }
+        }
+    }
+}
+
 @Composable
 fun AgslMeshBackground(
     modifier: Modifier = Modifier,
@@ -133,16 +167,24 @@ fun AgslMeshBackground(
 ) {
     val reducedMotion = OndaTheme.reducedMotion
     val shouldAnimate = animated && !reducedMotion
-    var timeSeconds by remember { mutableFloatStateOf(0f) }
+    var steppedTimeSeconds by remember { mutableFloatStateOf(0f) }
 
     LaunchedEffect(shouldAnimate, speed) {
         if (!shouldAnimate) return@LaunchedEffect
         var lastNanos = 0L
+        var accumulator = 0f
+        var rawTime = steppedTimeSeconds
         while (true) {
             withFrameNanos { frameNanos ->
                 if (lastNanos != 0L) {
                     val dt = ((frameNanos - lastNanos).coerceIn(0L, 50_000_000L)) / 1_000_000_000f
-                    timeSeconds += dt * speed
+                    val scaledDt = dt * speed
+                    rawTime = (rawTime + scaledDt) % MESH_LOOP_SECONDS
+                    accumulator += dt
+                    if (accumulator >= MESH_STEP_INTERVAL_SECONDS) {
+                        accumulator %= MESH_STEP_INTERVAL_SECONDS
+                        steppedTimeSeconds = rawTime
+                    }
                 }
                 lastNanos = frameNanos
             }
@@ -155,77 +197,84 @@ fun AgslMeshBackground(
         null
     }
 
-    val drawModifier = Modifier.drawBehind {
+    val meshLayerModifier = remember(palette, dimAlpha, agslHolder) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && agslHolder?.brush != null) {
-            agslHolder.updateUniforms(
-                width = size.width,
-                height = size.height,
-                timeSeconds = timeSeconds,
-                palette = palette,
-                dimAlpha = dimAlpha
-            )
-            drawRect(brush = agslHolder.brush)
-            if (dimAlpha > 0f) {
-                drawRect(color = GlassTokens.AmoledBlack.copy(alpha = (dimAlpha * 0.42f).coerceIn(0f, 0.85f)))
+            Modifier.drawWithCache {
+                val dimOverlayAlpha = (dimAlpha * 0.42f).coerceIn(0f, 0.85f)
+                val dimColor = GlassTokens.AmoledBlack.copy(alpha = dimOverlayAlpha)
+                onDrawBehind {
+                    agslHolder.updateUniforms(
+                        width = size.width,
+                        height = size.height,
+                        timeSeconds = steppedTimeSeconds,
+                        palette = palette,
+                        dimAlpha = dimAlpha
+                    )
+                    drawRect(brush = agslHolder.brush)
+                    if (dimAlpha > 0f) {
+                        drawRect(color = dimColor)
+                    }
+                }
             }
         } else {
-            drawRect(color = GlassTokens.AmoledBlack)
-            val t = timeSeconds * 0.25f
-            val w = size.width.coerceAtLeast(1f)
-            val h = size.height.coerceAtLeast(1f)
+            Modifier.drawWithCache {
+                val w = size.width.coerceAtLeast(1f)
+                val h = size.height.coerceAtLeast(1f)
+                val maxDim = maxOf(w, h)
+                val orbAlphaScale = (1f - dimAlpha * 0.48f).coerceIn(0.25f, 0.85f)
 
-            val center0 = Offset(
-                x = w * (0.28f + 0.14f * sin(t)),
-                y = h * (0.22f + 0.10f * cos(t * 0.8f))
-            )
-            val center1 = Offset(
-                x = w * (0.76f + 0.12f * cos(t * 0.7f)),
-                y = h * (0.38f + 0.12f * sin(t * 0.9f))
-            )
-            val center2 = Offset(
-                x = w * (0.45f + 0.15f * sin(t * 0.6f + 1.8f)),
-                y = h * (0.74f + 0.08f * cos(t * 0.7f + 0.9f))
-            )
+                val radius0 = maxDim * 0.72f
+                val radius1 = maxDim * 0.68f
+                val radius2 = maxDim * 0.78f
 
-            val orbAlphaScale = (1f - dimAlpha * 0.48f).coerceIn(0.25f, 0.85f)
-            drawRect(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        palette.primary.copy(alpha = 0.45f * orbAlphaScale),
-                        Color.Transparent
-                    ),
-                    center = center0,
-                    radius = maxOf(w, h) * 0.72f
+                val brush0 = Brush.radialGradient(
+                    colors = listOf(palette.primary.copy(alpha = 0.45f * orbAlphaScale), Color.Transparent),
+                    center = Offset.Zero,
+                    radius = radius0
                 )
-            )
-            drawRect(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        palette.secondary.copy(alpha = 0.36f * orbAlphaScale),
-                        Color.Transparent
-                    ),
-                    center = center1,
-                    radius = maxOf(w, h) * 0.68f
+                val brush1 = Brush.radialGradient(
+                    colors = listOf(palette.secondary.copy(alpha = 0.36f * orbAlphaScale), Color.Transparent),
+                    center = Offset.Zero,
+                    radius = radius1
                 )
-            )
-            drawRect(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        palette.tertiary.copy(alpha = 0.40f * orbAlphaScale),
-                        Color.Transparent
-                    ),
-                    center = center2,
-                    radius = maxOf(w, h) * 0.78f
+                val brush2 = Brush.radialGradient(
+                    colors = listOf(palette.tertiary.copy(alpha = 0.40f * orbAlphaScale), Color.Transparent),
+                    center = Offset.Zero,
+                    radius = radius2
                 )
-            )
+
+                onDrawBehind {
+                    drawRect(color = GlassTokens.AmoledBlack)
+                    val t = steppedTimeSeconds * (2f * PI.toFloat() / MESH_LOOP_SECONDS) * 4f
+                    val c0x = w * (0.28f + 0.14f * sin(t))
+                    val c0y = h * (0.22f + 0.10f * cos(t * 0.8f))
+                    val c1x = w * (0.76f + 0.12f * cos(t * 0.7f))
+                    val c1y = h * (0.38f + 0.12f * sin(t * 0.9f))
+                    val c2x = w * (0.45f + 0.15f * sin(t * 0.6f + 1.8f))
+                    val c2y = h * (0.74f + 0.08f * cos(t * 0.7f + 0.9f))
+
+                    translate(left = c0x, top = c0y) {
+                        drawCircle(brush = brush0, radius = radius0, center = Offset.Zero)
+                    }
+                    translate(left = c1x, top = c1y) {
+                        drawCircle(brush = brush1, radius = radius1, center = Offset.Zero)
+                    }
+                    translate(left = c2x, top = c2y) {
+                        drawCircle(brush = brush2, radius = radius2, center = Offset.Zero)
+                    }
+                }
+            }
         }
     }
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .then(drawModifier)
-    ) {
+    Box(modifier = modifier.fillMaxSize()) {
+        Spacer(
+            modifier = Modifier
+                .matchParentSize()
+                .damageBoundary()
+                .downscaledMeshLayer()
+                .then(meshLayerModifier)
+        )
         content?.invoke(this)
     }
 }

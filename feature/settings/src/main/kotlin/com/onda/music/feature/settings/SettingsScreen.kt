@@ -5,12 +5,20 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,8 +36,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.BlurOn
@@ -52,9 +64,6 @@ import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Vibration
 import androidx.compose.material.icons.rounded.VolumeUp
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -66,9 +75,10 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -78,8 +88,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -88,7 +102,14 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.onda.music.core.design.DockMetrics
+import com.onda.music.core.design.OndaLoadingDots
 import com.onda.music.core.design.OndaTheme
+import com.onda.music.core.design.RoundedHighlight
+import com.onda.music.core.design.ondaBlurSource
+import com.onda.music.core.design.pressBounce
+import com.onda.music.core.design.rememberOndaBackdropState
+import com.onda.music.core.design.rememberRevealSeenState
+import com.onda.music.core.design.revealOnAppear
 import com.onda.music.core.model.EqConfig
 import com.onda.music.core.model.EqPreset
 import com.onda.music.core.model.MergePolicy
@@ -146,6 +167,7 @@ fun SettingsRoute(
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
     uiState: SettingsUiState,
@@ -192,12 +214,11 @@ fun SettingsScreen(
     val filteredEntries = remember(allEntries, uiState.searchQuery) {
         filterSettingsEntries(allEntries, uiState.searchQuery)
     }
-    val groupedEntries = remember(filteredEntries) {
-        filteredEntries.groupBy { it.group }
-    }
     val reducedMotion = OndaTheme.reducedMotion
+    val focusManager = LocalFocusManager.current
 
     var activeGroup by rememberSaveable { mutableStateOf<SettingsGroup?>(null) }
+    var isSearchFocused by remember { mutableStateOf(false) }
     var showEqSheet by rememberSaveable { mutableStateOf(false) }
     var showPlayerStyleSheet by rememberSaveable { mutableStateOf(false) }
     var showTransferSheet by rememberSaveable { mutableStateOf(false) }
@@ -206,8 +227,16 @@ fun SettingsScreen(
     var showProxyDialog by rememberSaveable { mutableStateOf(false) }
     var showResetDialog by rememberSaveable { mutableStateOf(false) }
 
-    BackHandler(enabled = activeGroup != null) {
-        activeGroup = null
+    val isSearching = isSearchFocused || uiState.searchQuery.isNotBlank()
+
+    BackHandler(enabled = activeGroup != null || isSearching) {
+        if (activeGroup != null) {
+            activeGroup = null
+        } else {
+            onSearchQueryChange("")
+            isSearchFocused = false
+            focusManager.clearFocus()
+        }
     }
 
     val snackbarHostState = remember { SnackbarHostState() }
@@ -230,6 +259,9 @@ fun SettingsScreen(
     }
 
     val bottomPadding = DockMetrics.rememberBottomPadding(hasMiniPlayer = true)
+    val expandedTopBarHeight = rememberSettingsTopBarExpandedHeight()
+    val collapsedTopBarHeight = rememberSettingsTopBarCollapsedHeight()
+    val detailTopBarHeight = rememberSettingsDetailTopBarHeight()
 
     val renderEntry: @Composable (SettingsSearchEntry) -> Unit = { entry ->
         SettingsEntryRow(
@@ -266,13 +298,18 @@ fun SettingsScreen(
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = SettingsOledColors.CanvasBlack,
-        snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
+        snackbarHost = {
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.padding(bottom = bottomPadding)
+            )
+        }
     ) { innerPadding ->
         AnimatedContent(
             targetState = activeGroup,
             transitionSpec = {
                 if (reducedMotion) {
-                    fadeIn() togetherWith fadeOut()
+                    fadeIn(tween(80)) togetherWith fadeOut(tween(80))
                 } else if (targetState != null && initialState == null) {
                     (slideInHorizontally { it / 5 } + fadeIn()) togetherWith
                         (slideOutHorizontally { -it / 6 } + fadeOut())
@@ -288,179 +325,311 @@ fun SettingsScreen(
                 .padding(bottom = innerPadding.calculateBottomPadding())
         ) { currentGroup ->
             if (currentGroup == null) {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .imePadding(),
-                    contentPadding = PaddingValues(bottom = bottomPadding)
-                ) {
-                    item(key = "hub_header") {
-                        SettingsHubHeader(
-                            title = strings.screenTitle,
-                            avatarPath = settings.avatarPath,
-                            backLabel = strings.backLabel,
-                            profileLabel = strings.profileTitle,
-                            onBack = onBack,
-                            onAvatarClick = { activeGroup = SettingsGroup.APPEARANCE_LANGUAGE }
+                val listState = rememberLazyListState()
+                val backdropState = rememberOndaBackdropState()
+                val revealSeen = rememberRevealSeenState()
+                val density = LocalDensity.current
+                val enterPx = with(density) { 24.dp.toPx() }
+                val exitPx = with(density) { 6.dp.toPx() }
+                val latch = remember(listState) { booleanArrayOf(false) }
+
+                val scrolledPastLatch by remember(listState, enterPx, exitPx) {
+                    derivedStateOf {
+                        val next = computeCollapseLatch(
+                            currentCollapsed = latch[0],
+                            firstVisibleIndex = listState.firstVisibleItemIndex,
+                            firstVisibleOffsetPx = listState.firstVisibleItemScrollOffset.toFloat(),
+                            enterPx = enterPx,
+                            exitPx = exitPx
                         )
+                        latch[0] = next
+                        next
                     }
+                }
 
-                    item(key = "hub_search_pill") {
-                        SettingsSearchPill(
-                            query = uiState.searchQuery,
-                            placeholder = strings.searchPlaceholder,
-                            clearLabel = strings.clearSearchLabel,
-                            onQueryChange = onSearchQueryChange,
-                            modifier = Modifier
-                                .padding(horizontal = 16.dp)
-                                .padding(top = 12.dp, bottom = 16.dp)
-                        )
-                    }
-
-                    if (uiState.searchQuery.isBlank()) {
-                        item(key = "hub_suggested") {
-                            SettingsMatteCard(
-                                backgroundColor = SettingsOledColors.MatteCard,
-                                cornerRadius = 24,
-                                modifier = Modifier.padding(horizontal = 16.dp)
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(16.dp)
-                                ) {
-                                    Text(
-                                        text = strings.suggestedLabel,
-                                        fontSize = 13.sp,
-                                        lineHeight = 18.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = SettingsOledColors.TextSecondary
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    SettingsSuggestedRow(
-                                        icon = Icons.Rounded.Equalizer,
-                                        title = strings.eqTitle,
-                                        breadcrumb = strings.suggestedEqBreadcrumb,
-                                        onClick = { showEqSheet = true }
-                                    )
-                                    HorizontalDivider(
-                                        modifier = Modifier.padding(vertical = 4.dp),
-                                        thickness = 1.dp,
-                                        color = SettingsOledColors.InsetDivider
-                                    )
-                                    SettingsSuggestedRow(
-                                        icon = Icons.Rounded.Archive,
-                                        title = strings.transferTitle,
-                                        breadcrumb = strings.suggestedTransferBreadcrumb,
-                                        onClick = { showTransferSheet = true }
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(20.dp))
-                        }
-
-                        SettingsGroup.entries.forEachIndexed { index, group ->
-                            item(key = "category_${group.id}") {
-                                SettingsCategoryPill(
-                                    icon = categoryIconFor(group),
-                                    title = groupTitleFor(group, strings),
-                                    onClick = { activeGroup = group },
-                                    modifier = Modifier.padding(horizontal = 16.dp)
-                                )
-                                if (index < SettingsGroup.entries.lastIndex) {
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                }
-                            }
-                        }
-                    } else if (filteredEntries.isEmpty()) {
-                        item(key = "empty_search") {
-                            SettingsMatteCard(
-                                backgroundColor = SettingsOledColors.MatteCard,
-                                cornerRadius = 24,
-                                modifier = Modifier.padding(horizontal = 16.dp)
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(24.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    Text(
-                                        text = strings.noSearchMatchesTitle,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = SettingsOledColors.TextPrimary
-                                    )
-                                    Text(
-                                        text = strings.noSearchMatchesBody,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = SettingsOledColors.TextSecondary
-                                    )
-                                    SettingsPillButton(
-                                        text = strings.clearSearchLabel,
-                                        selected = true,
-                                        onClick = { onSearchQueryChange("") }
-                                    )
-                                }
-                            }
-                        }
+                val collapseTarget = scrolledPastLatch || isSearching
+                val collapseProgress by animateFloatAsState(
+                    targetValue = if (collapseTarget) 1f else 0f,
+                    animationSpec = if (reducedMotion) {
+                        snap()
                     } else {
-                        SettingsGroup.entries.forEach { group ->
-                            val groupItems = groupedEntries[group].orEmpty()
-                            if (groupItems.isNotEmpty()) {
-                                item(key = "search_${group.id}") {
-                                    SettingsGroupCard(
-                                        title = groupTitleFor(group, strings),
+                        spring(dampingRatio = 0.85f, stiffness = 420f)
+                    },
+                    label = "SettingsHeaderCollapse"
+                )
+
+                val hubAlpha by animateFloatAsState(
+                    targetValue = if (isSearching) 0f else 1f,
+                    animationSpec = if (reducedMotion) snap() else tween(durationMillis = 180),
+                    label = "SettingsHubAlpha"
+                )
+                val showHubContent by remember { derivedStateOf { hubAlpha > 0.001f } }
+
+                LaunchedEffect(isSearching) {
+                    if (isSearching && (listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0)) {
+                        listState.scrollToItem(0)
+                    }
+                }
+
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .ondaBlurSource(
+                                state = backdropState,
+                                isActive = { collapseProgress > 0.01f || isSearching }
+                            )
+                    ) {
+                        if (showHubContent) {
+                            LazyColumn(
+                                state = listState,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .imePadding()
+                                    .graphicsLayer { alpha = hubAlpha },
+                                contentPadding = PaddingValues(bottom = bottomPadding)
+                            ) {
+                                item(key = "hub_top_spacer") {
+                                    Spacer(modifier = Modifier.height(expandedTopBarHeight))
+                                }
+
+                                item(key = "hub_suggested") {
+                                    SettingsMatteCard(
+                                        backgroundColor = SettingsOledColors.MatteCard,
+                                        cornerRadius = 24,
                                         modifier = Modifier
                                             .padding(horizontal = 16.dp)
-                                            .padding(bottom = 16.dp)
+                                            .revealOnAppear(
+                                                key = "hub_suggested",
+                                                seenState = revealSeen,
+                                                cascade = true
+                                            )
                                     ) {
-                                        groupItems.forEachIndexed { index, entry ->
-                                            if (index > 0) {
-                                                SettingsRowDivider()
-                                            }
-                                            renderEntry(entry)
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(16.dp)
+                                        ) {
+                                            Text(
+                                                text = strings.suggestedLabel,
+                                                fontSize = 13.sp,
+                                                lineHeight = 18.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = SettingsOledColors.TextSecondary
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            SettingsSuggestedRow(
+                                                icon = Icons.Rounded.Equalizer,
+                                                title = strings.eqTitle,
+                                                breadcrumb = strings.suggestedEqBreadcrumb,
+                                                onClick = { showEqSheet = true }
+                                            )
+                                            HorizontalDivider(
+                                                modifier = Modifier.padding(vertical = 4.dp),
+                                                thickness = 1.dp,
+                                                color = SettingsOledColors.InsetDivider
+                                            )
+                                            SettingsSuggestedRow(
+                                                icon = Icons.Rounded.Archive,
+                                                title = strings.transferTitle,
+                                                breadcrumb = strings.suggestedTransferBreadcrumb,
+                                                onClick = { showTransferSheet = true }
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(20.dp))
+                                }
+
+                                SettingsGroup.entries.forEachIndexed { index, group ->
+                                    item(key = "category_${group.id}") {
+                                        SettingsCategoryPill(
+                                            icon = categoryIconFor(group),
+                                            title = groupTitleFor(group, strings),
+                                            onClick = { activeGroup = group },
+                                            modifier = Modifier
+                                                .padding(horizontal = 16.dp)
+                                                .revealOnAppear(
+                                                    key = "hub_cat_${group.id}",
+                                                    seenState = revealSeen,
+                                                    cascade = true
+                                                )
+                                        )
+                                        if (index < SettingsGroup.entries.lastIndex) {
+                                            Spacer(modifier = Modifier.height(12.dp))
                                         }
                                     }
                                 }
                             }
                         }
+
+                        AnimatedVisibility(
+                            visible = isSearching,
+                            enter = if (reducedMotion) {
+                                fadeIn(tween(80))
+                            } else {
+                                fadeIn(tween(180)) + slideInVertically(tween(200)) { 18 }
+                            },
+                            exit = fadeOut(tween(if (reducedMotion) 60 else 130))
+                        ) {
+                            LazyColumn(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .imePadding(),
+                                contentPadding = PaddingValues(
+                                    start = 16.dp,
+                                    end = 16.dp,
+                                    top = collapsedTopBarHeight + 8.dp,
+                                    bottom = bottomPadding
+                                ),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                if (uiState.searchQuery.isBlank()) {
+                                    item(key = "search_quick_tags") {
+                                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                            Text(
+                                                text = strings.suggestedLabel,
+                                                fontSize = 13.sp,
+                                                lineHeight = 18.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = SettingsOledColors.TextSecondary,
+                                                modifier = Modifier.padding(horizontal = 4.dp)
+                                            )
+                                            FlowRow(
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                listOf("EQ", "Player", "Momi", "FLAC", "Cache", "Proxy").forEach { tag ->
+                                                    SettingsPillButton(
+                                                        text = tag,
+                                                        selected = false,
+                                                        onClick = { onSearchQueryChange(tag) },
+                                                        unselectedColor = SettingsOledColors.MatteCard
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else if (filteredEntries.isEmpty()) {
+                                    item(key = "empty_search") {
+                                        SettingsMatteCard(
+                                            backgroundColor = SettingsOledColors.MatteCard,
+                                            cornerRadius = 24
+                                        ) {
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(24.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                                            ) {
+                                                Text(
+                                                    text = strings.noSearchMatchesTitle,
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    color = SettingsOledColors.TextPrimary
+                                                )
+                                                Text(
+                                                    text = strings.noSearchMatchesBody,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = SettingsOledColors.TextSecondary
+                                                )
+                                                SettingsPillButton(
+                                                    text = strings.clearSearchLabel,
+                                                    selected = true,
+                                                    onClick = { onSearchQueryChange("") }
+                                                )
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    items(
+                                        items = filteredEntries,
+                                        key = { it.id.name }
+                                    ) { entry ->
+                                        SettingsSearchResultRow(
+                                            icon = entryIconFor(entry.id),
+                                            title = entry.title,
+                                            breadcrumb = groupTitleFor(entry.group, strings),
+                                            onClick = {
+                                                SettingsHighlight.request(entry.id.name)
+                                                isSearchFocused = false
+                                                focusManager.clearFocus()
+                                                activeGroup = entry.group
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
+
+                    SettingsCollapsingTopBar(
+                        title = strings.screenTitle,
+                        avatarPath = settings.avatarPath,
+                        backLabel = strings.backLabel,
+                        profileLabel = strings.profileTitle,
+                        searchQuery = uiState.searchQuery,
+                        searchPlaceholder = strings.searchPlaceholder,
+                        clearSearchLabel = strings.clearSearchLabel,
+                        isSearchFocused = isSearchFocused,
+                        collapseProgressProvider = { collapseProgress },
+                        backdropState = backdropState,
+                        glassBlurEnabled = settings.glassBlurEnabled,
+                        onBack = onBack,
+                        onAvatarClick = { activeGroup = SettingsGroup.APPEARANCE_LANGUAGE },
+                        onSearchQueryChange = onSearchQueryChange,
+                        onSearchFocusChanged = { isSearchFocused = it }
+                    )
                 }
             } else {
                 val detailEntries = remember(allEntries, currentGroup) {
                     allEntries.filter { it.group == currentGroup }
                 }
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(SettingsOledColors.CanvasBlack)
-                ) {
-                    SettingsDetailTopBar(
-                        title = groupTitleFor(currentGroup, strings),
-                        backLabel = strings.backLabel,
-                        onBack = { activeGroup = null }
+                val detailScrollState = rememberScrollState()
+                LaunchedEffect(currentGroup) {
+                    if (SettingsHighlight.pending == null) {
+                        detailScrollState.scrollTo(0)
+                    }
+                }
+                val settingsScroll = remember(detailScrollState, detailTopBarHeight) {
+                    SettingsScroll(
+                        state = detailScrollState,
+                        clearTop = detailTopBarHeight + 8.dp
                     )
+                }
 
-                    LazyColumn(
+                CompositionLocalProvider(LocalSettingsScroll provides settingsScroll) {
+                    Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .imePadding(),
-                        contentPadding = PaddingValues(
-                            start = 16.dp,
-                            end = 16.dp,
-                            top = 8.dp,
-                            bottom = bottomPadding
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                            .background(SettingsOledColors.CanvasBlack)
                     ) {
-                        item(key = "detail_${currentGroup.id}") {
+                        SettingsDetailTopBar(
+                            title = groupTitleFor(currentGroup, strings),
+                            backLabel = strings.backLabel,
+                            onBack = { activeGroup = null }
+                        )
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(detailScrollState)
+                                .imePadding()
+                                .padding(
+                                    start = 16.dp,
+                                    end = 16.dp,
+                                    top = 8.dp,
+                                    bottom = bottomPadding
+                                ),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
                             SettingsGroupCard {
                                 detailEntries.forEachIndexed { index, entry ->
                                     if (index > 0) {
                                         SettingsRowDivider()
                                     }
-                                    renderEntry(entry)
+                                    Box(modifier = Modifier.settingsHighlightTarget(entry.id.name)) {
+                                        renderEntry(entry)
+                                    }
                                 }
                             }
                         }
@@ -592,6 +761,30 @@ private fun categoryIconFor(group: SettingsGroup): ImageVector = when (group) {
     SettingsGroup.APPEARANCE_LANGUAGE -> Icons.Rounded.Translate
     SettingsGroup.SOURCES_LINK_IMPORT -> Icons.Rounded.Link
     SettingsGroup.STORAGE_TRANSFER -> Icons.Rounded.Storage
+}
+
+private fun entryIconFor(id: SettingsEntryId): ImageVector = when (id) {
+    SettingsEntryId.EQUALIZER_EDITOR -> Icons.Rounded.Equalizer
+    SettingsEntryId.LOUDNESS_NORMALIZE -> Icons.Rounded.VolumeUp
+    SettingsEntryId.GAPLESS_PLAYBACK -> Icons.Rounded.GraphicEq
+    SettingsEntryId.CROSSFADE_DURATION -> Icons.Rounded.Tune
+    SettingsEntryId.PLAYER_STYLE_PICKER -> Icons.Rounded.Palette
+    SettingsEntryId.GLASS_BLUR -> Icons.Rounded.BlurOn
+    SettingsEntryId.DYNAMIC_MESH -> Icons.Rounded.Gradient
+    SettingsEntryId.LYRICS_MOTION -> Icons.Rounded.MusicNote
+    SettingsEntryId.LYRICS_FONT_SCALE -> Icons.Rounded.TextFields
+    SettingsEntryId.HAPTIC_FEEDBACK -> Icons.Rounded.Vibration
+    SettingsEntryId.PROFILE_CARD -> Icons.Rounded.Person
+    SettingsEntryId.LANGUAGE_TOGGLE -> Icons.Rounded.Translate
+    SettingsEntryId.MONOCHROME_FLAC -> Icons.Rounded.HighQuality
+    SettingsEntryId.YT_COOKIE -> Icons.Rounded.Key
+    SettingsEntryId.PROXY_URL -> Icons.Rounded.Language
+    SettingsEntryId.LINK_IMPORTER -> Icons.Rounded.Link
+    SettingsEntryId.TRANSFER_HUB -> Icons.Rounded.Archive
+    SettingsEntryId.CACHE_CLEAR -> Icons.Rounded.DeleteSweep
+    SettingsEntryId.CACHE_LIMIT -> Icons.Rounded.Storage
+    SettingsEntryId.DOWNLOAD_FOLDER -> Icons.Rounded.FolderOpen
+    SettingsEntryId.RESET_DEFAULTS -> Icons.Rounded.RestartAlt
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -993,25 +1186,19 @@ private fun SettingsEntryRow(
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 if (!settings.downloadTreeUri.isNullOrBlank()) {
-                    TextButton(
-                        onClick = onClearDownloadFolder,
-                        modifier = Modifier.defaultMinSize(minHeight = DockMetrics.MinTapTarget)
-                    ) {
-                        Text(text = strings.clearLabel, color = SettingsOledColors.ErrorTint)
-                    }
+                    SettingsInlineActionButton(
+                        text = strings.clearLabel,
+                        textColor = SettingsOledColors.ErrorTint,
+                        backgroundColor = Color.Transparent,
+                        onClick = onClearDownloadFolder
+                    )
                 }
-                Button(
-                    onClick = onPickDownloadFolder,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = SettingsOledColors.IconBadge,
-                        contentColor = SettingsOledColors.TextPrimary
-                    ),
-                    elevation = null,
-                    shape = RoundedCornerShape(999.dp),
-                    modifier = Modifier.defaultMinSize(minHeight = DockMetrics.MinTapTarget)
-                ) {
-                    Text(text = strings.chooseFolderLabel, maxLines = 1)
-                }
+                SettingsInlineActionButton(
+                    text = strings.chooseFolderLabel,
+                    textColor = SettingsOledColors.TextPrimary,
+                    backgroundColor = SettingsOledColors.IconBadge,
+                    onClick = onPickDownloadFolder
+                )
             }
         }
         SettingsEntryId.RESET_DEFAULTS -> {
@@ -1021,6 +1208,64 @@ private fun SettingsEntryRow(
                 subtitle = entry.subtitle,
                 destructive = true,
                 onClick = onOpenReset
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsInlineActionButton(
+    text: String,
+    textColor: Color,
+    backgroundColor: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    busy: Boolean = false,
+    busyText: String? = null
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val resolvedBg = if (enabled) backgroundColor else backgroundColor.copy(alpha = 0.45f)
+    Row(
+        modifier = modifier
+            .defaultMinSize(minWidth = DockMetrics.MinTapTarget, minHeight = DockMetrics.MinTapTarget)
+            .pressBounce(interactionSource, pressedScale = 0.96f, enabled = enabled)
+            .clip(RoundedCornerShape(999.dp))
+            .background(resolvedBg)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = RoundedHighlight(cornerRadius = 999.dp),
+                enabled = enabled,
+                role = Role.Button,
+                onClick = onClick
+            )
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (busy) {
+            OndaLoadingDots(
+                dotSize = 5.dp,
+                spacing = 4.dp,
+                dotColor = textColor
+            )
+            if (!busyText.isNullOrBlank()) {
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = busyText,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = textColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        } else {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelLarge,
+                color = textColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
@@ -1097,37 +1342,25 @@ private fun ProfileSettingsCardRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Button(
-                onClick = onEditName,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = SettingsOledColors.IconBadge,
-                    contentColor = SettingsOledColors.TextPrimary
-                ),
-                elevation = null,
-                modifier = Modifier.defaultMinSize(minHeight = DockMetrics.MinTapTarget),
-                shape = RoundedCornerShape(999.dp)
-            ) {
-                Text(text = strings.editNameLabel)
-            }
-            Button(
-                onClick = onPickAvatar,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = SettingsOledColors.IconBadge,
-                    contentColor = SettingsOledColors.TextPrimary
-                ),
-                elevation = null,
-                modifier = Modifier.defaultMinSize(minHeight = DockMetrics.MinTapTarget),
-                shape = RoundedCornerShape(999.dp)
-            ) {
-                Text(text = strings.changeAvatarLabel)
-            }
+            SettingsInlineActionButton(
+                text = strings.editNameLabel,
+                textColor = SettingsOledColors.TextPrimary,
+                backgroundColor = SettingsOledColors.IconBadge,
+                onClick = onEditName
+            )
+            SettingsInlineActionButton(
+                text = strings.changeAvatarLabel,
+                textColor = SettingsOledColors.TextPrimary,
+                backgroundColor = SettingsOledColors.IconBadge,
+                onClick = onPickAvatar
+            )
             if (avatarFile != null) {
-                TextButton(
-                    onClick = onClearAvatar,
-                    modifier = Modifier.defaultMinSize(minHeight = DockMetrics.MinTapTarget)
-                ) {
-                    Text(text = strings.removeAvatarLabel, color = SettingsOledColors.ErrorTint)
-                }
+                SettingsInlineActionButton(
+                    text = strings.removeAvatarLabel,
+                    textColor = SettingsOledColors.ErrorTint,
+                    backgroundColor = Color.Transparent,
+                    onClick = onClearAvatar
+                )
             }
         }
     }
@@ -1229,31 +1462,16 @@ private fun LinkImporterRow(
             )
         }
 
-        Button(
+        SettingsInlineActionButton(
+            text = strings.importLinkButton,
+            textColor = SettingsOledColors.CanvasBlack,
+            backgroundColor = SettingsOledColors.TextPrimary,
             onClick = onImport,
             enabled = !state.isImporting,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = SettingsOledColors.TextPrimary,
-                contentColor = SettingsOledColors.CanvasBlack
-            ),
-            elevation = null,
-            shape = RoundedCornerShape(999.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
-        ) {
-            if (state.isImporting) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(18.dp),
-                    strokeWidth = 2.dp,
-                    color = SettingsOledColors.CanvasBlack
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(text = strings.importingLabel)
-            } else {
-                Text(text = strings.importLinkButton)
-            }
-        }
+            busy = state.isImporting,
+            busyText = strings.importingLabel,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
 
@@ -1307,26 +1525,13 @@ private fun CacheControlRow(
             )
         }
         Spacer(modifier = Modifier.width(8.dp))
-        Button(
+        SettingsInlineActionButton(
+            text = strings.clearCacheButton,
+            textColor = SettingsOledColors.TextPrimary,
+            backgroundColor = SettingsOledColors.IconBadge,
             onClick = onClearCache,
             enabled = !isClearing,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = SettingsOledColors.IconBadge,
-                contentColor = SettingsOledColors.TextPrimary
-            ),
-            elevation = null,
-            modifier = Modifier.defaultMinSize(minHeight = DockMetrics.MinTapTarget),
-            shape = RoundedCornerShape(999.dp)
-        ) {
-            if (isClearing) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp,
-                    color = SettingsOledColors.TextPrimary
-                )
-            } else {
-                Text(text = strings.clearCacheButton, maxLines = 1)
-            }
-        }
+            busy = isClearing
+        )
     }
 }

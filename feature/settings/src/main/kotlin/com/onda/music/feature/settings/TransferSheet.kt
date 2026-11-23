@@ -3,10 +3,17 @@ package com.onda.music.feature.settings
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,6 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -29,11 +37,8 @@ import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.BottomSheetDefaults
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -43,13 +48,22 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.onda.music.core.design.DockMetrics
+import com.onda.music.core.design.OndaLoadingDots
+import com.onda.music.core.design.OndaTheme
+import com.onda.music.core.design.RoundedHighlight
+import com.onda.music.core.design.SmoothCornerShape
+import com.onda.music.core.design.pressBounce
 import com.onda.music.core.model.MergePolicy
 import com.onda.music.core.model.TransferSummary
 import com.onda.music.core.transfer.MomiArchivePeek
@@ -71,6 +85,7 @@ fun TransferSheet(
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val reducedMotion = OndaTheme.reducedMotion
     val zipMimeTypes = arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")
 
     val momiPickerLauncher = rememberLauncherForActivityResult(
@@ -126,9 +141,19 @@ fun TransferSheet(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                IconButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.size(DockMetrics.MinTapTarget)
+                val closeInteraction = remember { MutableInteractionSource() }
+                Box(
+                    modifier = Modifier
+                        .size(DockMetrics.MinTapTarget)
+                        .pressBounce(closeInteraction, pressedScale = 0.90f)
+                        .clip(CircleShape)
+                        .clickable(
+                            interactionSource = closeInteraction,
+                            indication = RoundedHighlight(cornerRadius = 24.dp),
+                            role = Role.Button,
+                            onClick = onDismiss
+                        ),
+                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.Close,
@@ -138,10 +163,37 @@ fun TransferSheet(
                 }
             }
 
+            AnimatedVisibility(
+                visible = transferState.isPeeking && !transferState.isRunning,
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
+                SettingsMatteCard(
+                    backgroundColor = SettingsOledColors.IconBadge,
+                    cornerRadius = 20
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = strings.importingLabel,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = SettingsOledColors.TextPrimary
+                        )
+                        OndaLoadingDots(dotColor = SettingsOledColors.TextPrimary)
+                    }
+                }
+            }
+
             if (transferState.isRunning || transferState.progress != null) {
                 val progress = transferState.progress
                 val animatedFraction by animateFloatAsState(
                     targetValue = (progress?.fraction ?: 0.1f).coerceIn(0f, 1f),
+                    animationSpec = if (reducedMotion) snap() else spring(dampingRatio = 0.85f, stiffness = 400f),
                     label = "TransferProgress"
                 )
                 SettingsMatteCard(
@@ -167,7 +219,16 @@ fun TransferSheet(
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f)
                             )
+                            if (transferState.isRunning) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                OndaLoadingDots(
+                                    dotSize = 5.dp,
+                                    spacing = 4.dp,
+                                    dotColor = SettingsOledColors.TextPrimary
+                                )
+                            }
                             if (progress != null && progress.totalCount > 0) {
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = "${progress.processedCount}/${progress.totalCount}",
                                     style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
@@ -211,9 +272,19 @@ fun TransferSheet(
                             color = SettingsOledColors.ErrorTint,
                             modifier = Modifier.weight(1f)
                         )
-                        IconButton(
-                            onClick = onClearStatus,
-                            modifier = Modifier.size(DockMetrics.MinTapTarget)
+                        val clearErrorInteraction = remember { MutableInteractionSource() }
+                        Box(
+                            modifier = Modifier
+                                .size(DockMetrics.MinTapTarget)
+                                .pressBounce(clearErrorInteraction, pressedScale = 0.90f)
+                                .clip(CircleShape)
+                                .clickable(
+                                    interactionSource = clearErrorInteraction,
+                                    indication = RoundedHighlight(cornerRadius = 24.dp),
+                                    role = Role.Button,
+                                    onClick = onClearStatus
+                                ),
+                            contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Rounded.Close,
@@ -225,8 +296,14 @@ fun TransferSheet(
                 }
             }
 
-            transferState.lastSummary?.let { summary ->
-                TransferSummaryCard(summary = summary, strings = strings)
+            AnimatedVisibility(
+                visible = transferState.lastSummary != null,
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
+                transferState.lastSummary?.let { summary ->
+                    TransferSummaryCard(summary = summary, strings = strings)
+                }
             }
 
             SettingsMatteCard(
@@ -260,64 +337,45 @@ fun TransferSheet(
                         color = SettingsOledColors.TextSecondary
                     )
 
-                    Button(
-                        onClick = { momiPickerLauncher.launch(zipMimeTypes) },
+                    TransferActionButton(
+                        text = transferState.selectedMomiFileName ?: strings.chooseMomiZipButton,
+                        icon = Icons.Rounded.FolderOpen,
                         enabled = !transferState.isRunning && !transferState.isPeeking,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = SettingsOledColors.InactiveTrack,
-                            contentColor = SettingsOledColors.TextPrimary
-                        ),
-                        elevation = null,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .defaultMinSize(minHeight = DockMetrics.MinTapTarget),
-                        shape = RoundedCornerShape(16.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.FolderOpen,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = transferState.selectedMomiFileName ?: strings.chooseMomiZipButton,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+                        primary = false,
+                        cornerRadius = 16.dp,
+                        onClick = { momiPickerLauncher.launch(zipMimeTypes) }
+                    )
 
                     val momiPeek = transferState.momiPeek
                     val momiUri = transferState.selectedMomiUri
-                    if (momiPeek != null && momiUri != null) {
-                        MomiPeekSummaryCard(
-                            peek = momiPeek,
-                            hasAudioLab = transferState.momiHasAudioLab,
-                            strings = strings
-                        )
+                    AnimatedVisibility(
+                        visible = momiPeek != null && momiUri != null,
+                        enter = fadeIn(),
+                        exit = fadeOut()
+                    ) {
+                        if (momiPeek != null && momiUri != null) {
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                MomiPeekSummaryCard(
+                                    peek = momiPeek,
+                                    hasAudioLab = transferState.momiHasAudioLab,
+                                    strings = strings
+                                )
 
-                        MergePolicySelector(
-                            selected = transferState.momiMergePolicy,
-                            strings = strings,
-                            onSelect = onMomiPolicyChange
-                        )
+                                MergePolicySelector(
+                                    selected = transferState.momiMergePolicy,
+                                    strings = strings,
+                                    onSelect = onMomiPolicyChange
+                                )
 
-                        Button(
-                            onClick = { onImportMomi(momiUri, transferState.momiMergePolicy) },
-                            enabled = !transferState.isRunning,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = SettingsOledColors.TextPrimary,
-                                contentColor = SettingsOledColors.CanvasBlack
-                            ),
-                            elevation = null,
-                            shape = RoundedCornerShape(999.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
-                        ) {
-                            Text(
-                                text = strings.importMomiButton,
-                                style = MaterialTheme.typography.labelLarge
-                            )
+                                TransferActionButton(
+                                    text = strings.importMomiButton,
+                                    icon = null,
+                                    enabled = !transferState.isRunning,
+                                    primary = true,
+                                    cornerRadius = 999.dp,
+                                    onClick = { onImportMomi(momiUri, transferState.momiMergePolicy) }
+                                )
+                            }
                         }
                     }
                 }
@@ -354,99 +412,129 @@ fun TransferSheet(
                         color = SettingsOledColors.TextSecondary
                     )
 
-                    Button(
+                    TransferActionButton(
+                        text = strings.exportOndaButton,
+                        icon = null,
+                        enabled = !transferState.isRunning,
+                        primary = true,
+                        cornerRadius = 999.dp,
                         onClick = {
                             val date = LocalDate.now().toString()
                             ondaExportLauncher.launch("onda-backup-$date.zip")
-                        },
-                        enabled = !transferState.isRunning,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = SettingsOledColors.TextPrimary,
-                            contentColor = SettingsOledColors.CanvasBlack
-                        ),
-                        elevation = null,
-                        shape = RoundedCornerShape(999.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
-                    ) {
-                        Text(
-                            text = strings.exportOndaButton,
-                            style = MaterialTheme.typography.labelLarge
-                        )
-                    }
+                        }
+                    )
 
-                    Button(
-                        onClick = { ondaRestorePickerLauncher.launch(zipMimeTypes) },
+                    TransferActionButton(
+                        text = transferState.selectedOndaFileName ?: strings.chooseOndaZipButton,
+                        icon = Icons.Rounded.FolderOpen,
                         enabled = !transferState.isRunning && !transferState.isPeeking,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = SettingsOledColors.InactiveTrack,
-                            contentColor = SettingsOledColors.TextPrimary
-                        ),
-                        elevation = null,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .defaultMinSize(minHeight = DockMetrics.MinTapTarget),
-                        shape = RoundedCornerShape(16.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.FolderOpen,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = transferState.selectedOndaFileName ?: strings.chooseOndaZipButton,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+                        primary = false,
+                        cornerRadius = 16.dp,
+                        onClick = { ondaRestorePickerLauncher.launch(zipMimeTypes) }
+                    )
 
                     val ondaManifest = transferState.ondaManifest
                     val ondaUri = transferState.selectedOndaUri
-                    if (ondaManifest != null && ondaUri != null) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(SettingsOledColors.MatteCard)
-                                .padding(12.dp)
-                        ) {
-                            Text(
-                                text = "${ondaManifest.format} v${ondaManifest.version}",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = SettingsOledColors.TextPrimary
-                            )
-                        }
+                    AnimatedVisibility(
+                        visible = ondaManifest != null && ondaUri != null,
+                        enter = fadeIn(),
+                        exit = fadeOut()
+                    ) {
+                        if (ondaManifest != null && ondaUri != null) {
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(SmoothCornerShape(12.dp))
+                                        .background(SettingsOledColors.MatteCard)
+                                        .padding(12.dp)
+                                ) {
+                                    Text(
+                                        text = "${ondaManifest.format} v${ondaManifest.version}",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = SettingsOledColors.TextPrimary
+                                    )
+                                }
 
-                        MergePolicySelector(
-                            selected = transferState.ondaMergePolicy,
-                            strings = strings,
-                            onSelect = onOndaPolicyChange
-                        )
+                                MergePolicySelector(
+                                    selected = transferState.ondaMergePolicy,
+                                    strings = strings,
+                                    onSelect = onOndaPolicyChange
+                                )
 
-                        Button(
-                            onClick = { onImportOnda(ondaUri, transferState.ondaMergePolicy) },
-                            enabled = !transferState.isRunning,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = SettingsOledColors.TextPrimary,
-                                contentColor = SettingsOledColors.CanvasBlack
-                            ),
-                            elevation = null,
-                            shape = RoundedCornerShape(999.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
-                        ) {
-                            Text(
-                                text = strings.restoreOndaButton,
-                                style = MaterialTheme.typography.labelLarge
-                            )
+                                TransferActionButton(
+                                    text = strings.restoreOndaButton,
+                                    icon = null,
+                                    enabled = !transferState.isRunning,
+                                    primary = true,
+                                    cornerRadius = 999.dp,
+                                    onClick = { onImportOnda(ondaUri, transferState.ondaMergePolicy) }
+                                )
+                            }
                         }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun TransferActionButton(
+    text: String,
+    icon: ImageVector?,
+    enabled: Boolean,
+    primary: Boolean,
+    cornerRadius: Dp,
+    onClick: () -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val shape = if (cornerRadius >= 100.dp) RoundedCornerShape(999.dp) else SmoothCornerShape(cornerRadius)
+    val bgColor = when {
+        !enabled -> SettingsOledColors.InactiveTrack.copy(alpha = 0.45f)
+        primary -> SettingsOledColors.TextPrimary
+        else -> SettingsOledColors.InactiveTrack
+    }
+    val contentColor = when {
+        !enabled -> SettingsOledColors.TextMuted
+        primary -> SettingsOledColors.CanvasBlack
+        else -> SettingsOledColors.TextPrimary
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
+            .pressBounce(interactionSource, pressedScale = 0.97f, enabled = enabled)
+            .clip(shape)
+            .background(bgColor)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = RoundedHighlight(cornerRadius = cornerRadius),
+                enabled = enabled,
+                role = Role.Button,
+                onClick = onClick
+            )
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = contentColor,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+        }
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelLarge,
+            color = contentColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -459,7 +547,7 @@ private fun MomiPeekSummaryCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(SmoothCornerShape(16.dp))
             .background(SettingsOledColors.MatteCard)
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -535,7 +623,7 @@ private fun PreviewStatChip(
 ) {
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
+            .clip(SmoothCornerShape(12.dp))
             .background(SettingsOledColors.IconBadge)
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp)
@@ -574,16 +662,23 @@ private fun MergePolicySelector(
             Triple(MergePolicy.REPLACE_EXISTING, strings.mergeReplaceTitle, strings.mergeReplaceDesc)
         ).forEach { (policy, title, desc) ->
             val isSelected = selected == policy
+            val interactionSource = remember { MutableInteractionSource() }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
-                    .clip(RoundedCornerShape(14.dp))
+                    .pressBounce(interactionSource, pressedScale = 0.98f)
+                    .clip(SmoothCornerShape(14.dp))
                     .background(
                         if (isSelected) SettingsOledColors.InactiveTrack
                         else SettingsOledColors.MatteCard
                     )
-                    .clickable { onSelect(policy) }
+                    .clickable(
+                        interactionSource = interactionSource,
+                        indication = RoundedHighlight(cornerRadius = 14.dp),
+                        role = Role.RadioButton,
+                        onClick = { onSelect(policy) }
+                    )
                     .padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {

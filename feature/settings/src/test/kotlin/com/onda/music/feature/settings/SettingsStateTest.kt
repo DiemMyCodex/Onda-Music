@@ -1,6 +1,7 @@
 package com.onda.music.feature.settings
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -54,5 +55,15 @@ class SettingsStateTest {
         assertEquals("+4.5 dB", formatDb(4.5f))
         assertEquals("-3.0 dB", formatDb(-3.0f))
         assertEquals("0.0 dB", formatDb(0f))
+    }
+
+    @Test
+    fun `collapse latch applies hysteresis between enter and exit thresholds`() {
+        assertFalse(computeCollapseLatch(false, 0, 12f, enterPx = 48f, exitPx = 12f))
+        assertFalse(computeCollapseLatch(false, 0, 48f, enterPx = 48f, exitPx = 12f))
+        assertTrue(computeCollapseLatch(false, 0, 49f, enterPx = 48f, exitPx = 12f))
+        assertTrue(computeCollapseLatch(true, 0, 20f, enterPx = 48f, exitPx = 12f))
+        assertFalse(computeCollapseLatch(true, 0, 11f, enterPx = 48f, exitPx = 12f))
+        assertTrue(computeCollapseLatch(false, 1, 0f, enterPx = 48f, exitPx = 12f))
     }
 }

@@ -1,4 +1,4 @@
-name: Onda Music CI
+name: Onda CI
 
 on:
   workflow_dispatch:
@@ -45,7 +45,7 @@ jobs:
       - name: Upload ARM64 Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: onda-music-arm64-release
+          name: onda-arm64-release
           path: app/build/outputs/apk/arm64/release/*.apk
           if-no-files-found: error
           retention-days: 14
@@ -53,7 +53,7 @@ jobs:
       - name: Upload ARM64 Debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: onda-music-arm64-debug
+          name: onda-arm64-debug
           path: app/build/outputs/apk/arm64/debug/*.apk
           if-no-files-found: error
           retention-days: 14

@@ -1,4 +1,4 @@
-# Onda Music
+# Onda
 
 Flagship Android music player — motion-first UI, tactile physics, zero clutter.
 

@@ -299,3 +299,18 @@ fun formatShortDb(db: Float): String {
     val sign = if (rounded > 0.05f) "+" else if (rounded < -0.05f) "-" else ""
     return String.format(Locale.US, "%s%.1f", sign, abs(rounded))
 }
+
+fun computeCollapseLatch(
+    currentCollapsed: Boolean,
+    firstVisibleIndex: Int,
+    firstVisibleOffsetPx: Float,
+    enterPx: Float,
+    exitPx: Float
+): Boolean {
+    return when {
+        firstVisibleIndex > 0 -> true
+        firstVisibleOffsetPx > enterPx -> true
+        firstVisibleOffsetPx < exitPx -> false
+        else -> currentCollapsed
+    }
+}

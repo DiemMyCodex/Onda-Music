@@ -1,5 +1,9 @@
 package com.onda.music.core.design
 
+import android.content.Context
+import android.database.ContentObserver
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -8,9 +12,13 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -164,19 +172,46 @@ object OndaTheme {
         get() = LocalReducedMotion.current
 }
 
+private fun readSystemReducedMotion(context: Context): Boolean {
+    return runCatching {
+        val scale = Settings.Global.getFloat(
+            context.contentResolver,
+            Settings.Global.ANIMATOR_DURATION_SCALE,
+            1f
+        )
+        scale == 0f
+    }.getOrDefault(false)
+}
+
 @Composable
 fun rememberSystemReducedMotion(): Boolean {
     val context = LocalContext.current
-    return remember(context) {
-        runCatching {
-            val scale = Settings.Global.getFloat(
-                context.contentResolver,
-                Settings.Global.ANIMATOR_DURATION_SCALE,
-                1f
-            )
-            scale == 0f
-        }.getOrDefault(false)
+    var reducedMotion by remember(context) { mutableStateOf(readSystemReducedMotion(context)) }
+
+    DisposableEffect(context) {
+        reducedMotion = readSystemReducedMotion(context)
+        val handler = Handler(Looper.getMainLooper())
+        val observer = object : ContentObserver(handler) {
+            override fun onChange(selfChange: Boolean) {
+                reducedMotion = readSystemReducedMotion(context)
+            }
+        }
+        val uri = runCatching {
+            Settings.Global.getUriFor(Settings.Global.ANIMATOR_DURATION_SCALE)
+        }.getOrNull()
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.registerContentObserver(uri, false, observer)
+            }
+        }
+        onDispose {
+            runCatching {
+                context.contentResolver.unregisterContentObserver(observer)
+            }
+        }
     }
+
+    return reducedMotion
 }
 
 @Composable

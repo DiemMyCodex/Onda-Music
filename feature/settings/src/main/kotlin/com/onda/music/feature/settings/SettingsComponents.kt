@@ -1,21 +1,28 @@
 package com.onda.music.feature.settings
 
+import android.os.Build
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
@@ -33,15 +40,13 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,22 +54,38 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.onda.music.core.design.BlurDirection
+import com.onda.music.core.design.BlurEffectCache
 import com.onda.music.core.design.DockMetrics
+import com.onda.music.core.design.OndaBackdropState
+import com.onda.music.core.design.OndaSwitch
+import com.onda.music.core.design.OndaTheme
+import com.onda.music.core.design.ProgressiveBlurBackground
+import com.onda.music.core.design.RoundedHighlight
+import com.onda.music.core.design.SmoothCornerShape
+import com.onda.music.core.design.pressBounce
 import java.io.File
 import kotlin.math.PI
 import kotlin.math.sin
@@ -72,6 +93,7 @@ import kotlin.math.sin
 internal object SettingsOledColors {
     val CanvasBlack = Color(0xFF000000)
     val MatteCard = Color(0xFF141414)
+    val SearchFocused = Color(0xFF1E1E1E)
     val IconBadge = Color(0xFF242424)
     val InactiveTrack = Color(0xFF2E2E2E)
     val CheckedTrack = Color(0xFF525252)
@@ -81,6 +103,33 @@ internal object SettingsOledColors {
     val TextMuted = Color(0xFF8A8A8A)
     val ErrorTint = Color(0xFFFF6B7A)
     val SuccessTint = Color(0xFF4ADE80)
+}
+
+private val TopBarClearance = 8.dp
+private val TitleBlockHeight = 82.dp
+private val TitleSearchGap = 8.dp
+private val SearchFieldHeight = 48.dp
+private val BottomHeaderPadding = 12.dp
+private val AvatarTapSize = 44.dp
+private val AvatarVisualSize = 34.dp
+private val AvatarReserveWidth = 52.dp
+
+@Composable
+fun rememberSettingsTopBarExpandedHeight(): Dp {
+    val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    return statusTop + TopBarClearance + TitleBlockHeight + TitleSearchGap + SearchFieldHeight + BottomHeaderPadding
+}
+
+@Composable
+fun rememberSettingsTopBarCollapsedHeight(): Dp {
+    val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    return statusTop + TopBarClearance + SearchFieldHeight + BottomHeaderPadding
+}
+
+@Composable
+fun rememberSettingsDetailTopBarHeight(): Dp {
+    val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    return statusTop + 10.dp + DockMetrics.MinTapTarget + 10.dp
 }
 
 @Composable
@@ -127,6 +176,203 @@ fun OndaWaveMark(modifier: Modifier = Modifier) {
 }
 
 @Composable
+fun SettingsCollapsingTopBar(
+    title: String,
+    avatarPath: String?,
+    backLabel: String,
+    profileLabel: String,
+    searchQuery: String,
+    searchPlaceholder: String,
+    clearSearchLabel: String,
+    isSearchFocused: Boolean,
+    collapseProgressProvider: () -> Float,
+    backdropState: OndaBackdropState,
+    glassBlurEnabled: Boolean,
+    onBack: () -> Unit,
+    onAvatarClick: () -> Unit,
+    onSearchQueryChange: (String) -> Unit,
+    onSearchFocusChanged: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val density = LocalDensity.current
+    val reducedMotion = OndaTheme.reducedMotion
+    val titleTravelPx = with(density) { (TitleBlockHeight + TitleSearchGap).toPx() }
+    val avatarReservePx = with(density) { AvatarReserveWidth.toPx() }
+    val avatarDropPx = with(density) { ((SearchFieldHeight - AvatarTapSize) * 0.5f).toPx() }
+
+    val avatarFile = remember(avatarPath) {
+        avatarPath?.let { File(it) }?.takeIf { it.exists() }
+    }
+    val showGlass by remember {
+        derivedStateOf { collapseProgressProvider() > 0.01f }
+    }
+    val collapsedBackdropHeight = statusTop + TopBarClearance + SearchFieldHeight + BottomHeaderPadding + 10.dp
+
+    Box(modifier = modifier.fillMaxWidth()) {
+        if (showGlass) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(collapsedBackdropHeight)
+                    .graphicsLayer {
+                        alpha = collapseProgressProvider().coerceIn(0f, 1f)
+                    }
+            ) {
+                ProgressiveBlurBackground(
+                    backdropState = backdropState,
+                    direction = BlurDirection.BOTTOM_TO_TOP,
+                    maxBlurRadius = { 34f * collapseProgressProvider().coerceIn(0f, 1f) },
+                    foundationColor = SettingsOledColors.CanvasBlack,
+                    blurEnabled = glassBlurEnabled,
+                    steps = 3,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = statusTop + TopBarClearance)
+                .padding(horizontal = 16.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(TitleBlockHeight)
+                    .graphicsLayer {
+                        val p = collapseProgressProvider().coerceIn(0f, 1f)
+                        alpha = (1f - p * 1.65f).coerceIn(0f, 1f)
+                        translationY = -p * titleTravelPx
+                        if (!reducedMotion) {
+                            val s = 1f - p * 0.14f
+                            scaleX = s
+                            scaleY = s
+                            transformOrigin = TransformOrigin(0f, 0.5f)
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                renderEffect = BlurEffectCache.get(p * 12f)
+                            }
+                        }
+                    },
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                val backInteraction = remember { MutableInteractionSource() }
+                Box(
+                    modifier = Modifier
+                        .size(AvatarTapSize)
+                        .pressBounce(backInteraction, pressedScale = 0.90f)
+                        .clip(CircleShape)
+                        .clickable(
+                            interactionSource = backInteraction,
+                            indication = RoundedHighlight(cornerRadius = 22.dp),
+                            role = Role.Button,
+                            onClick = {
+                                if (collapseProgressProvider() < 0.5f) {
+                                    onBack()
+                                }
+                            }
+                        ),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    OndaWaveMark(modifier = Modifier.size(28.dp))
+                }
+
+                Text(
+                    text = title,
+                    fontSize = 34.sp,
+                    lineHeight = 40.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = SettingsOledColors.TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Spacer(modifier = Modifier.height(TitleSearchGap))
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer {
+                        val p = collapseProgressProvider().coerceIn(0f, 1f)
+                        translationY = -p * titleTravelPx
+                    }
+            ) {
+                Box(
+                    modifier = Modifier.layout { measurable, constraints ->
+                        val p = collapseProgressProvider().coerceIn(0f, 1f)
+                        val reserve = (avatarReservePx * p).toInt()
+                        val targetWidth = (constraints.maxWidth - reserve).coerceAtLeast(0)
+                        val placeable = measurable.measure(
+                            constraints.copy(minWidth = targetWidth, maxWidth = targetWidth)
+                        )
+                        layout(constraints.maxWidth, placeable.height) {
+                            placeable.place(0, 0)
+                        }
+                    }
+                ) {
+                    SettingsSearchPill(
+                        query = searchQuery,
+                        placeholder = searchPlaceholder,
+                        clearLabel = clearSearchLabel,
+                        onQueryChange = onSearchQueryChange,
+                        focused = isSearchFocused,
+                        onFocusChanged = onSearchFocusChanged
+                    )
+                }
+            }
+        }
+
+        val avatarInteraction = remember { MutableInteractionSource() }
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = statusTop + TopBarClearance, end = 16.dp)
+                .graphicsLayer {
+                    val p = collapseProgressProvider().coerceIn(0f, 1f)
+                    translationY = p * avatarDropPx
+                }
+                .size(AvatarTapSize)
+                .pressBounce(avatarInteraction, pressedScale = 0.90f)
+                .clip(CircleShape)
+                .clickable(
+                    interactionSource = avatarInteraction,
+                    indication = RoundedHighlight(cornerRadius = 22.dp),
+                    role = Role.Button,
+                    onClick = onAvatarClick
+                ),
+            contentAlignment = Alignment.CenterEnd
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(AvatarVisualSize)
+                    .clip(CircleShape)
+                    .background(SettingsOledColors.MatteCard)
+                    .border(1.dp, SettingsOledColors.IconBadge, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                if (avatarFile != null) {
+                    AsyncImage(
+                        model = avatarFile,
+                        contentDescription = profileLabel,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Rounded.Person,
+                        contentDescription = backLabel,
+                        tint = SettingsOledColors.TextPrimary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun SettingsHubHeader(
     title: String,
     avatarPath: String?,
@@ -139,6 +385,8 @@ fun SettingsHubHeader(
     val avatarFile = remember(avatarPath) {
         avatarPath?.let { File(it) }?.takeIf { it.exists() }
     }
+    val backInteraction = remember { MutableInteractionSource() }
+    val avatarInteraction = remember { MutableInteractionSource() }
 
     Column(
         modifier = modifier
@@ -156,7 +404,14 @@ fun SettingsHubHeader(
             Box(
                 modifier = Modifier
                     .defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
-                    .clickable(onClick = onBack),
+                    .pressBounce(backInteraction, pressedScale = 0.90f)
+                    .clip(CircleShape)
+                    .clickable(
+                        interactionSource = backInteraction,
+                        indication = RoundedHighlight(cornerRadius = 22.dp),
+                        role = Role.Button,
+                        onClick = onBack
+                    ),
                 contentAlignment = Alignment.CenterStart
             ) {
                 OndaWaveMark(modifier = Modifier.size(28.dp))
@@ -165,7 +420,14 @@ fun SettingsHubHeader(
             Box(
                 modifier = Modifier
                     .defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
-                    .clickable(onClick = onAvatarClick),
+                    .pressBounce(avatarInteraction, pressedScale = 0.90f)
+                    .clip(CircleShape)
+                    .clickable(
+                        interactionSource = avatarInteraction,
+                        indication = RoundedHighlight(cornerRadius = 22.dp),
+                        role = Role.Button,
+                        onClick = onAvatarClick
+                    ),
                 contentAlignment = Alignment.CenterEnd
             ) {
                 Box(
@@ -213,22 +475,30 @@ fun SettingsSearchPill(
     placeholder: String,
     clearLabel: String,
     onQueryChange: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    focused: Boolean = false,
+    onFocusChanged: ((Boolean) -> Unit)? = null
 ) {
     val focusManager = LocalFocusManager.current
+    val pillBackground by animateColorAsState(
+        targetValue = if (focused) SettingsOledColors.SearchFocused else SettingsOledColors.MatteCard,
+        animationSpec = tween(durationMillis = 150),
+        label = "SearchPillBackground"
+    )
+
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(48.dp)
+            .height(SearchFieldHeight)
             .clip(RoundedCornerShape(999.dp))
-            .background(SettingsOledColors.MatteCard)
-            .padding(start = 16.dp, end = if (query.isNotEmpty()) 6.dp else 16.dp),
+            .background(pillBackground)
+            .padding(start = 16.dp, end = if (query.isNotEmpty()) 4.dp else 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
             imageVector = Icons.Rounded.Search,
             contentDescription = null,
-            tint = SettingsOledColors.TextMuted,
+            tint = if (focused) SettingsOledColors.TextPrimary else SettingsOledColors.TextMuted,
             modifier = Modifier.size(20.dp)
         )
         Spacer(modifier = Modifier.width(10.dp))
@@ -255,13 +525,25 @@ fun SettingsSearchPill(
                 cursorBrush = SolidColor(SettingsOledColors.TextPrimary),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onFocusChanged { onFocusChanged?.invoke(it.isFocused) }
             )
         }
         if (query.isNotEmpty()) {
-            IconButton(
-                onClick = { onQueryChange("") },
-                modifier = Modifier.size(DockMetrics.MinTapTarget)
+            val clearInteraction = remember { MutableInteractionSource() }
+            Box(
+                modifier = Modifier
+                    .size(DockMetrics.MinTapTarget)
+                    .pressBounce(clearInteraction, pressedScale = 0.90f)
+                    .clip(CircleShape)
+                    .clickable(
+                        interactionSource = clearInteraction,
+                        indication = RoundedHighlight(cornerRadius = 24.dp),
+                        role = Role.Button,
+                        onClick = { onQueryChange("") }
+                    ),
+                contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Rounded.Close,
@@ -281,6 +563,7 @@ fun SettingsDetailTopBar(
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val backInteraction = remember { MutableInteractionSource() }
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -288,12 +571,19 @@ fun SettingsDetailTopBar(
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(
-            onClick = onBack,
+        Box(
             modifier = Modifier
                 .size(DockMetrics.MinTapTarget)
+                .pressBounce(backInteraction, pressedScale = 0.92f)
                 .clip(CircleShape)
                 .background(SettingsOledColors.MatteCard)
+                .clickable(
+                    interactionSource = backInteraction,
+                    indication = RoundedHighlight(cornerRadius = 24.dp),
+                    role = Role.Button,
+                    onClick = onBack
+                ),
+            contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
@@ -324,7 +614,7 @@ fun SettingsMatteCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(cornerRadius.dp))
+            .clip(SmoothCornerShape(cornerRadius.dp))
             .background(backgroundColor),
         content = content
     )
@@ -338,12 +628,19 @@ fun SettingsSuggestedRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
     Row(
         modifier = modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = 54.dp)
-            .clickable(onClick = onClick)
-            .padding(vertical = 8.dp),
+            .pressBounce(interactionSource, pressedScale = 0.97f)
+            .clip(SmoothCornerShape(16.dp))
+            .clickable(
+                interactionSource = interactionSource,
+                indication = RoundedHighlight(cornerRadius = 16.dp),
+                onClick = onClick
+            )
+            .padding(horizontal = 4.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
@@ -393,13 +690,20 @@ fun SettingsCategoryPill(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val shape = SmoothCornerShape(24.dp)
     Row(
         modifier = modifier
             .fillMaxWidth()
             .height(68.dp)
-            .clip(RoundedCornerShape(24.dp))
+            .pressBounce(interactionSource, pressedScale = 0.97f)
+            .clip(shape)
             .background(SettingsOledColors.MatteCard)
-            .clickable(onClick = onClick)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = RoundedHighlight(cornerRadius = 24.dp),
+                onClick = onClick
+            )
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -426,6 +730,76 @@ fun SettingsCategoryPill(
             color = SettingsOledColors.TextPrimary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+fun SettingsSearchResultRow(
+    icon: ImageVector,
+    title: String,
+    breadcrumb: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val shape = SmoothCornerShape(20.dp)
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = 64.dp)
+            .pressBounce(interactionSource, pressedScale = 0.97f)
+            .clip(shape)
+            .background(SettingsOledColors.MatteCard)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = RoundedHighlight(cornerRadius = 20.dp),
+                onClick = onClick
+            )
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(CircleShape)
+                .background(SettingsOledColors.IconBadge),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = SettingsOledColors.TextPrimary,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = SettingsOledColors.TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = breadcrumb,
+                style = MaterialTheme.typography.bodySmall,
+                color = SettingsOledColors.TextMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Spacer(modifier = Modifier.width(6.dp))
+        Icon(
+            imageVector = Icons.Rounded.ChevronRight,
+            contentDescription = null,
+            tint = SettingsOledColors.TextMuted,
+            modifier = Modifier.size(20.dp)
         )
     }
 }
@@ -486,12 +860,19 @@ fun SettingsActionRow(
 ) {
     val titleColor = if (destructive) SettingsOledColors.ErrorTint else SettingsOledColors.TextPrimary
     val iconTint = if (destructive) SettingsOledColors.ErrorTint else SettingsOledColors.TextPrimary
+    val interactionSource = remember { MutableInteractionSource() }
 
     Row(
         modifier = modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = 64.dp)
-            .clickable(onClick = onClick)
+            .pressBounce(interactionSource, pressedScale = 0.98f)
+            .clip(SmoothCornerShape(18.dp))
+            .clickable(
+                interactionSource = interactionSource,
+                indication = RoundedHighlight(cornerRadius = 18.dp),
+                onClick = onClick
+            )
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -564,11 +945,19 @@ fun SettingsToggleRow(
     modifier: Modifier = Modifier,
     iconBadgeColor: Color = SettingsOledColors.IconBadge
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
     Row(
         modifier = modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = 64.dp)
-            .clickable { onCheckedChange(!checked) }
+            .pressBounce(interactionSource, pressedScale = 0.985f)
+            .clip(SmoothCornerShape(18.dp))
+            .clickable(
+                interactionSource = interactionSource,
+                indication = RoundedHighlight(cornerRadius = 18.dp),
+                role = Role.Switch,
+                onClick = { onCheckedChange(!checked) }
+            )
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -608,26 +997,10 @@ fun SettingsToggleRow(
             )
         }
         Spacer(modifier = Modifier.width(10.dp))
-        Box(
-            modifier = Modifier.defaultMinSize(
-                minWidth = DockMetrics.MinTapTarget,
-                minHeight = DockMetrics.MinTapTarget
-            ),
-            contentAlignment = Alignment.Center
-        ) {
-            Switch(
-                checked = checked,
-                onCheckedChange = onCheckedChange,
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = SettingsOledColors.TextPrimary,
-                    checkedTrackColor = SettingsOledColors.CheckedTrack,
-                    checkedBorderColor = Color.Transparent,
-                    uncheckedThumbColor = SettingsOledColors.TextSecondary,
-                    uncheckedTrackColor = SettingsOledColors.InactiveTrack,
-                    uncheckedBorderColor = Color.Transparent
-                )
-            )
-        }
+        OndaSwitch(
+            checked = checked,
+            onCheckedChange = onCheckedChange
+        )
     }
 }
 
@@ -642,13 +1015,20 @@ fun SettingsPillButton(
     val shape = RoundedCornerShape(999.dp)
     val bgColor = if (selected) SettingsOledColors.TextPrimary else unselectedColor
     val textColor = if (selected) SettingsOledColors.CanvasBlack else SettingsOledColors.TextSecondary
+    val interactionSource = remember { MutableInteractionSource() }
 
     Box(
         modifier = modifier
             .defaultMinSize(minWidth = DockMetrics.MinTapTarget, minHeight = DockMetrics.MinTapTarget)
+            .pressBounce(interactionSource, pressedScale = 0.96f)
             .clip(shape)
             .background(bgColor)
-            .clickable(onClick = onClick)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = RoundedHighlight(cornerRadius = 999.dp),
+                role = Role.Button,
+                onClick = onClick
+            )
             .padding(horizontal = 14.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center
     ) {

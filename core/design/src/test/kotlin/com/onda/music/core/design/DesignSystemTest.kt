@@ -1,8 +1,13 @@
 package com.onda.music.core.design
 
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import kotlin.math.PI
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -90,5 +95,43 @@ class DesignSystemTest {
         val state = LikeBurstState()
         state.trigger(origin = Offset(10f, 20f))
         assertEquals(12, state.particles.size)
+    }
+
+    @Test
+    fun smoothCornerShapeClampsNegativeAndEvaluatesSuperellipseMath() {
+        val density = Density(2f)
+        val zeroShape = SmoothCornerShape(radius = (-8).dp)
+        val zeroOutline = zeroShape.createOutline(Size(120f, 80f), LayoutDirection.Ltr, density)
+        assertTrue(zeroOutline is Outline.Rectangle)
+
+        assertEquals(0f, clampSmoothRadiusPx(-16f, 120f, 80f), 0.001f)
+        assertEquals(40f, clampSmoothRadiusPx(80f, 120f, 80f), 0.001f)
+
+        val (alongStart, acrossStart) = superellipseQuarterOffsets(20f, 4.0, 0.0)
+        assertEquals(20f, alongStart, 0.001f)
+        assertEquals(0f, acrossStart, 0.001f)
+
+        val (alongEnd, acrossEnd) = superellipseQuarterOffsets(20f, 4.0, PI * 0.5)
+        assertEquals(0f, alongEnd, 0.001f)
+        assertEquals(20f, acrossEnd, 0.001f)
+    }
+
+    @Test
+    fun blurEffectCacheQuantizesRadiiAndClampsSafely() {
+        assertEquals(0f, BlurEffectCache.quantize(-5f), 0.001f)
+        assertEquals(0f, BlurEffectCache.quantize(0.4f), 0.001f)
+        assertEquals(10f, BlurEffectCache.quantize(10.2f), 0.001f)
+        assertEquals(24f, BlurEffectCache.quantize(24.4f), 0.001f)
+        assertEquals(48f, BlurEffectCache.quantize(47.2f), 0.001f)
+    }
+
+    @Test
+    fun revealSeenStateTracksKeysAcrossSaveAndRestore() {
+        val state = RevealSeenState()
+        assertFalse(state.hasSeen("hub_eq"))
+        state.markSeen("hub_eq")
+        state.markSeen("hub_transfer")
+        assertTrue(state.hasSeen("hub_eq"))
+        assertEquals(setOf("hub_eq", "hub_transfer"), state.snapshotKeys().toSet())
     }
 }

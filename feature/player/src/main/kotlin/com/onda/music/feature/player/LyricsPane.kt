@@ -68,10 +68,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.onda.music.core.design.AppMotion
 import com.onda.music.core.design.DockMetrics
-import com.onda.music.core.design.GlassElevation
 import com.onda.music.core.design.GlassTokens
 import com.onda.music.core.design.OndaTheme
-import com.onda.music.core.design.smokedGlass
 import com.onda.music.core.model.LyricsDocument
 import com.onda.music.core.model.LyricsLine
 import com.onda.music.core.model.LyricsWord
@@ -118,7 +116,6 @@ fun LyricsPane(
     centered: Boolean = true,
     showControls: Boolean = true
 ) {
-    val palette = OndaTheme.palette
     val reducedMotion = OndaTheme.reducedMotion
     val motionActive = lyricsMotionEnabled && !reducedMotion
     val haptics = LocalHapticFeedback.current
@@ -229,14 +226,14 @@ fun LyricsPane(
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             CircularProgressIndicator(
-                                color = palette.primary,
+                                color = Color.White,
                                 strokeWidth = 2.5.dp,
                                 modifier = Modifier.size(28.dp)
                             )
                             Text(
                                 text = "Loading synced lyrics...",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = GlassTokens.TextSecondary
+                                color = Color(0xFF9E9E9E)
                             )
                         }
                     }
@@ -359,7 +356,7 @@ fun LyricsPane(
                     Icon(
                         imageVector = Icons.Rounded.MyLocation,
                         contentDescription = null,
-                        tint = palette.primary,
+                        tint = Color.White,
                         modifier = Modifier.size(16.dp)
                     )
                 }
@@ -383,7 +380,6 @@ private fun LyricsLineRow(
     centered: Boolean,
     onClick: () -> Unit
 ) {
-    val palette = OndaTheme.palette
     val staggerTranslationY = remember { Animatable(0f) }
 
     LaunchedEffect(isActive, distanceFromActive, motionActive) {
@@ -448,7 +444,7 @@ private fun LyricsLineRow(
             .then(
                 if (isActive) {
                     Modifier.background(
-                        color = palette.primary.copy(alpha = 0.08f),
+                        color = Color(0x14FFFFFF),
                         shape = RoundedCornerShape(GlassTokens.RadiusSm)
                     )
                 } else {
@@ -467,7 +463,7 @@ private fun LyricsLineRow(
                 isPlaying = isPlaying,
                 motionActive = motionActive,
                 progress = interludeProgress,
-                accentColor = palette.primary
+                accentColor = Color.White
             )
         } else if (hasWordTiming && line.words.isNotEmpty() && isActive) {
             WordSweepLine(
@@ -475,8 +471,8 @@ private fun LyricsLineRow(
                 effectivePositionMs = effectivePositionMs,
                 fontScale = fontScale,
                 centered = centered,
-                activeColor = palette.primary,
-                baseColor = GlassTokens.TextSecondary.copy(alpha = 0.55f)
+                activeColor = Color.White,
+                baseColor = Color(0x73FFFFFF)
             )
         } else {
             Text(
@@ -499,7 +495,7 @@ private fun LyricsLineRow(
                     fontSize = (13f * fontScale).sp,
                     lineHeight = (18f * fontScale).sp
                 ),
-                color = if (isActive) palette.secondary else GlassTokens.TextTertiary,
+                color = if (isActive) Color(0xFF9E9E9E) else Color(0xFF8A8A8A),
                 textAlign = textAlign,
                 modifier = Modifier.fillMaxWidth()
             )

@@ -371,7 +371,7 @@ private fun MiniPlayerBar(
         MiniWavyGlowProgress(
             progress = progress,
             isPlaying = isPlaying,
-            accentColor = palette.primary,
+            accentColor = Color.White,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()

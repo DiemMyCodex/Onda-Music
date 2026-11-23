@@ -5,10 +5,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -39,7 +37,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
@@ -53,10 +50,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.onda.music.core.design.DockMetrics
-import com.onda.music.core.design.GlassElevation
-import com.onda.music.core.design.GlassSurface
-import com.onda.music.core.design.GlassTokens
-import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.model.MergePolicy
 import com.onda.music.core.model.TransferSummary
 import com.onda.music.core.transfer.MomiArchivePeek
@@ -78,7 +71,6 @@ fun TransferSheet(
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val colors = OndaTheme.colors
     val zipMimeTypes = arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")
 
     val momiPickerLauncher = rememberLauncherForActivityResult(
@@ -102,9 +94,9 @@ fun TransferSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = GlassTokens.SmokedGlassElevated,
-        contentColor = colors.textPrimary,
-        dragHandle = { BottomSheetDefaults.DragHandle(color = colors.textTertiary) }
+        containerColor = SettingsOledColors.MatteCard,
+        contentColor = SettingsOledColors.TextPrimary,
+        dragHandle = { BottomSheetDefaults.DragHandle(color = SettingsOledColors.TextMuted) }
     ) {
         Column(
             modifier = Modifier
@@ -122,14 +114,14 @@ fun TransferSheet(
                 Icon(
                     imageVector = Icons.Rounded.Sync,
                     contentDescription = null,
-                    tint = colors.accent,
+                    tint = SettingsOledColors.TextPrimary,
                     modifier = Modifier.size(24.dp)
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(
                     text = strings.transferSheetTitle,
                     style = MaterialTheme.typography.titleLarge,
-                    color = colors.textPrimary,
+                    color = SettingsOledColors.TextPrimary,
                     modifier = Modifier.weight(1f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -141,7 +133,7 @@ fun TransferSheet(
                     Icon(
                         imageVector = Icons.Rounded.Close,
                         contentDescription = strings.closeLabel,
-                        tint = colors.textSecondary
+                        tint = SettingsOledColors.TextSecondary
                     )
                 }
             }
@@ -152,10 +144,9 @@ fun TransferSheet(
                     targetValue = (progress?.fraction ?: 0.1f).coerceIn(0f, 1f),
                     label = "TransferProgress"
                 )
-                GlassSurface(
-                    modifier = Modifier.fillMaxWidth(),
-                    elevation = GlassElevation.SUBTLE,
-                    shape = RoundedCornerShape(GlassTokens.RadiusMd)
+                SettingsMatteCard(
+                    backgroundColor = SettingsOledColors.IconBadge,
+                    cornerRadius = 20
                 ) {
                     Column(
                         modifier = Modifier
@@ -171,7 +162,7 @@ fun TransferSheet(
                             Text(
                                 text = progress?.stage ?: strings.importingLabel,
                                 style = MaterialTheme.typography.titleSmall,
-                                color = colors.textPrimary,
+                                color = SettingsOledColors.TextPrimary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f)
@@ -180,7 +171,7 @@ fun TransferSheet(
                                 Text(
                                     text = "${progress.processedCount}/${progress.totalCount}",
                                     style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
-                                    color = colors.accent
+                                    color = SettingsOledColors.TextPrimary
                                 )
                             }
                         }
@@ -189,20 +180,18 @@ fun TransferSheet(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(6.dp)
-                                .clip(RoundedCornerShape(GlassTokens.RadiusPill)),
-                            color = colors.accent,
-                            trackColor = GlassTokens.GlassHighlight.copy(alpha = 0.16f)
+                                .clip(RoundedCornerShape(999.dp)),
+                            color = SettingsOledColors.TextPrimary,
+                            trackColor = SettingsOledColors.InactiveTrack
                         )
                     }
                 }
             }
 
             transferState.errorMessage?.let { errorText ->
-                GlassSurface(
-                    modifier = Modifier.fillMaxWidth(),
-                    elevation = GlassElevation.SUBTLE,
-                    shape = RoundedCornerShape(GlassTokens.RadiusMd),
-                    accentTint = colors.error
+                SettingsMatteCard(
+                    backgroundColor = SettingsOledColors.IconBadge,
+                    cornerRadius = 20
                 ) {
                     Row(
                         modifier = Modifier
@@ -213,13 +202,13 @@ fun TransferSheet(
                         Icon(
                             imageVector = Icons.Rounded.ErrorOutline,
                             contentDescription = null,
-                            tint = colors.error
+                            tint = SettingsOledColors.ErrorTint
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
                             text = errorText,
                             style = MaterialTheme.typography.bodySmall,
-                            color = colors.error,
+                            color = SettingsOledColors.ErrorTint,
                             modifier = Modifier.weight(1f)
                         )
                         IconButton(
@@ -229,7 +218,7 @@ fun TransferSheet(
                             Icon(
                                 imageVector = Icons.Rounded.Close,
                                 contentDescription = strings.closeLabel,
-                                tint = colors.textSecondary
+                                tint = SettingsOledColors.TextSecondary
                             )
                         }
                     }
@@ -240,10 +229,9 @@ fun TransferSheet(
                 TransferSummaryCard(summary = summary, strings = strings)
             }
 
-            GlassSurface(
-                modifier = Modifier.fillMaxWidth(),
-                elevation = GlassElevation.CARD,
-                shape = RoundedCornerShape(GlassTokens.RadiusLg)
+            SettingsMatteCard(
+                backgroundColor = SettingsOledColors.IconBadge,
+                cornerRadius = 24
             ) {
                 Column(
                     modifier = Modifier
@@ -255,13 +243,13 @@ fun TransferSheet(
                         Icon(
                             imageVector = Icons.Rounded.Archive,
                             contentDescription = null,
-                            tint = colors.accent
+                            tint = SettingsOledColors.TextPrimary
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = strings.momiSectionTitle,
                             style = MaterialTheme.typography.titleMedium,
-                            color = colors.textPrimary,
+                            color = SettingsOledColors.TextPrimary,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -269,16 +257,21 @@ fun TransferSheet(
                     Text(
                         text = strings.momiSectionDesc,
                         style = MaterialTheme.typography.bodySmall,
-                        color = colors.textSecondary
+                        color = SettingsOledColors.TextSecondary
                     )
 
-                    OutlinedButton(
+                    Button(
                         onClick = { momiPickerLauncher.launch(zipMimeTypes) },
                         enabled = !transferState.isRunning && !transferState.isPeeking,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = SettingsOledColors.InactiveTrack,
+                            contentColor = SettingsOledColors.TextPrimary
+                        ),
+                        elevation = null,
                         modifier = Modifier
                             .fillMaxWidth()
                             .defaultMinSize(minHeight = DockMetrics.MinTapTarget),
-                        shape = RoundedCornerShape(GlassTokens.RadiusMd)
+                        shape = RoundedCornerShape(16.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.FolderOpen,
@@ -312,10 +305,11 @@ fun TransferSheet(
                             onClick = { onImportMomi(momiUri, transferState.momiMergePolicy) },
                             enabled = !transferState.isRunning,
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = colors.accent,
-                                contentColor = GlassTokens.AmoledBlack
+                                containerColor = SettingsOledColors.TextPrimary,
+                                contentColor = SettingsOledColors.CanvasBlack
                             ),
-                            shape = RoundedCornerShape(GlassTokens.RadiusMd),
+                            elevation = null,
+                            shape = RoundedCornerShape(999.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
@@ -329,10 +323,9 @@ fun TransferSheet(
                 }
             }
 
-            GlassSurface(
-                modifier = Modifier.fillMaxWidth(),
-                elevation = GlassElevation.CARD,
-                shape = RoundedCornerShape(GlassTokens.RadiusLg)
+            SettingsMatteCard(
+                backgroundColor = SettingsOledColors.IconBadge,
+                cornerRadius = 24
             ) {
                 Column(
                     modifier = Modifier
@@ -344,13 +337,13 @@ fun TransferSheet(
                         Icon(
                             imageVector = Icons.Rounded.CloudDownload,
                             contentDescription = null,
-                            tint = colors.accent
+                            tint = SettingsOledColors.TextPrimary
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = strings.ondaBackupSectionTitle,
                             style = MaterialTheme.typography.titleMedium,
-                            color = colors.textPrimary,
+                            color = SettingsOledColors.TextPrimary,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -358,7 +351,7 @@ fun TransferSheet(
                     Text(
                         text = strings.ondaBackupSectionDesc,
                         style = MaterialTheme.typography.bodySmall,
-                        color = colors.textSecondary
+                        color = SettingsOledColors.TextSecondary
                     )
 
                     Button(
@@ -368,10 +361,11 @@ fun TransferSheet(
                         },
                         enabled = !transferState.isRunning,
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = colors.accent,
-                            contentColor = GlassTokens.AmoledBlack
+                            containerColor = SettingsOledColors.TextPrimary,
+                            contentColor = SettingsOledColors.CanvasBlack
                         ),
-                        shape = RoundedCornerShape(GlassTokens.RadiusMd),
+                        elevation = null,
+                        shape = RoundedCornerShape(999.dp),
                         modifier = Modifier
                             .fillMaxWidth()
                             .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
@@ -382,13 +376,18 @@ fun TransferSheet(
                         )
                     }
 
-                    OutlinedButton(
+                    Button(
                         onClick = { ondaRestorePickerLauncher.launch(zipMimeTypes) },
                         enabled = !transferState.isRunning && !transferState.isPeeking,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = SettingsOledColors.InactiveTrack,
+                            contentColor = SettingsOledColors.TextPrimary
+                        ),
+                        elevation = null,
                         modifier = Modifier
                             .fillMaxWidth()
                             .defaultMinSize(minHeight = DockMetrics.MinTapTarget),
-                        shape = RoundedCornerShape(GlassTokens.RadiusMd)
+                        shape = RoundedCornerShape(16.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.FolderOpen,
@@ -406,17 +405,17 @@ fun TransferSheet(
                     val ondaManifest = transferState.ondaManifest
                     val ondaUri = transferState.selectedOndaUri
                     if (ondaManifest != null && ondaUri != null) {
-                        Box(
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(GlassTokens.RadiusSm))
-                                .background(GlassTokens.ObsidianSurface.copy(alpha = 0.72f))
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(SettingsOledColors.MatteCard)
                                 .padding(12.dp)
                         ) {
                             Text(
                                 text = "${ondaManifest.format} v${ondaManifest.version}",
                                 style = MaterialTheme.typography.labelLarge,
-                                color = colors.accent
+                                color = SettingsOledColors.TextPrimary
                             )
                         }
 
@@ -430,10 +429,11 @@ fun TransferSheet(
                             onClick = { onImportOnda(ondaUri, transferState.ondaMergePolicy) },
                             enabled = !transferState.isRunning,
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = colors.accentSoft,
-                                contentColor = GlassTokens.AmoledBlack
+                                containerColor = SettingsOledColors.TextPrimary,
+                                contentColor = SettingsOledColors.CanvasBlack
                             ),
-                            shape = RoundedCornerShape(GlassTokens.RadiusMd),
+                            elevation = null,
+                            shape = RoundedCornerShape(999.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
@@ -456,13 +456,11 @@ private fun MomiPeekSummaryCard(
     hasAudioLab: Boolean,
     strings: SettingsStrings
 ) {
-    val colors = OndaTheme.colors
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(GlassTokens.RadiusMd))
-            .background(GlassTokens.ObsidianSurface.copy(alpha = 0.72f))
-            .border(1.dp, GlassTokens.SpecularIce, RoundedCornerShape(GlassTokens.RadiusMd))
+            .clip(RoundedCornerShape(16.dp))
+            .background(SettingsOledColors.MatteCard)
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
@@ -474,13 +472,13 @@ private fun MomiPeekSummaryCard(
             Text(
                 text = "${peek.manifest.format} v${peek.manifest.version}",
                 style = MaterialTheme.typography.labelLarge,
-                color = colors.accent
+                color = SettingsOledColors.TextPrimary
             )
             if (peek.totalBytes > 0L) {
                 Text(
                     text = formatByteSize(peek.totalBytes),
                     style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
-                    color = colors.textSecondary
+                    color = SettingsOledColors.TextSecondary
                 )
             }
         }
@@ -488,7 +486,7 @@ private fun MomiPeekSummaryCard(
             Text(
                 text = username,
                 style = MaterialTheme.typography.titleSmall,
-                color = colors.textPrimary
+                color = SettingsOledColors.TextPrimary
             )
         }
         Row(
@@ -537,22 +535,22 @@ private fun PreviewStatChip(
 ) {
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(GlassTokens.RadiusSm))
-            .background(GlassTokens.GlassHighlight.copy(alpha = 0.06f))
+            .clip(RoundedCornerShape(12.dp))
+            .background(SettingsOledColors.IconBadge)
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = GlassTokens.TextTertiary,
+            color = SettingsOledColors.TextMuted,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
         Text(
             text = value,
             style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
-            color = GlassTokens.TextPrimary,
+            color = SettingsOledColors.TextPrimary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -565,12 +563,11 @@ private fun MergePolicySelector(
     strings: SettingsStrings,
     onSelect: (MergePolicy) -> Unit
 ) {
-    val colors = OndaTheme.colors
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
             text = strings.mergePolicyLabel,
             style = MaterialTheme.typography.labelLarge,
-            color = colors.textSecondary
+            color = SettingsOledColors.TextSecondary
         )
         listOf(
             Triple(MergePolicy.IDEMPOTENT_UPSERT, strings.mergeUpsertTitle, strings.mergeUpsertDesc),
@@ -581,15 +578,10 @@ private fun MergePolicySelector(
                 modifier = Modifier
                     .fillMaxWidth()
                     .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
-                    .clip(RoundedCornerShape(GlassTokens.RadiusSm))
+                    .clip(RoundedCornerShape(14.dp))
                     .background(
-                        if (isSelected) colors.accent.copy(alpha = 0.12f)
-                        else GlassTokens.ObsidianSurface.copy(alpha = 0.45f)
-                    )
-                    .border(
-                        1.dp,
-                        if (isSelected) colors.accent else GlassTokens.SpecularEdgeDim,
-                        RoundedCornerShape(GlassTokens.RadiusSm)
+                        if (isSelected) SettingsOledColors.InactiveTrack
+                        else SettingsOledColors.MatteCard
                     )
                     .clickable { onSelect(policy) }
                     .padding(horizontal = 10.dp, vertical = 8.dp),
@@ -599,8 +591,8 @@ private fun MergePolicySelector(
                     selected = isSelected,
                     onClick = { onSelect(policy) },
                     colors = RadioButtonDefaults.colors(
-                        selectedColor = colors.accent,
-                        unselectedColor = colors.textSecondary
+                        selectedColor = SettingsOledColors.TextPrimary,
+                        unselectedColor = SettingsOledColors.TextSecondary
                     )
                 )
                 Spacer(modifier = Modifier.width(6.dp))
@@ -609,12 +601,12 @@ private fun MergePolicySelector(
                         text = title,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
-                        color = colors.textPrimary
+                        color = SettingsOledColors.TextPrimary
                     )
                     Text(
                         text = desc,
                         style = MaterialTheme.typography.bodySmall,
-                        color = colors.textSecondary
+                        color = SettingsOledColors.TextSecondary
                     )
                 }
             }
@@ -627,12 +619,9 @@ private fun TransferSummaryCard(
     summary: TransferSummary,
     strings: SettingsStrings
 ) {
-    val colors = OndaTheme.colors
-    GlassSurface(
-        modifier = Modifier.fillMaxWidth(),
-        elevation = GlassElevation.SUBTLE,
-        shape = RoundedCornerShape(GlassTokens.RadiusMd),
-        accentTint = colors.success
+    SettingsMatteCard(
+        backgroundColor = SettingsOledColors.IconBadge,
+        cornerRadius = 20
     ) {
         Column(
             modifier = Modifier
@@ -644,7 +633,7 @@ private fun TransferSummaryCard(
                 Icon(
                     imageVector = Icons.Rounded.CheckCircle,
                     contentDescription = null,
-                    tint = colors.success,
+                    tint = SettingsOledColors.SuccessTint,
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
@@ -652,7 +641,7 @@ private fun TransferSummaryCard(
                     text = "${summary.format.name} · ${summary.importedTracks} ${strings.previewTracksLabel}",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
-                    color = colors.textPrimary
+                    color = SettingsOledColors.TextPrimary
                 )
             }
             Text(
@@ -660,7 +649,7 @@ private fun TransferSummaryCard(
                     "${strings.previewPlaysLabel}: ${summary.importedPlayEvents} · " +
                     "${strings.previewEqLabel}: ${if (summary.importedEqConfig) strings.includedLabel else strings.notSetLabel}",
                 style = MaterialTheme.typography.bodySmall,
-                color = colors.textSecondary
+                color = SettingsOledColors.TextSecondary
             )
         }
     }

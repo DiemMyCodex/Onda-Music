@@ -2,7 +2,6 @@ package com.onda.music.feature.player.styles
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -28,7 +27,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bedtime
-import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SkipNext
@@ -48,7 +46,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -58,11 +55,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.onda.music.core.design.DockMetrics
-import com.onda.music.core.design.GlassElevation
 import com.onda.music.core.design.GlassTokens
 import com.onda.music.core.design.OdometerText
-import com.onda.music.core.design.OndaTheme
-import com.onda.music.core.design.smokedGlass
 import com.onda.music.core.model.PlaybackStatus
 import com.onda.music.feature.player.LikeActionButton
 import com.onda.music.feature.player.LyricsPane
@@ -81,7 +75,6 @@ fun TimelinePlayerStyle(
     ctx: PlayerStageContext,
     modifier: Modifier = Modifier
 ) {
-    val palette = OndaTheme.palette
     val state = ctx.playbackState
     val track = state.currentTrack
     val timelineTracks = remember(state.queue, track) {
@@ -122,9 +115,9 @@ fun TimelinePlayerStyle(
                 val isCurrent = index == activeIndex
                 val isPast = index < activeIndex
                 val nodeColor = when {
-                    isCurrent -> palette.primary
-                    isPast -> GlassTokens.TextTertiary
-                    else -> palette.secondary.copy(alpha = 0.7f)
+                    isCurrent -> Color.White
+                    isPast -> Color(0xFF555555)
+                    else -> Color(0xFF9E9E9E)
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -139,7 +132,7 @@ fun TimelinePlayerStyle(
                         Canvas(modifier = Modifier.fillMaxSize()) {
                             val cx = size.width * 0.5f
                             drawLine(
-                                color = GlassTokens.SpecularEdgeDim,
+                                color = Color(0xFF1F1F1F),
                                 start = Offset(cx, 0f),
                                 end = Offset(cx, size.height),
                                 strokeWidth = 2.dp.toPx()
@@ -158,11 +151,8 @@ fun TimelinePlayerStyle(
                         modifier = Modifier
                             .weight(1f)
                             .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
-                            .smokedGlass(
-                                shape = RoundedCornerShape(GlassTokens.RadiusLg),
-                                elevation = if (isCurrent) GlassElevation.HERO else GlassElevation.SUBTLE,
-                                accentTint = if (isCurrent) palette.primary else palette.secondary
-                            )
+                            .clip(RoundedCornerShape(GlassTokens.RadiusLg))
+                            .background(if (isCurrent) Color(0xFF242424) else Color(0xFF141414))
                             .clickable { ctx.onSelectQueueIndex(index) }
                             .padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -192,14 +182,14 @@ fun TimelinePlayerStyle(
                                     style = MaterialTheme.typography.titleSmall.copy(
                                         fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium
                                     ),
-                                    color = if (isCurrent) GlassTokens.TextPrimary else GlassTokens.TextSecondary,
+                                    color = if (isCurrent) Color.White else Color(0xFF9E9E9E),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
                                     text = item.artist,
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = GlassTokens.TextTertiary,
+                                    color = Color(0xFF8A8A8A),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -215,7 +205,7 @@ fun TimelinePlayerStyle(
                                 Text(
                                     text = formatDurationMs(item.durationMs),
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = GlassTokens.TextTertiary
+                                    color = Color(0xFF8A8A8A)
                                 )
                             }
                         }
@@ -227,17 +217,15 @@ fun TimelinePlayerStyle(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .smokedGlass(
-                    shape = RoundedCornerShape(GlassTokens.RadiusXl),
-                    elevation = GlassElevation.CARD,
-                    accentTint = palette.primary
-                )
+                .clip(RoundedCornerShape(GlassTokens.RadiusXl))
+                .background(Color(0xFF141414))
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             PlayerSeekSection(
                 playbackState = state,
-                onSeekToFraction = ctx.onSeekToFraction
+                onSeekToFraction = ctx.onSeekToFraction,
+                accentColor = Color.White
             )
             PlayerTransportControls(
                 playbackState = state,
@@ -258,7 +246,6 @@ fun LyricsStagePlayerStyle(
     ctx: PlayerStageContext,
     modifier: Modifier = Modifier
 ) {
-    val palette = OndaTheme.palette
     val state = ctx.playbackState
     val track = state.currentTrack
 
@@ -272,11 +259,8 @@ fun LyricsStagePlayerStyle(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .smokedGlass(
-                    shape = RoundedCornerShape(GlassTokens.RadiusLg),
-                    elevation = GlassElevation.CARD,
-                    accentTint = palette.primary
-                )
+                .clip(RoundedCornerShape(GlassTokens.RadiusLg))
+                .background(Color(0xFF141414))
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -291,14 +275,14 @@ fun LyricsStagePlayerStyle(
                 Text(
                     text = track?.title ?: "Nothing playing",
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = GlassTokens.TextPrimary,
+                    color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = track?.artist ?: "Unknown artist",
                     style = MaterialTheme.typography.bodySmall,
-                    color = GlassTokens.TextSecondary,
+                    color = Color(0xFF9E9E9E),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -319,7 +303,7 @@ fun LyricsStagePlayerStyle(
                 Icon(
                     imageVector = if (state.status == PlaybackStatus.PLAYING) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                     contentDescription = "Play or pause",
-                    tint = palette.primary,
+                    tint = Color.White,
                     modifier = Modifier.size(28.dp)
                 )
             }
@@ -351,17 +335,15 @@ fun LyricsStagePlayerStyle(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .smokedGlass(
-                    shape = RoundedCornerShape(GlassTokens.RadiusLg),
-                    elevation = GlassElevation.SUBTLE,
-                    accentTint = palette.secondary
-                )
+                .clip(RoundedCornerShape(GlassTokens.RadiusLg))
+                .background(Color(0xFF141414))
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             PlayerSeekSection(
                 playbackState = state,
-                onSeekToFraction = ctx.onSeekToFraction
+                onSeekToFraction = ctx.onSeekToFraction,
+                accentColor = Color.White
             )
             PlayerTransportControls(
                 playbackState = state,
@@ -398,7 +380,6 @@ fun BedsidePlayerStyle(
     ctx: PlayerStageContext,
     modifier: Modifier = Modifier
 ) {
-    val palette = OndaTheme.palette
     val state = ctx.playbackState
     val track = state.currentTrack
     val (clockText, dateText) = rememberClockStrings()
@@ -410,7 +391,7 @@ fun BedsidePlayerStyle(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(GlassTokens.AmoledBlack.copy(alpha = 0.84f))
+            .background(Color(0xFF000000))
             .navigationBarsPadding()
             .pointerInput(Unit) {
                 detectHorizontalDragGestures(
@@ -449,7 +430,7 @@ fun BedsidePlayerStyle(
                 Text(
                     text = dateText.uppercase(Locale.US),
                     style = MaterialTheme.typography.labelLarge,
-                    color = GlassTokens.TextTertiary
+                    color = Color(0xFF8A8A8A)
                 )
                 OdometerText(
                     text = clockText,
@@ -458,7 +439,7 @@ fun BedsidePlayerStyle(
                         lineHeight = 76.sp,
                         fontWeight = FontWeight.Light
                     ),
-                    color = GlassTokens.TextPrimary.copy(alpha = 0.92f)
+                    color = Color.White.copy(alpha = 0.92f)
                 )
                 state.sleepTimerRemainingMs?.let { remaining ->
                     Row(
@@ -471,13 +452,13 @@ fun BedsidePlayerStyle(
                         Icon(
                             imageVector = Icons.Rounded.Bedtime,
                             contentDescription = null,
-                            tint = palette.primary,
+                            tint = Color.White,
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
                             text = "Sleep in ${formatDurationMs(remaining)}",
                             style = MaterialTheme.typography.labelMedium,
-                            color = palette.primary
+                            color = Color.White
                         )
                     }
                 }
@@ -492,14 +473,12 @@ fun BedsidePlayerStyle(
                     artworkUrl = track?.artworkUrl,
                     contentDescription = track?.title,
                     shape = CircleShape,
-                    modifier = Modifier
-                        .size(84.dp)
-                        .border(1.dp, GlassTokens.SpecularEdgeDim, CircleShape)
+                    modifier = Modifier.size(84.dp)
                 )
                 Text(
                     text = track?.title ?: "Nothing playing",
                     style = MaterialTheme.typography.titleLarge,
-                    color = GlassTokens.TextPrimary.copy(alpha = 0.90f),
+                    color = Color.White.copy(alpha = 0.90f),
                     textAlign = TextAlign.Center,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -507,7 +486,7 @@ fun BedsidePlayerStyle(
                 Text(
                     text = track?.artist ?: "Swipe to skip tracks",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = GlassTokens.TextSecondary.copy(alpha = 0.78f),
+                    color = Color(0xFF9E9E9E),
                     textAlign = TextAlign.Center,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -524,13 +503,13 @@ fun BedsidePlayerStyle(
                         .fillMaxWidth()
                         .height(3.dp)
                         .clip(RoundedCornerShape(GlassTokens.RadiusPill))
-                        .background(GlassTokens.GlassHighlight.copy(alpha = 0.12f))
+                        .background(Color.White.copy(alpha = 0.14f))
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(progress)
                             .height(3.dp)
-                            .background(palette.primary.copy(alpha = 0.8f))
+                            .background(Color.White.copy(alpha = 0.85f))
                     )
                 }
                 Row(
@@ -548,25 +527,21 @@ fun BedsidePlayerStyle(
                         Icon(
                             imageVector = Icons.Rounded.SkipPrevious,
                             contentDescription = "Previous",
-                            tint = GlassTokens.TextSecondary
+                            tint = Color(0xFF9E9E9E)
                         )
                     }
                     Box(
                         modifier = Modifier
                             .size(56.dp)
                             .clip(CircleShape)
-                            .smokedGlass(
-                                shape = CircleShape,
-                                elevation = GlassElevation.CARD,
-                                accentTint = palette.primary
-                            )
+                            .background(Color(0xFF141414))
                             .clickable(onClick = ctx.onTogglePlayPause),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = if (state.status == PlaybackStatus.PLAYING) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                             contentDescription = "Play or pause",
-                            tint = palette.primary,
+                            tint = Color.White,
                             modifier = Modifier.size(28.dp)
                         )
                     }
@@ -580,7 +555,7 @@ fun BedsidePlayerStyle(
                         Icon(
                             imageVector = Icons.Rounded.SkipNext,
                             contentDescription = "Next",
-                            tint = GlassTokens.TextSecondary
+                            tint = Color(0xFF9E9E9E)
                         )
                     }
                 }
@@ -594,7 +569,6 @@ fun BedsideTilesPlayerStyle(
     ctx: PlayerStageContext,
     modifier: Modifier = Modifier
 ) {
-    val palette = OndaTheme.palette
     val state = ctx.playbackState
     val track = state.currentTrack
     val (clockText, dateText) = rememberClockStrings()
@@ -610,11 +584,8 @@ fun BedsideTilesPlayerStyle(
         val clockTile: @Composable (Modifier) -> Unit = { tileModifier ->
             Column(
                 modifier = tileModifier
-                    .smokedGlass(
-                        shape = RoundedCornerShape(GlassTokens.RadiusXl),
-                        elevation = GlassElevation.CARD,
-                        accentTint = palette.primary
-                    )
+                    .clip(RoundedCornerShape(GlassTokens.RadiusXl))
+                    .background(Color(0xFF141414))
                     .padding(18.dp),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
@@ -626,7 +597,7 @@ fun BedsideTilesPlayerStyle(
                     Text(
                         text = dateText,
                         style = MaterialTheme.typography.labelLarge,
-                        color = GlassTokens.TextSecondary
+                        color = Color(0xFF9E9E9E)
                     )
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -639,13 +610,13 @@ fun BedsideTilesPlayerStyle(
                         Icon(
                             imageVector = Icons.Rounded.Bedtime,
                             contentDescription = "Sleep timer",
-                            tint = if (state.sleepTimerRemainingMs != null) palette.primary else GlassTokens.TextTertiary,
+                            tint = if (state.sleepTimerRemainingMs != null) Color.White else Color(0xFF8A8A8A),
                             modifier = Modifier.size(18.dp)
                         )
                         Text(
                             text = state.sleepTimerRemainingMs?.let(::formatDurationMs) ?: "Timer",
                             style = MaterialTheme.typography.labelMedium,
-                            color = if (state.sleepTimerRemainingMs != null) palette.primary else GlassTokens.TextTertiary
+                            color = if (state.sleepTimerRemainingMs != null) Color.White else Color(0xFF8A8A8A)
                         )
                     }
                 }
@@ -657,7 +628,7 @@ fun BedsideTilesPlayerStyle(
                         lineHeight = 60.sp,
                         fontWeight = FontWeight.SemiBold
                     ),
-                    color = GlassTokens.TextPrimary
+                    color = Color.White
                 )
 
                 PlayerTransportControls(
@@ -676,11 +647,8 @@ fun BedsideTilesPlayerStyle(
         val trackTile: @Composable (Modifier) -> Unit = { tileModifier ->
             Column(
                 modifier = tileModifier
-                    .smokedGlass(
-                        shape = RoundedCornerShape(GlassTokens.RadiusXl),
-                        elevation = GlassElevation.HERO,
-                        accentTint = palette.secondary
-                    )
+                    .clip(RoundedCornerShape(GlassTokens.RadiusXl))
+                    .background(Color(0xFF141414))
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
@@ -699,14 +667,14 @@ fun BedsideTilesPlayerStyle(
                         Text(
                             text = track?.title ?: "Nothing playing",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            color = GlassTokens.TextPrimary,
+                            color = Color.White,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = track?.artist ?: "Unknown artist",
                             style = MaterialTheme.typography.bodySmall,
-                            color = GlassTokens.TextSecondary,
+                            color = Color(0xFF9E9E9E),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -721,7 +689,8 @@ fun BedsideTilesPlayerStyle(
 
                 PlayerSeekSection(
                     playbackState = state,
-                    onSeekToFraction = ctx.onSeekToFraction
+                    onSeekToFraction = ctx.onSeekToFraction,
+                    accentColor = Color.White
                 )
 
                 Box(

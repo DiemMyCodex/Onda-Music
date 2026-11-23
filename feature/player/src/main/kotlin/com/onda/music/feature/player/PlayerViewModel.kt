@@ -13,6 +13,7 @@ import com.onda.music.core.database.OndaPreferences
 import com.onda.music.core.database.OndaUserSettings
 import com.onda.music.core.database.SongDao
 import com.onda.music.core.database.toEntity
+import com.onda.music.core.design.ArtworkUrlResolver
 import com.onda.music.core.design.OndaArtworkPalette
 import com.onda.music.core.design.OndaPaletteExtractor
 import com.onda.music.core.lyrics.LyricsRepository
@@ -27,17 +28,20 @@ import com.onda.music.core.playback.DownloadManager
 import com.onda.music.core.playback.PlaybackController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 @OptIn(UnstableApi::class)
@@ -141,22 +145,55 @@ class PlayerViewModel @Inject constructor(
             initialValue = null
         )
 
+    private data class CachedPaletteEntry(
+        val artworkUrl: String,
+        val palette: OndaArtworkPalette
+    )
+
+    private val paletteCache = object : LinkedHashMap<String, CachedPaletteEntry>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CachedPaletteEntry>?): Boolean {
+            return size > 64
+        }
+    }
+
     init {
         viewModelScope.launch {
             playbackState
                 .map { it.currentTrack?.id to it.currentTrack?.artworkUrl }
                 .distinctUntilChanged()
-                .collect { (trackId, artworkUrl) ->
-                    if (trackId == null || artworkUrl.isNullOrBlank()) {
+                .collectLatest { (trackId, artworkUrl) ->
+                    if (trackId.isNullOrBlank() || artworkUrl.isNullOrBlank()) {
                         _artworkPalette.value = OndaArtworkPalette.Default
                     } else {
-                        val loader = SingletonImageLoader.get(context)
-                        val extracted = OndaPaletteExtractor.extractFromData(
-                            context = context,
-                            imageLoader = loader,
-                            data = artworkUrl
-                        )
-                        _artworkPalette.value = extracted
+                        val cached = synchronized(paletteCache) {
+                            paletteCache[trackId]?.takeIf { it.artworkUrl == artworkUrl }?.palette
+                        }
+                        if (cached != null) {
+                            _artworkPalette.value = cached
+                        } else {
+                            val extracted = withContext(Dispatchers.IO) {
+                                val loader = SingletonImageLoader.get(context)
+                                val upgradedUrl = ArtworkUrlResolver.upgradeHighRes(artworkUrl) ?: artworkUrl
+                                val primaryResult = OndaPaletteExtractor.extractFromData(
+                                    context = context,
+                                    imageLoader = loader,
+                                    data = upgradedUrl
+                                )
+                                if (primaryResult != OndaArtworkPalette.Default || upgradedUrl == artworkUrl) {
+                                    primaryResult
+                                } else {
+                                    OndaPaletteExtractor.extractFromData(
+                                        context = context,
+                                        imageLoader = loader,
+                                        data = artworkUrl
+                                    )
+                                }
+                            }
+                            synchronized(paletteCache) {
+                                paletteCache[trackId] = CachedPaletteEntry(artworkUrl, extracted)
+                            }
+                            _artworkPalette.value = extracted
+                        }
                     }
                 }
         }

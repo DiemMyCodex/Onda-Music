@@ -7,6 +7,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import androidx.palette.graphics.Palette
@@ -23,27 +24,32 @@ import kotlin.math.pow
 
 object GlassTokens {
     val AmoledBlack = Color(0xFF000000)
-    val ObsidianSurface = Color(0xFF0C0F16)
-    val SmokedGlassBase = Color(0xCC111520)
-    val SmokedGlassCard = Color(0xB8141926)
-    val SmokedGlassElevated = Color(0xD91A2130)
-    val SmokedGlassDock = Color(0xE010141E)
-    val SmokedGlassScrim = Color(0xCC06080D)
+    val ObsidianSurface = Color(0xFF141414)
+    val SmokedGlassBase = Color(0xFF141414)
+    val SmokedGlassCard = Color(0xFF141414)
+    val SmokedGlassElevated = Color(0xFF1C1C1C)
+    val SmokedGlassDock = Color(0xE6141414)
+    val SmokedGlassScrim = Color(0xE6000000)
 
-    val WaveCyan = Color(0xFF7AD3FF)
-    val IceBlue = Color(0xFF9EE2FF)
-    val SilverLavender = Color(0xFFB8C4E0)
-    val DeepSlateBlue = Color(0xFF1F2B3D)
+    val MatteCard = Color(0xFF141414)
+    val IconBadgeSurface = Color(0xFF242424)
+    val InactiveSurface = Color(0xFF2E2E2E)
+    val HairlineDivider = Color(0xFF1F1F1F)
 
-    val SpecularBright = Color(0x94FFFFFF)
-    val SpecularIce = Color(0x478ED6FF)
-    val SpecularEdgeDim = Color(0x14FFFFFF)
-    val SpecularBottomRight = Color(0x249BC3EB)
+    val WaveCyan = Color(0xFFFFFFFF)
+    val IceBlue = Color(0xFFFFFFFF)
+    val SilverLavender = Color(0xFF9E9E9E)
+    val DeepSlateBlue = Color(0xFF242424)
+
+    val SpecularBright = Color(0x00FFFFFF)
+    val SpecularIce = Color(0x00FFFFFF)
+    val SpecularEdgeDim = Color(0xFF1F1F1F)
+    val SpecularBottomRight = Color(0x00FFFFFF)
     val GlassHighlight = Color(0xFFFFFFFF)
 
-    val TextPrimary = Color(0xFFF5F7FB)
-    val TextSecondary = Color(0xFFB4BED1)
-    val TextTertiary = Color(0xFF8893A8)
+    val TextPrimary = Color(0xFFFFFFFF)
+    val TextSecondary = Color(0xFF9E9E9E)
+    val TextTertiary = Color(0xFF8A8A8A)
 
     val ErrorCoral = Color(0xFFFF6B7A)
     val SuccessMint = Color(0xFF4ADE80)
@@ -64,30 +70,27 @@ object GlassTokens {
         intensity: Float = 1f,
         accentTint: Color = IceBlue
     ): Brush {
+        if (intensity <= 0f) {
+            return SolidColor(Color.Transparent)
+        }
         val clamped = intensity.coerceIn(0f, 1.5f)
-        return Brush.linearGradient(
-            colorStops = arrayOf(
-                0.00f to Color.White.copy(alpha = (0.58f * clamped).coerceIn(0f, 1f)),
-                0.18f to accentTint.copy(alpha = (0.28f * clamped).coerceIn(0f, 1f)),
-                0.52f to Color.White.copy(alpha = (0.07f * clamped).coerceIn(0f, 1f)),
-                0.82f to Color.White.copy(alpha = (0.04f * clamped).coerceIn(0f, 1f)),
-                1.00f to SilverLavender.copy(alpha = (0.16f * clamped).coerceIn(0f, 1f))
-            ),
-            start = Offset.Zero,
-            end = Offset.Infinite
-        )
+        val alpha = (0.10f * clamped).coerceIn(0f, 0.24f)
+        return SolidColor(Color.White.copy(alpha = alpha))
     }
 
     fun topEdgeSpecularBrush(
         intensity: Float = 1f,
         accentTint: Color = IceBlue
     ): Brush {
+        if (intensity <= 0f) {
+            return SolidColor(Color.Transparent)
+        }
         val clamped = intensity.coerceIn(0f, 1.5f)
         return Brush.horizontalGradient(
             colorStops = arrayOf(
-                0.00f to Color.White.copy(alpha = (0.48f * clamped).coerceIn(0f, 1f)),
-                0.35f to accentTint.copy(alpha = (0.22f * clamped).coerceIn(0f, 1f)),
-                1.00f to Color.White.copy(alpha = (0.05f * clamped).coerceIn(0f, 1f))
+                0.00f to Color.White.copy(alpha = (0.24f * clamped).coerceIn(0f, 1f)),
+                0.35f to Color.White.copy(alpha = (0.12f * clamped).coerceIn(0f, 1f)),
+                1.00f to Color.White.copy(alpha = (0.04f * clamped).coerceIn(0f, 1f))
             )
         )
     }
@@ -97,15 +100,7 @@ object GlassTokens {
         accentTint: Color = IceBlue,
         highlightAlpha: Float = 0.08f
     ): Brush {
-        return Brush.linearGradient(
-            colorStops = arrayOf(
-                0.00f to accentTint.copy(alpha = highlightAlpha.coerceIn(0f, 0.35f)),
-                0.28f to baseColor,
-                1.00f to ObsidianSurface.copy(alpha = baseColor.alpha.coerceAtLeast(0.75f))
-            ),
-            start = Offset.Zero,
-            end = Offset.Infinite
-        )
+        return SolidColor(baseColor)
     }
 
     fun bottomScrimBrush(
@@ -186,12 +181,12 @@ data class OndaArtworkPalette(
 ) {
     companion object {
         val Default = OndaArtworkPalette(
-            primary = GlassTokens.WaveCyan,
-            secondary = GlassTokens.SilverLavender,
-            tertiary = GlassTokens.DeepSlateBlue,
-            muted = Color(0xFF28374D),
-            deepShadow = Color(0xFF0A0F1A),
-            onAccent = GlassTokens.AmoledBlack
+            primary = Color.White,
+            secondary = Color(0xFF9E9E9E),
+            tertiary = Color(0xFF242424),
+            muted = Color(0xFF2E2E2E),
+            deepShadow = Color(0xFF000000),
+            onAccent = Color(0xFF000000)
         )
     }
 }

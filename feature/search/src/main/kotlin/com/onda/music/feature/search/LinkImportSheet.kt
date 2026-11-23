@@ -3,7 +3,6 @@ package com.onda.music.feature.search
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -142,15 +141,10 @@ fun LinkImportSheet(
                             .clip(pillShape)
                             .background(
                                 color = if (highlighted) {
-                                    OndaTheme.colors.accent.copy(alpha = 0.22f)
+                                    GlassTokens.IconBadgeSurface
                                 } else {
-                                    GlassTokens.SmokedGlassBase
+                                    GlassTokens.MatteCard
                                 },
-                                shape = pillShape
-                            )
-                            .border(
-                                width = GlassTokens.BorderHairline,
-                                color = if (highlighted) OndaTheme.colors.accent else GlassTokens.SpecularEdgeDim,
                                 shape = pillShape
                             )
                             .padding(horizontal = 12.dp, vertical = 6.dp)
@@ -158,7 +152,7 @@ fun LinkImportSheet(
                         Text(
                             text = SearchLogic.providerLabel(provider),
                             style = MaterialTheme.typography.labelMedium,
-                            color = if (highlighted) OndaTheme.colors.accent else OndaTheme.colors.textSecondary
+                            color = if (highlighted) GlassTokens.TextPrimary else GlassTokens.TextSecondary
                         )
                     }
                 }
@@ -336,8 +330,8 @@ private fun LinkImportProgressCard(progress: LinkImportProgress) {
         }
         LinearProgressIndicator(
             progress = { progress.fraction },
-            color = OndaTheme.colors.accent,
-            trackColor = GlassTokens.DeepSlateBlue,
+            color = GlassTokens.TextPrimary,
+            trackColor = GlassTokens.InactiveSurface,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(6.dp)

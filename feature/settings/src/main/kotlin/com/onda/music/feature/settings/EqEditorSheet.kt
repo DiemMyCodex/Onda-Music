@@ -64,10 +64,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.onda.music.core.design.DockMetrics
-import com.onda.music.core.design.GlassElevation
-import com.onda.music.core.design.GlassSurface
-import com.onda.music.core.design.GlassTokens
-import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.model.EqBand
 import com.onda.music.core.model.EqConfig
 import com.onda.music.core.model.EqPreset
@@ -84,7 +80,6 @@ fun EqEditorSheet(
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val colors = OndaTheme.colors
     val bands = remember(eqConfig.bands) {
         if (eqConfig.bands.size == 10) eqConfig.bands else EqConfig.defaultBands()
     }
@@ -92,9 +87,9 @@ fun EqEditorSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = GlassTokens.SmokedGlassElevated,
-        contentColor = colors.textPrimary,
-        dragHandle = { BottomSheetDefaults.DragHandle(color = colors.textTertiary) }
+        containerColor = SettingsOledColors.MatteCard,
+        contentColor = SettingsOledColors.TextPrimary,
+        dragHandle = { BottomSheetDefaults.DragHandle(color = SettingsOledColors.TextMuted) }
     ) {
         Column(
             modifier = Modifier
@@ -113,7 +108,7 @@ fun EqEditorSheet(
                 Icon(
                     imageVector = Icons.Rounded.Equalizer,
                     contentDescription = null,
-                    tint = colors.accent,
+                    tint = SettingsOledColors.TextPrimary,
                     modifier = Modifier.size(24.dp)
                 )
                 Spacer(modifier = Modifier.width(10.dp))
@@ -121,7 +116,7 @@ fun EqEditorSheet(
                     Text(
                         text = strings.eqTitle,
                         style = MaterialTheme.typography.titleLarge,
-                        color = colors.textPrimary,
+                        color = SettingsOledColors.TextPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -129,15 +124,19 @@ fun EqEditorSheet(
                         text = EqConfig.builtInPresets.firstOrNull { it.id == eqConfig.activePresetId }?.name
                             ?: strings.eqCustomLabel,
                         style = MaterialTheme.typography.bodySmall,
-                        color = colors.accent
+                        color = SettingsOledColors.TextSecondary
                     )
                 }
                 Switch(
                     checked = eqConfig.enabled,
                     onCheckedChange = { onEqConfigChange(eqConfig.copy(enabled = it)) },
                     colors = SwitchDefaults.colors(
-                        checkedThumbColor = GlassTokens.AmoledBlack,
-                        checkedTrackColor = colors.accent
+                        checkedThumbColor = SettingsOledColors.TextPrimary,
+                        checkedTrackColor = SettingsOledColors.CheckedTrack,
+                        checkedBorderColor = Color.Transparent,
+                        uncheckedThumbColor = SettingsOledColors.TextSecondary,
+                        uncheckedTrackColor = SettingsOledColors.InactiveTrack,
+                        uncheckedBorderColor = Color.Transparent
                     )
                 )
                 IconButton(
@@ -147,7 +146,7 @@ fun EqEditorSheet(
                     Icon(
                         imageVector = Icons.Rounded.Close,
                         contentDescription = strings.closeLabel,
-                        tint = colors.textSecondary
+                        tint = SettingsOledColors.TextSecondary
                     )
                 }
             }
@@ -168,7 +167,6 @@ fun EqEditorSheet(
             EqCurvePreview(
                 bands = bands,
                 enabled = eqConfig.enabled,
-                accentColor = colors.accent,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp)
@@ -186,23 +184,20 @@ fun EqEditorSheet(
                     EqBandFader(
                         band = band,
                         enabled = eqConfig.enabled,
-                        accentColor = colors.accent,
                         onGainChange = { newGain -> onBandGainChange(band.index, newGain) }
                     )
                 }
             }
 
-            GlassSurface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp),
-                elevation = GlassElevation.SUBTLE,
-                shape = RoundedCornerShape(GlassTokens.RadiusMd)
+            SettingsMatteCard(
+                backgroundColor = SettingsOledColors.IconBadge,
+                cornerRadius = 24,
+                modifier = Modifier.padding(horizontal = 20.dp)
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Row(
@@ -213,12 +208,12 @@ fun EqEditorSheet(
                         Text(
                             text = strings.eqPreampLabel,
                             style = MaterialTheme.typography.titleSmall,
-                            color = colors.textPrimary
+                            color = SettingsOledColors.TextPrimary
                         )
                         Text(
                             text = formatDb(eqConfig.preampDb),
                             style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
-                            color = colors.accent
+                            color = SettingsOledColors.TextPrimary
                         )
                     }
                     Slider(
@@ -229,9 +224,9 @@ fun EqEditorSheet(
                         },
                         valueRange = -12f..12f,
                         colors = SliderDefaults.colors(
-                            thumbColor = GlassTokens.TextPrimary,
-                            activeTrackColor = colors.accent,
-                            inactiveTrackColor = GlassTokens.GlassHighlight.copy(alpha = 0.16f)
+                            thumbColor = SettingsOledColors.TextPrimary,
+                            activeTrackColor = SettingsOledColors.TextPrimary,
+                            inactiveTrackColor = SettingsOledColors.InactiveTrack
                         )
                     )
 
@@ -243,13 +238,13 @@ fun EqEditorSheet(
                         Text(
                             text = strings.crossfadeTitle,
                             style = MaterialTheme.typography.titleSmall,
-                            color = colors.textPrimary
+                            color = SettingsOledColors.TextPrimary
                         )
                         Text(
                             text = if (eqConfig.crossfadeSeconds == 0) strings.offLabel
                             else "${eqConfig.crossfadeSeconds}s",
                             style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
-                            color = colors.accent
+                            color = SettingsOledColors.TextPrimary
                         )
                     }
                     Slider(
@@ -260,9 +255,9 @@ fun EqEditorSheet(
                         valueRange = 0f..12f,
                         steps = 11,
                         colors = SliderDefaults.colors(
-                            thumbColor = GlassTokens.TextPrimary,
-                            activeTrackColor = colors.accent,
-                            inactiveTrackColor = GlassTokens.GlassHighlight.copy(alpha = 0.16f)
+                            thumbColor = SettingsOledColors.TextPrimary,
+                            activeTrackColor = SettingsOledColors.TextPrimary,
+                            inactiveTrackColor = SettingsOledColors.InactiveTrack
                         )
                     )
 
@@ -283,36 +278,34 @@ fun EqEditorSheet(
                             },
                             modifier = Modifier.defaultMinSize(minHeight = DockMetrics.MinTapTarget)
                         ) {
-                            Text(text = strings.eqResetFlatLabel, color = colors.accent)
+                            Text(text = strings.eqResetFlatLabel, color = SettingsOledColors.TextPrimary)
                         }
                     }
                 }
             }
 
-            GlassSurface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp),
-                elevation = GlassElevation.SUBTLE,
-                shape = RoundedCornerShape(GlassTokens.RadiusMd)
+            SettingsMatteCard(
+                backgroundColor = SettingsOledColors.IconBadge,
+                cornerRadius = 24,
+                modifier = Modifier.padding(horizontal = 20.dp)
             ) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    SettingsToggleRow(
-                        icon = Icons.Rounded.VolumeUp,
-                        title = strings.normalizeTitle,
-                        subtitle = strings.normalizeSubtitle,
-                        checked = eqConfig.normalizeLoudness,
-                        onCheckedChange = { onEqConfigChange(eqConfig.copy(normalizeLoudness = it)) }
-                    )
-                    SettingsRowDivider()
-                    SettingsToggleRow(
-                        icon = Icons.Rounded.GraphicEq,
-                        title = strings.gaplessTitle,
-                        subtitle = strings.gaplessSubtitle,
-                        checked = eqConfig.gaplessEnabled,
-                        onCheckedChange = { onEqConfigChange(eqConfig.copy(gaplessEnabled = it)) }
-                    )
-                }
+                SettingsToggleRow(
+                    icon = Icons.Rounded.VolumeUp,
+                    title = strings.normalizeTitle,
+                    subtitle = strings.normalizeSubtitle,
+                    checked = eqConfig.normalizeLoudness,
+                    onCheckedChange = { onEqConfigChange(eqConfig.copy(normalizeLoudness = it)) },
+                    iconBadgeColor = SettingsOledColors.MatteCard
+                )
+                SettingsRowDivider(color = SettingsOledColors.MatteCard)
+                SettingsToggleRow(
+                    icon = Icons.Rounded.GraphicEq,
+                    title = strings.gaplessTitle,
+                    subtitle = strings.gaplessSubtitle,
+                    checked = eqConfig.gaplessEnabled,
+                    onCheckedChange = { onEqConfigChange(eqConfig.copy(gaplessEnabled = it)) },
+                    iconBadgeColor = SettingsOledColors.MatteCard
+                )
             }
         }
     }
@@ -322,14 +315,13 @@ fun EqEditorSheet(
 private fun EqCurvePreview(
     bands: List<EqBand>,
     enabled: Boolean,
-    accentColor: Color,
     modifier: Modifier = Modifier
 ) {
-    val lineColor = if (enabled) accentColor else GlassTokens.TextTertiary
-    GlassSurface(
-        modifier = modifier,
-        elevation = GlassElevation.SUBTLE,
-        shape = RoundedCornerShape(GlassTokens.RadiusMd)
+    val lineColor = if (enabled) SettingsOledColors.TextPrimary else SettingsOledColors.TextMuted
+    SettingsMatteCard(
+        backgroundColor = SettingsOledColors.IconBadge,
+        cornerRadius = 20,
+        modifier = modifier
     ) {
         val curvePath = remember { Path() }
         val fillPath = remember { Path() }
@@ -340,7 +332,7 @@ private fun EqCurvePreview(
         ) {
             val midY = size.height * 0.5f
             drawLine(
-                color = GlassTokens.SpecularEdgeDim,
+                color = SettingsOledColors.InactiveTrack,
                 start = Offset(0f, midY),
                 end = Offset(size.width, midY),
                 strokeWidth = 1.dp.toPx()
@@ -376,7 +368,7 @@ private fun EqCurvePreview(
                 path = fillPath,
                 brush = Brush.verticalGradient(
                     colors = listOf(
-                        lineColor.copy(alpha = 0.28f),
+                        lineColor.copy(alpha = 0.24f),
                         Color.Transparent
                     )
                 )
@@ -398,18 +390,17 @@ private fun EqCurvePreview(
 private fun EqBandFader(
     band: EqBand,
     enabled: Boolean,
-    accentColor: Color,
     onGainChange: (Float) -> Unit
 ) {
     val latestOnGainChange by rememberUpdatedState(onGainChange)
     var trackHeightPx by remember { mutableFloatStateOf(1f) }
-    val activeColor = if (enabled) accentColor else GlassTokens.TextTertiary
+    val activeColor = if (enabled) SettingsOledColors.TextPrimary else SettingsOledColors.TextMuted
 
     Column(
         modifier = Modifier
             .width(52.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(GlassTokens.ObsidianSurface.copy(alpha = 0.45f))
+            .clip(RoundedCornerShape(16.dp))
+            .background(SettingsOledColors.IconBadge)
             .padding(vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -420,7 +411,7 @@ private fun EqBandFader(
                 fontFeatureSettings = "tnum",
                 fontWeight = FontWeight.SemiBold
             ),
-            color = if (enabled) GlassTokens.TextPrimary else GlassTokens.TextTertiary,
+            color = if (enabled) SettingsOledColors.TextPrimary else SettingsOledColors.TextMuted,
             maxLines = 1
         )
         Box(
@@ -457,7 +448,7 @@ private fun EqBandFader(
                 val usableHeight = bottomY - topY
 
                 drawLine(
-                    color = GlassTokens.GlassHighlight.copy(alpha = 0.16f),
+                    color = SettingsOledColors.InactiveTrack,
                     start = Offset(centerX, topY),
                     end = Offset(centerX, bottomY),
                     strokeWidth = 4.dp.toPx(),
@@ -481,7 +472,7 @@ private fun EqBandFader(
                     center = Offset(centerX, thumbY)
                 )
                 drawCircle(
-                    color = GlassTokens.TextPrimary,
+                    color = SettingsOledColors.TextPrimary,
                     radius = 6.5.dp.toPx(),
                     center = Offset(centerX, thumbY)
                 )
@@ -490,7 +481,7 @@ private fun EqBandFader(
         Text(
             text = formatFrequencyHz(band.frequencyHz),
             style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
-            color = GlassTokens.TextSecondary,
+            color = SettingsOledColors.TextSecondary,
             maxLines = 1
         )
     }

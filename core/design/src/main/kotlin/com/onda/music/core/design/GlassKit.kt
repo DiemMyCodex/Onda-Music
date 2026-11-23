@@ -46,44 +46,44 @@ object GlassKit {
     fun styleFor(elevation: GlassElevation): GlassStyle {
         return when (elevation) {
             GlassElevation.SUBTLE -> GlassStyle(
-                fillColor = Color(0x9910141F),
-                borderWidth = GlassTokens.BorderHairline,
-                borderIntensity = 0.65f,
+                fillColor = GlassTokens.SmokedGlassBase,
+                borderWidth = 0.dp,
+                borderIntensity = 0f,
                 cornerRadius = GlassTokens.RadiusSm,
                 blurRadius = 12.dp,
-                highlightAlpha = 0.05f
+                highlightAlpha = 0f
             )
             GlassElevation.CARD -> GlassStyle(
                 fillColor = GlassTokens.SmokedGlassCard,
-                borderWidth = GlassTokens.BorderStandard,
-                borderIntensity = 0.90f,
+                borderWidth = 0.dp,
+                borderIntensity = 0f,
                 cornerRadius = GlassTokens.RadiusMd,
                 blurRadius = 18.dp,
-                highlightAlpha = 0.08f
+                highlightAlpha = 0f
             )
             GlassElevation.DOCK -> GlassStyle(
                 fillColor = GlassTokens.SmokedGlassDock,
-                borderWidth = GlassTokens.BorderStandard,
-                borderIntensity = 1.05f,
+                borderWidth = 0.dp,
+                borderIntensity = 0f,
                 cornerRadius = GlassTokens.RadiusLg,
                 blurRadius = 26.dp,
-                highlightAlpha = 0.10f
+                highlightAlpha = 0f
             )
             GlassElevation.SHEET -> GlassStyle(
                 fillColor = GlassTokens.SmokedGlassElevated,
-                borderWidth = GlassTokens.BorderStandard,
-                borderIntensity = 1.00f,
+                borderWidth = 0.dp,
+                borderIntensity = 0f,
                 cornerRadius = GlassTokens.RadiusXl,
                 blurRadius = 32.dp,
-                highlightAlpha = 0.11f
+                highlightAlpha = 0f
             )
             GlassElevation.HERO -> GlassStyle(
                 fillColor = GlassTokens.SmokedGlassBase,
-                borderWidth = GlassTokens.BorderProminent,
-                borderIntensity = 1.15f,
+                borderWidth = 0.dp,
+                borderIntensity = 0f,
                 cornerRadius = GlassTokens.RadiusXl,
                 blurRadius = 28.dp,
-                highlightAlpha = 0.14f
+                highlightAlpha = 0f
             )
         }
     }
@@ -110,7 +110,7 @@ fun Modifier.smokedGlass(
 ): Modifier {
     val style = GlassKit.styleFor(elevation)
     val resolvedBorder = borderWidth ?: style.borderWidth
-    return this
+    val base = this
         .clip(shape)
         .background(
             brush = GlassTokens.smokedFillBrush(
@@ -120,14 +120,19 @@ fun Modifier.smokedGlass(
             ),
             shape = shape
         )
-        .border(
+    return if (resolvedBorder > 0.dp) {
+        val borderIntensity = if (style.borderIntensity > 0f) style.borderIntensity else 1f
+        base.border(
             width = resolvedBorder,
             brush = GlassTokens.specularBorderBrush(
-                intensity = style.borderIntensity,
+                intensity = borderIntensity,
                 accentTint = accentTint
             ),
             shape = shape
         )
+    } else {
+        base
+    }
 }
 
 fun Modifier.ondaBackdropBlur(
@@ -193,6 +198,7 @@ fun GlassSurface(
     elevation: GlassElevation = GlassElevation.CARD,
     shape: Shape = RoundedCornerShape(GlassKit.styleFor(elevation).cornerRadius),
     accentTint: Color = OndaTheme.palette.secondary,
+    borderWidth: Dp = 0.dp,
     enableBackdropBlur: Boolean = false,
     backdropContent: (@Composable BoxScope.() -> Unit)? = null,
     content: @Composable BoxScope.() -> Unit
@@ -222,7 +228,8 @@ fun GlassSurface(
                 .smokedGlass(
                     shape = shape,
                     elevation = elevation,
-                    accentTint = accentTint
+                    accentTint = accentTint,
+                    borderWidth = borderWidth
                 )
         )
         content()

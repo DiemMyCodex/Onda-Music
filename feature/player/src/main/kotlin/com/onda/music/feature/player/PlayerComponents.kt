@@ -71,14 +71,13 @@ import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.onda.music.core.design.AppMotion
+import com.onda.music.core.design.ArtworkUrlResolver
 import com.onda.music.core.design.DockMetrics
-import com.onda.music.core.design.GlassElevation
 import com.onda.music.core.design.GlassTokens
 import com.onda.music.core.design.OdometerText
 import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.design.WavySeekBar
 import com.onda.music.core.design.press3D
-import com.onda.music.core.design.smokedGlass
 import com.onda.music.core.model.DownloadItem
 import com.onda.music.core.model.DownloadStatus
 import com.onda.music.core.model.PlaybackState
@@ -111,8 +110,14 @@ fun TrackArtworkImage(
     contentScale: ContentScale = ContentScale.Crop
 ) {
     val context = LocalContext.current
-    val palette = OndaTheme.palette
+    val upgradedUrl = remember(artworkUrl) { ArtworkUrlResolver.upgradeHighRes(artworkUrl) }
+    var useFallbackUrl by remember(artworkUrl) { mutableStateOf(false) }
     var hasFailed by remember(artworkUrl) { mutableStateOf(false) }
+    val activeUrl = when {
+        artworkUrl.isNullOrBlank() -> null
+        !useFallbackUrl && !upgradedUrl.isNullOrBlank() -> upgradedUrl
+        else -> artworkUrl
+    }
 
     Box(
         modifier = modifier
@@ -120,9 +125,9 @@ fun TrackArtworkImage(
             .background(
                 brush = Brush.linearGradient(
                     colors = listOf(
-                        palette.tertiary.copy(alpha = 0.85f),
-                        GlassTokens.ObsidianSurface,
-                        palette.deepShadow
+                        Color(0xFF242424),
+                        Color(0xFF141414),
+                        Color(0xFF000000)
                     )
                 )
             ),
@@ -131,18 +136,24 @@ fun TrackArtworkImage(
         Icon(
             imageVector = Icons.Rounded.MusicNote,
             contentDescription = null,
-            tint = palette.secondary.copy(alpha = 0.55f),
+            tint = Color(0xFF9E9E9E),
             modifier = Modifier.size(36.dp)
         )
-        if (!artworkUrl.isNullOrBlank() && !hasFailed) {
+        if (!activeUrl.isNullOrBlank() && !hasFailed) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
-                    .data(artworkUrl)
+                    .data(activeUrl)
                     .crossfade(true)
                     .build(),
                 contentDescription = contentDescription,
                 contentScale = contentScale,
-                onError = { hasFailed = true },
+                onError = {
+                    if (!useFallbackUrl && !upgradedUrl.isNullOrBlank() && upgradedUrl != artworkUrl) {
+                        useFallbackUrl = true
+                    } else {
+                        hasFailed = true
+                    }
+                },
                 modifier = Modifier.fillMaxSize()
             )
         }
@@ -229,14 +240,6 @@ fun SongCarousel(
                     } else {
                         Modifier
                     }
-                )
-                .border(
-                    width = GlassTokens.BorderStandard,
-                    brush = GlassTokens.specularBorderBrush(
-                        intensity = 1.15f,
-                        accentTint = OndaTheme.palette.secondary
-                    ),
-                    shape = artworkShape
                 ),
             contentAlignment = Alignment.Center
         ) {
@@ -255,7 +258,7 @@ fun PlayerSeekSection(
     playbackState: PlaybackState,
     onSeekToFraction: (Float) -> Unit,
     modifier: Modifier = Modifier,
-    accentColor: Color = OndaTheme.colors.accent
+    accentColor: Color = Color.White
 ) {
     val durationMs = playbackState.durationMs.coerceAtLeast(0L)
     val positionMs = playbackState.positionMs.coerceIn(0L, durationMs.coerceAtLeast(1L))
@@ -296,12 +299,12 @@ fun PlayerSeekSection(
             OdometerText(
                 text = formatDurationMs(shownPositionMs),
                 style = MaterialTheme.typography.labelMedium,
-                color = GlassTokens.TextSecondary
+                color = Color(0xFF9E9E9E)
             )
             Text(
                 text = formatDurationMs(durationMs),
                 style = MaterialTheme.typography.labelMedium,
-                color = GlassTokens.TextTertiary
+                color = Color(0xFF8A8A8A)
             )
         }
     }
@@ -320,7 +323,6 @@ fun PlayerTransportControls(
     compact: Boolean = false
 ) {
     val haptics = LocalHapticFeedback.current
-    val palette = OndaTheme.palette
     val isPlaying = playbackState.status == PlaybackStatus.PLAYING
     val isBuffering = playbackState.status == PlaybackStatus.BUFFERING
     val primarySize = if (compact) 56.dp else 68.dp
@@ -340,7 +342,7 @@ fun PlayerTransportControls(
             Icon(
                 imageVector = Icons.Rounded.Shuffle,
                 contentDescription = "Shuffle",
-                tint = if (playbackState.shuffleEnabled) palette.primary else GlassTokens.TextTertiary,
+                tint = if (playbackState.shuffleEnabled) Color.White else Color(0xFF9E9E9E),
                 modifier = Modifier.size(22.dp)
             )
         }
@@ -355,7 +357,7 @@ fun PlayerTransportControls(
             Icon(
                 imageVector = Icons.Rounded.SkipPrevious,
                 contentDescription = "Previous track",
-                tint = GlassTokens.TextPrimary,
+                tint = Color.White,
                 modifier = Modifier.size(if (compact) 30.dp else 34.dp)
             )
         }
@@ -364,16 +366,7 @@ fun PlayerTransportControls(
             modifier = Modifier
                 .size(primarySize)
                 .clip(CircleShape)
-                .background(
-                    brush = Brush.linearGradient(
-                        colors = listOf(palette.primary, palette.secondary)
-                    )
-                )
-                .border(
-                    width = GlassTokens.BorderStandard,
-                    color = GlassTokens.SpecularBright,
-                    shape = CircleShape
-                )
+                .background(Color.White)
                 .press3D(maxTiltDegrees = 5f, pressedScale = 0.94f)
                 .clickable {
                     if (hapticsEnabled) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -383,7 +376,7 @@ fun PlayerTransportControls(
         ) {
             if (isBuffering) {
                 CircularProgressIndicator(
-                    color = palette.onAccent,
+                    color = Color.Black,
                     strokeWidth = 2.5.dp,
                     modifier = Modifier.size(26.dp)
                 )
@@ -391,7 +384,7 @@ fun PlayerTransportControls(
                 Icon(
                     imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                     contentDescription = if (isPlaying) "Pause" else "Play",
-                    tint = palette.onAccent,
+                    tint = Color.Black,
                     modifier = Modifier.size(if (compact) 30.dp else 36.dp)
                 )
             }
@@ -407,7 +400,7 @@ fun PlayerTransportControls(
             Icon(
                 imageVector = Icons.Rounded.SkipNext,
                 contentDescription = "Next track",
-                tint = GlassTokens.TextPrimary,
+                tint = Color.White,
                 modifier = Modifier.size(if (compact) 30.dp else 34.dp)
             )
         }
@@ -427,7 +420,7 @@ fun PlayerTransportControls(
             Icon(
                 imageVector = repeatIcon,
                 contentDescription = "Repeat mode",
-                tint = if (playbackState.repeatMode != RepeatMode.OFF) palette.primary else GlassTokens.TextTertiary,
+                tint = if (playbackState.repeatMode != RepeatMode.OFF) Color.White else Color(0xFF9E9E9E),
                 modifier = Modifier.size(22.dp)
             )
         }
@@ -444,7 +437,7 @@ fun LikeActionButton(
 ) {
     val haptics = LocalHapticFeedback.current
     val tint by animateColorAsState(
-        targetValue = if (liked) GlassTokens.ErrorCoral else GlassTokens.TextSecondary,
+        targetValue = if (liked) Color.White else Color(0xFF9E9E9E),
         label = "LikeTint"
     )
     val scale by animateFloatAsState(
@@ -489,17 +482,16 @@ fun DownloadActionButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val palette = OndaTheme.palette
     val icon = when (downloadItem?.status) {
         DownloadStatus.COMPLETED -> Icons.Rounded.CheckCircle
         DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED -> Icons.Rounded.Downloading
         else -> Icons.Rounded.Download
     }
     val tint = when (downloadItem?.status) {
-        DownloadStatus.COMPLETED -> GlassTokens.SuccessMint
-        DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED -> palette.primary
+        DownloadStatus.COMPLETED -> Color.White
+        DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED -> Color.White
         DownloadStatus.FAILED -> GlassTokens.ErrorCoral
-        null -> GlassTokens.TextSecondary
+        null -> Color(0xFF9E9E9E)
     }
 
     IconButton(
@@ -537,14 +529,14 @@ fun TrackMetaHeader(
             Text(
                 text = track?.title ?: "Nothing playing",
                 style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
-                color = GlassTokens.TextPrimary,
+                color = Color.White,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
                 text = track?.artist ?: "Select a song to start listening",
                 style = MaterialTheme.typography.bodyMedium,
-                color = GlassTokens.TextSecondary,
+                color = Color(0xFF9E9E9E),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -573,16 +565,12 @@ fun GlassPillButton(
     active: Boolean = false,
     leadingIcon: (@Composable () -> Unit)? = null
 ) {
-    val palette = OndaTheme.palette
     val shape = RoundedCornerShape(GlassTokens.RadiusPill)
     Row(
         modifier = modifier
             .defaultMinSize(minWidth = DockMetrics.MinTapTarget, minHeight = DockMetrics.MinTapTarget)
-            .smokedGlass(
-                shape = shape,
-                elevation = GlassElevation.SUBTLE,
-                accentTint = if (active) palette.primary else palette.secondary
-            )
+            .clip(shape)
+            .background(if (active) Color(0xFF242424) else Color(0xFF141414))
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -592,7 +580,7 @@ fun GlassPillButton(
         Text(
             text = label,
             style = MaterialTheme.typography.labelLarge,
-            color = if (active) palette.primary else GlassTokens.TextPrimary,
+            color = if (active) Color.White else Color(0xFF9E9E9E),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )

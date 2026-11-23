@@ -1,7 +1,6 @@
 package com.onda.music.feature.search
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -216,18 +215,11 @@ internal fun SourceFilterRow(
                     .clip(shape)
                     .then(
                         if (selected) {
-                            Modifier
-                                .background(OndaTheme.colors.accent.copy(alpha = 0.22f), shape)
-                                .border(
-                                    width = GlassTokens.BorderStandard,
-                                    color = OndaTheme.colors.accent,
-                                    shape = shape
-                                )
+                            Modifier.background(GlassTokens.IconBadgeSurface, shape)
                         } else {
                             Modifier.smokedGlass(
                                 shape = shape,
-                                elevation = GlassElevation.SUBTLE,
-                                accentTint = OndaTheme.colors.accentSoft
+                                elevation = GlassElevation.SUBTLE
                             )
                         }
                     )
@@ -238,7 +230,7 @@ internal fun SourceFilterRow(
                 Text(
                     text = filter.label,
                     style = MaterialTheme.typography.labelLarge,
-                    color = if (selected) OndaTheme.colors.accent else OndaTheme.colors.textSecondary,
+                    color = if (selected) GlassTokens.TextPrimary else GlassTokens.TextSecondary,
                     maxLines = 1
                 )
             }
@@ -273,18 +265,13 @@ internal fun LinkImportPromoCard(
                 modifier = Modifier
                     .size(44.dp)
                     .clip(RoundedCornerShape(GlassTokens.RadiusSm))
-                    .background(OndaTheme.colors.accent.copy(alpha = 0.16f))
-                    .border(
-                        width = GlassTokens.BorderHairline,
-                        color = OndaTheme.colors.accent.copy(alpha = 0.45f),
-                        shape = RoundedCornerShape(GlassTokens.RadiusSm)
-                    ),
+                    .background(GlassTokens.IconBadgeSurface),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Rounded.Link,
                     contentDescription = null,
-                    tint = OndaTheme.colors.accent
+                    tint = GlassTokens.TextPrimary
                 )
             }
             Spacer(modifier = Modifier.width(14.dp))
@@ -653,15 +640,14 @@ internal fun SearchTrackRow(
 @Composable
 internal fun SourceTagBadge(source: SourceKind) {
     val (label, tint) = when (source) {
-        SourceKind.MONOCHROME -> "FLAC" to GlassTokens.WaveCyan
+        SourceKind.MONOCHROME -> "FLAC" to GlassTokens.TextPrimary
         SourceKind.LOCAL -> "LOCAL" to GlassTokens.SuccessMint
-        SourceKind.YOUTUBE -> "YT" to GlassTokens.SilverLavender
+        SourceKind.YOUTUBE -> "YT" to GlassTokens.TextSecondary
     }
     val shape = RoundedCornerShape(GlassTokens.RadiusXs)
     Row(
         modifier = Modifier
-            .background(tint.copy(alpha = 0.16f), shape)
-            .border(GlassTokens.BorderHairline, tint.copy(alpha = 0.45f), shape)
+            .background(GlassTokens.IconBadgeSurface, shape)
             .padding(horizontal = 6.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -830,12 +816,7 @@ internal fun ArtworkThumbnail(
         modifier = modifier
             .size(size)
             .clip(shape)
-            .background(GlassTokens.DeepSlateBlue.copy(alpha = 0.6f), shape)
-            .border(
-                width = GlassTokens.BorderHairline,
-                color = if (isActive) OndaTheme.colors.accent else GlassTokens.SpecularEdgeDim,
-                shape = shape
-            ),
+            .background(GlassTokens.IconBadgeSurface, shape),
         contentAlignment = Alignment.Center
     ) {
         Icon(

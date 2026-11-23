@@ -1,10 +1,16 @@
 package com.onda.music.feature.settings
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,7 +26,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
@@ -50,9 +55,9 @@ import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
@@ -73,18 +78,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
-import com.onda.music.core.design.AgslMeshBackground
 import com.onda.music.core.design.DockMetrics
-import com.onda.music.core.design.GlassElevation
-import com.onda.music.core.design.GlassSurface
-import com.onda.music.core.design.GlassTokens
 import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.model.EqConfig
 import com.onda.music.core.model.EqPreset
@@ -143,7 +146,6 @@ fun SettingsRoute(
     )
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
     uiState: SettingsUiState,
@@ -193,7 +195,9 @@ fun SettingsScreen(
     val groupedEntries = remember(filteredEntries) {
         filteredEntries.groupBy { it.group }
     }
+    val reducedMotion = OndaTheme.reducedMotion
 
+    var activeGroup by rememberSaveable { mutableStateOf<SettingsGroup?>(null) }
     var showEqSheet by rememberSaveable { mutableStateOf(false) }
     var showPlayerStyleSheet by rememberSaveable { mutableStateOf(false) }
     var showTransferSheet by rememberSaveable { mutableStateOf(false) }
@@ -201,6 +205,10 @@ fun SettingsScreen(
     var showYtCookieDialog by rememberSaveable { mutableStateOf(false) }
     var showProxyDialog by rememberSaveable { mutableStateOf(false) }
     var showResetDialog by rememberSaveable { mutableStateOf(false) }
+
+    BackHandler(enabled = activeGroup != null) {
+        activeGroup = null
+    }
 
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(uiState.statusMessage) {
@@ -221,457 +229,238 @@ fun SettingsScreen(
         if (uri != null) onDownloadFolderPicked(uri)
     }
 
-    val colors = OndaTheme.colors
     val bottomPadding = DockMetrics.rememberBottomPadding(hasMiniPlayer = true)
 
-    Box(modifier = modifier.fillMaxSize()) {
-        AgslMeshBackground(
-            animated = settings.dynamicMeshEnabled,
-            dimAlpha = 0.68f
+    val renderEntry: @Composable (SettingsSearchEntry) -> Unit = { entry ->
+        SettingsEntryRow(
+            entry = entry,
+            uiState = uiState,
+            strings = strings,
+            onOpenEq = { showEqSheet = true },
+            onNormalizeChange = onNormalizeChange,
+            onGaplessChange = onGaplessChange,
+            onOpenPlayerStyle = { showPlayerStyleSheet = true },
+            onGlassBlurChange = onGlassBlurChange,
+            onDynamicMeshChange = onDynamicMeshChange,
+            onLyricsMotionChange = onLyricsMotionChange,
+            onLyricsFontScaleChange = onLyricsFontScaleChange,
+            onHapticsChange = onHapticsChange,
+            onEditUsername = { showUsernameDialog = true },
+            onPickAvatar = { avatarPickerLauncher.launch(arrayOf("image/*")) },
+            onClearAvatar = onAvatarClear,
+            onLanguageChange = onLanguageChange,
+            onMonochromeChange = onMonochromeChange,
+            onOpenYtCookie = { showYtCookieDialog = true },
+            onOpenProxy = { showProxyDialog = true },
+            onLinkInputChange = onLinkInputChange,
+            onImportLink = { onImportLink(uiState.linkImport.inputUrl) },
+            onOpenTransfer = { showTransferSheet = true },
+            onClearCache = onClearCache,
+            onMaxCacheMbChange = onMaxCacheMbChange,
+            onPickDownloadFolder = { folderPickerLauncher.launch(null) },
+            onClearDownloadFolder = { onDownloadFolderPicked(null) },
+            onOpenReset = { showResetDialog = true }
         )
+    }
 
-        Scaffold(
-            containerColor = Color.Transparent,
-            snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
-            topBar = {
-                SettingsTopSearchBar(
-                    title = strings.screenTitle,
-                    query = uiState.searchQuery,
-                    placeholder = strings.searchPlaceholder,
-                    backLabel = strings.backLabel,
-                    clearLabel = strings.clearSearchLabel,
-                    onBack = onBack,
-                    onQueryChange = onSearchQueryChange,
-                    modifier = Modifier.statusBarsPadding()
-                )
-            }
-        ) { innerPadding ->
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = innerPadding.calculateTopPadding())
-                    .imePadding(),
-                contentPadding = PaddingValues(
-                    start = 16.dp,
-                    end = 16.dp,
-                    top = 8.dp,
-                    bottom = bottomPadding
-                ),
-                verticalArrangement = Arrangement.spacedBy(18.dp)
-            ) {
-                if (filteredEntries.isEmpty()) {
-                    item(key = "empty_search") {
-                        GlassSurface(
-                            modifier = Modifier.fillMaxWidth(),
-                            elevation = GlassElevation.CARD,
-                            shape = RoundedCornerShape(GlassTokens.RadiusLg)
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(24.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        containerColor = SettingsOledColors.CanvasBlack,
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
+    ) { innerPadding ->
+        AnimatedContent(
+            targetState = activeGroup,
+            transitionSpec = {
+                if (reducedMotion) {
+                    fadeIn() togetherWith fadeOut()
+                } else if (targetState != null && initialState == null) {
+                    (slideInHorizontally { it / 5 } + fadeIn()) togetherWith
+                        (slideOutHorizontally { -it / 6 } + fadeOut())
+                } else {
+                    (slideInHorizontally { -it / 5 } + fadeIn()) togetherWith
+                        (slideOutHorizontally { it / 6 } + fadeOut())
+                }
+            },
+            label = "SettingsHubTransition",
+            modifier = Modifier
+                .fillMaxSize()
+                .background(SettingsOledColors.CanvasBlack)
+                .padding(bottom = innerPadding.calculateBottomPadding())
+        ) { currentGroup ->
+            if (currentGroup == null) {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .imePadding(),
+                    contentPadding = PaddingValues(bottom = bottomPadding)
+                ) {
+                    item(key = "hub_header") {
+                        SettingsHubHeader(
+                            title = strings.screenTitle,
+                            avatarPath = settings.avatarPath,
+                            backLabel = strings.backLabel,
+                            profileLabel = strings.profileTitle,
+                            onBack = onBack,
+                            onAvatarClick = { activeGroup = SettingsGroup.APPEARANCE_LANGUAGE }
+                        )
+                    }
+
+                    item(key = "hub_search_pill") {
+                        SettingsSearchPill(
+                            query = uiState.searchQuery,
+                            placeholder = strings.searchPlaceholder,
+                            clearLabel = strings.clearSearchLabel,
+                            onQueryChange = onSearchQueryChange,
+                            modifier = Modifier
+                                .padding(horizontal = 16.dp)
+                                .padding(top = 12.dp, bottom = 16.dp)
+                        )
+                    }
+
+                    if (uiState.searchQuery.isBlank()) {
+                        item(key = "hub_suggested") {
+                            SettingsMatteCard(
+                                backgroundColor = SettingsOledColors.MatteCard,
+                                cornerRadius = 24,
+                                modifier = Modifier.padding(horizontal = 16.dp)
                             ) {
-                                Text(
-                                    text = strings.noSearchMatchesTitle,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = colors.textPrimary
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp)
+                                ) {
+                                    Text(
+                                        text = strings.suggestedLabel,
+                                        fontSize = 13.sp,
+                                        lineHeight = 18.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = SettingsOledColors.TextSecondary
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    SettingsSuggestedRow(
+                                        icon = Icons.Rounded.Equalizer,
+                                        title = strings.eqTitle,
+                                        breadcrumb = strings.suggestedEqBreadcrumb,
+                                        onClick = { showEqSheet = true }
+                                    )
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(vertical = 4.dp),
+                                        thickness = 1.dp,
+                                        color = SettingsOledColors.InsetDivider
+                                    )
+                                    SettingsSuggestedRow(
+                                        icon = Icons.Rounded.Archive,
+                                        title = strings.transferTitle,
+                                        breadcrumb = strings.suggestedTransferBreadcrumb,
+                                        onClick = { showTransferSheet = true }
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(20.dp))
+                        }
+
+                        SettingsGroup.entries.forEachIndexed { index, group ->
+                            item(key = "category_${group.id}") {
+                                SettingsCategoryPill(
+                                    icon = categoryIconFor(group),
+                                    title = groupTitleFor(group, strings),
+                                    onClick = { activeGroup = group },
+                                    modifier = Modifier.padding(horizontal = 16.dp)
                                 )
-                                Text(
-                                    text = strings.noSearchMatchesBody,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = colors.textSecondary
-                                )
-                                SettingsPillButton(
-                                    text = strings.clearSearchLabel,
-                                    selected = true,
-                                    onClick = { onSearchQueryChange("") }
-                                )
+                                if (index < SettingsGroup.entries.lastIndex) {
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                }
+                            }
+                        }
+                    } else if (filteredEntries.isEmpty()) {
+                        item(key = "empty_search") {
+                            SettingsMatteCard(
+                                backgroundColor = SettingsOledColors.MatteCard,
+                                cornerRadius = 24,
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(24.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Text(
+                                        text = strings.noSearchMatchesTitle,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = SettingsOledColors.TextPrimary
+                                    )
+                                    Text(
+                                        text = strings.noSearchMatchesBody,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = SettingsOledColors.TextSecondary
+                                    )
+                                    SettingsPillButton(
+                                        text = strings.clearSearchLabel,
+                                        selected = true,
+                                        onClick = { onSearchQueryChange("") }
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        SettingsGroup.entries.forEach { group ->
+                            val groupItems = groupedEntries[group].orEmpty()
+                            if (groupItems.isNotEmpty()) {
+                                item(key = "search_${group.id}") {
+                                    SettingsGroupCard(
+                                        title = groupTitleFor(group, strings),
+                                        modifier = Modifier
+                                            .padding(horizontal = 16.dp)
+                                            .padding(bottom = 16.dp)
+                                    ) {
+                                        groupItems.forEachIndexed { index, entry ->
+                                            if (index > 0) {
+                                                SettingsRowDivider()
+                                            }
+                                            renderEntry(entry)
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
-                } else {
-                    SettingsGroup.entries.forEach { group ->
-                        val groupItems = groupedEntries[group].orEmpty()
-                        if (groupItems.isNotEmpty()) {
-                            item(key = group.id) {
-                                val groupTitle = when (group) {
-                                    SettingsGroup.AUDIO_EQ -> strings.groupAudioEq
-                                    SettingsGroup.NOW_PLAYING_MOTION -> strings.groupNowPlayingMotion
-                                    SettingsGroup.APPEARANCE_LANGUAGE -> strings.groupAppearanceLanguage
-                                    SettingsGroup.SOURCES_LINK_IMPORT -> strings.groupSourcesLinkImport
-                                    SettingsGroup.STORAGE_TRANSFER -> strings.groupStorageTransfer
-                                }
-                                SettingsGroupCard(title = groupTitle) {
-                                    groupItems.forEachIndexed { index, entry ->
-                                        if (index > 0) {
-                                            SettingsRowDivider()
-                                        }
-                                        when (entry.id) {
-                                            SettingsEntryId.EQUALIZER_EDITOR -> {
-                                                val presetLabel = EqConfig.builtInPresets.firstOrNull {
-                                                    it.id == settings.eqConfig.activePresetId
-                                                }?.name ?: strings.eqCustomLabel
-                                                SettingsActionRow(
-                                                    icon = Icons.Rounded.Equalizer,
-                                                    title = entry.title,
-                                                    subtitle = entry.subtitle,
-                                                    badgeText = if (settings.eqConfig.enabled) presetLabel else strings.offLabel,
-                                                    badgeAccent = settings.eqConfig.enabled,
-                                                    onClick = { showEqSheet = true }
-                                                )
-                                            }
-                                            SettingsEntryId.LOUDNESS_NORMALIZE -> {
-                                                SettingsToggleRow(
-                                                    icon = Icons.Rounded.VolumeUp,
-                                                    title = entry.title,
-                                                    subtitle = entry.subtitle,
-                                                    checked = settings.eqConfig.normalizeLoudness,
-                                                    onCheckedChange = onNormalizeChange
-                                                )
-                                            }
-                                            SettingsEntryId.GAPLESS_PLAYBACK -> {
-                                                SettingsToggleRow(
-                                                    icon = Icons.Rounded.GraphicEq,
-                                                    title = entry.title,
-                                                    subtitle = entry.subtitle,
-                                                    checked = settings.eqConfig.gaplessEnabled,
-                                                    onCheckedChange = onGaplessChange
-                                                )
-                                            }
-                                            SettingsEntryId.CROSSFADE_DURATION -> {
-                                                SettingsActionRow(
-                                                    icon = Icons.Rounded.Tune,
-                                                    title = entry.title,
-                                                    subtitle = entry.subtitle,
-                                                    badgeText = if (settings.eqConfig.crossfadeSeconds == 0) {
-                                                        strings.offLabel
-                                                    } else {
-                                                        "${settings.eqConfig.crossfadeSeconds}s"
-                                                    },
-                                                    badgeAccent = settings.eqConfig.crossfadeSeconds > 0,
-                                                    onClick = { showEqSheet = true }
-                                                )
-                                            }
-                                            SettingsEntryId.PLAYER_STYLE_PICKER -> {
-                                                SettingsActionRow(
-                                                    icon = Icons.Rounded.Palette,
-                                                    title = entry.title,
-                                                    subtitle = entry.subtitle,
-                                                    badgeText = settings.playerStyle.label,
-                                                    badgeAccent = true,
-                                                    onClick = { showPlayerStyleSheet = true }
-                                                )
-                                            }
-                                            SettingsEntryId.GLASS_BLUR -> {
-                                                SettingsToggleRow(
-                                                    icon = Icons.Rounded.BlurOn,
-                                                    title = entry.title,
-                                                    subtitle = entry.subtitle,
-                                                    checked = settings.glassBlurEnabled,
-                                                    onCheckedChange = onGlassBlurChange
-                                                )
-                                            }
-                                            SettingsEntryId.DYNAMIC_MESH -> {
-                                                SettingsToggleRow(
-                                                    icon = Icons.Rounded.Gradient,
-                                                    title = entry.title,
-                                                    subtitle = entry.subtitle,
-                                                    checked = settings.dynamicMeshEnabled,
-                                                    onCheckedChange = onDynamicMeshChange
-                                                )
-                                            }
-                                            SettingsEntryId.LYRICS_MOTION -> {
-                                                SettingsToggleRow(
-                                                    icon = Icons.Rounded.MusicNote,
-                                                    title = entry.title,
-                                                    subtitle = entry.subtitle,
-                                                    checked = settings.lyricsMotionEnabled,
-                                                    onCheckedChange = onLyricsMotionChange
-                                                )
-                                            }
-                                            SettingsEntryId.LYRICS_FONT_SCALE -> {
-                                                Column(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                                                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                                                ) {
-                                                    Row(
-                                                        modifier = Modifier.fillMaxWidth(),
-                                                        verticalAlignment = Alignment.CenterVertically
-                                                    ) {
-                                                        Icon(
-                                                            imageVector = Icons.Rounded.TextFields,
-                                                            contentDescription = null,
-                                                            tint = colors.accent,
-                                                            modifier = Modifier.size(20.dp)
-                                                        )
-                                                        Spacer(modifier = Modifier.width(12.dp))
-                                                        Column(modifier = Modifier.weight(1f)) {
-                                                            Text(
-                                                                text = entry.title,
-                                                                style = MaterialTheme.typography.titleSmall,
-                                                                fontWeight = FontWeight.SemiBold,
-                                                                color = colors.textPrimary
-                                                            )
-                                                            Text(
-                                                                text = entry.subtitle,
-                                                                style = MaterialTheme.typography.bodySmall,
-                                                                color = colors.textSecondary
-                                                            )
-                                                        }
-                                                        Text(
-                                                            text = String.format(Locale.US, "%.2fx", settings.lyricsFontScale),
-                                                            style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
-                                                            color = colors.accent
-                                                        )
-                                                    }
-                                                    Slider(
-                                                        value = settings.lyricsFontScale,
-                                                        onValueChange = { raw ->
-                                                            val snapped = (round(raw * 20f) / 20f).coerceIn(0.75f, 1.75f)
-                                                            onLyricsFontScaleChange(snapped)
-                                                        },
-                                                        valueRange = 0.75f..1.75f,
-                                                        colors = SliderDefaults.colors(
-                                                            thumbColor = GlassTokens.TextPrimary,
-                                                            activeTrackColor = colors.accent,
-                                                            inactiveTrackColor = GlassTokens.GlassHighlight.copy(alpha = 0.16f)
-                                                        )
-                                                    )
-                                                }
-                                            }
-                                            SettingsEntryId.HAPTIC_FEEDBACK -> {
-                                                SettingsToggleRow(
-                                                    icon = Icons.Rounded.Vibration,
-                                                    title = entry.title,
-                                                    subtitle = entry.subtitle,
-                                                    checked = settings.hapticsEnabled,
-                                                    onCheckedChange = onHapticsChange
-                                                )
-                                            }
-                                            SettingsEntryId.PROFILE_CARD -> {
-                                                ProfileSettingsCardRow(
-                                                    username = settings.username,
-                                                    avatarPath = settings.avatarPath,
-                                                    strings = strings,
-                                                    onEditName = { showUsernameDialog = true },
-                                                    onPickAvatar = {
-                                                        avatarPickerLauncher.launch(arrayOf("image/*"))
-                                                    },
-                                                    onClearAvatar = onAvatarClear
-                                                )
-                                            }
-                                            SettingsEntryId.LANGUAGE_TOGGLE -> {
-                                                Column(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                                                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                                                ) {
-                                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                                        Icon(
-                                                            imageVector = Icons.Rounded.Translate,
-                                                            contentDescription = null,
-                                                            tint = colors.accent,
-                                                            modifier = Modifier.size(20.dp)
-                                                        )
-                                                        Spacer(modifier = Modifier.width(12.dp))
-                                                        Column(modifier = Modifier.weight(1f)) {
-                                                            Text(
-                                                                text = entry.title,
-                                                                style = MaterialTheme.typography.titleSmall,
-                                                                fontWeight = FontWeight.SemiBold,
-                                                                color = colors.textPrimary
-                                                            )
-                                                            Text(
-                                                                text = entry.subtitle,
-                                                                style = MaterialTheme.typography.bodySmall,
-                                                                color = colors.textSecondary
-                                                            )
-                                                        }
-                                                    }
-                                                    Row(
-                                                        modifier = Modifier.fillMaxWidth(),
-                                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                                    ) {
-                                                        SettingsPillButton(
-                                                            text = strings.languageEnglish,
-                                                            selected = settings.languageCode != "vi",
-                                                            onClick = { onLanguageChange("en") },
-                                                            modifier = Modifier.weight(1f)
-                                                        )
-                                                        SettingsPillButton(
-                                                            text = strings.languageVietnamese,
-                                                            selected = settings.languageCode == "vi",
-                                                            onClick = { onLanguageChange("vi") },
-                                                            modifier = Modifier.weight(1f)
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                            SettingsEntryId.MONOCHROME_FLAC -> {
-                                                SettingsToggleRow(
-                                                    icon = Icons.Rounded.HighQuality,
-                                                    title = entry.title,
-                                                    subtitle = entry.subtitle,
-                                                    checked = settings.monochromeEnabled,
-                                                    onCheckedChange = onMonochromeChange
-                                                )
-                                            }
-                                            SettingsEntryId.YT_COOKIE -> {
-                                                val hasCookie = !settings.ytCookie.isNullOrBlank()
-                                                SettingsActionRow(
-                                                    icon = Icons.Rounded.Key,
-                                                    title = entry.title,
-                                                    subtitle = entry.subtitle,
-                                                    badgeText = if (hasCookie) strings.configuredLabel else strings.notSetLabel,
-                                                    badgeAccent = hasCookie,
-                                                    onClick = { showYtCookieDialog = true }
-                                                )
-                                            }
-                                            SettingsEntryId.PROXY_URL -> {
-                                                val proxy = settings.proxyUrl
-                                                SettingsActionRow(
-                                                    icon = Icons.Rounded.Language,
-                                                    title = entry.title,
-                                                    subtitle = entry.subtitle,
-                                                    badgeText = proxy?.takeIf { it.isNotBlank() } ?: strings.notSetLabel,
-                                                    badgeAccent = !proxy.isNullOrBlank(),
-                                                    onClick = { showProxyDialog = true }
-                                                )
-                                            }
-                                            SettingsEntryId.LINK_IMPORTER -> {
-                                                LinkImporterRow(
-                                                    state = uiState.linkImport,
-                                                    strings = strings,
-                                                    onInputChange = onLinkInputChange,
-                                                    onImport = { onImportLink(uiState.linkImport.inputUrl) }
-                                                )
-                                            }
-                                            SettingsEntryId.TRANSFER_HUB -> {
-                                                SettingsActionRow(
-                                                    icon = Icons.Rounded.Archive,
-                                                    title = entry.title,
-                                                    subtitle = entry.subtitle,
-                                                    badgeText = "ZIP",
-                                                    badgeAccent = true,
-                                                    onClick = { showTransferSheet = true }
-                                                )
-                                            }
-                                            SettingsEntryId.CACHE_CLEAR -> {
-                                                CacheControlRow(
-                                                    cacheSizeBytes = uiState.cacheSizeBytes,
-                                                    downloadsSizeBytes = uiState.downloadsSizeBytes,
-                                                    cachedStreamCount = uiState.cachedStreamCount,
-                                                    isClearing = uiState.isClearingCache,
-                                                    strings = strings,
-                                                    onClearCache = onClearCache
-                                                )
-                                            }
-                                            SettingsEntryId.CACHE_LIMIT -> {
-                                                Column(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                                                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                                                ) {
-                                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                                        Icon(
-                                                            imageVector = Icons.Rounded.Storage,
-                                                            contentDescription = null,
-                                                            tint = colors.accent,
-                                                            modifier = Modifier.size(20.dp)
-                                                        )
-                                                        Spacer(modifier = Modifier.width(12.dp))
-                                                        Column(modifier = Modifier.weight(1f)) {
-                                                            Text(
-                                                                text = entry.title,
-                                                                style = MaterialTheme.typography.titleSmall,
-                                                                fontWeight = FontWeight.SemiBold,
-                                                                color = colors.textPrimary
-                                                            )
-                                                            Text(
-                                                                text = entry.subtitle,
-                                                                style = MaterialTheme.typography.bodySmall,
-                                                                color = colors.textSecondary
-                                                            )
-                                                        }
-                                                    }
-                                                    FlowRow(
-                                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                                                    ) {
-                                                        listOf(256, 512, 1024, 2048).forEach { mb ->
-                                                            SettingsPillButton(
-                                                                text = if (mb >= 1024) "${mb / 1024} GB" else "$mb MB",
-                                                                selected = settings.maxCacheMb == mb,
-                                                                onClick = { onMaxCacheMbChange(mb) }
-                                                            )
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            SettingsEntryId.DOWNLOAD_FOLDER -> {
-                                                Row(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Rounded.FolderOpen,
-                                                        contentDescription = null,
-                                                        tint = colors.accent,
-                                                        modifier = Modifier.size(20.dp)
-                                                    )
-                                                    Spacer(modifier = Modifier.width(12.dp))
-                                                    Column(modifier = Modifier.weight(1f)) {
-                                                        Text(
-                                                            text = entry.title,
-                                                            style = MaterialTheme.typography.titleSmall,
-                                                            fontWeight = FontWeight.SemiBold,
-                                                            color = colors.textPrimary
-                                                        )
-                                                        Text(
-                                                            text = settings.downloadTreeUri ?: entry.subtitle,
-                                                            style = MaterialTheme.typography.bodySmall,
-                                                            color = colors.textSecondary,
-                                                            maxLines = 2,
-                                                            overflow = TextOverflow.Ellipsis
-                                                        )
-                                                    }
-                                                    Spacer(modifier = Modifier.width(8.dp))
-                                                    if (!settings.downloadTreeUri.isNullOrBlank()) {
-                                                        TextButton(
-                                                            onClick = { onDownloadFolderPicked(null) },
-                                                            modifier = Modifier.defaultMinSize(minHeight = DockMetrics.MinTapTarget)
-                                                        ) {
-                                                            Text(text = strings.clearLabel, color = colors.error)
-                                                        }
-                                                    }
-                                                    OutlinedButton(
-                                                        onClick = { folderPickerLauncher.launch(null) },
-                                                        modifier = Modifier.defaultMinSize(minHeight = DockMetrics.MinTapTarget),
-                                                        shape = RoundedCornerShape(GlassTokens.RadiusPill)
-                                                    ) {
-                                                        Text(text = strings.chooseFolderLabel, maxLines = 1)
-                                                    }
-                                                }
-                                            }
-                                            SettingsEntryId.RESET_DEFAULTS -> {
-                                                SettingsActionRow(
-                                                    icon = Icons.Rounded.RestartAlt,
-                                                    title = entry.title,
-                                                    subtitle = entry.subtitle,
-                                                    destructive = true,
-                                                    onClick = { showResetDialog = true }
-                                                )
-                                            }
-                                        }
+                }
+            } else {
+                val detailEntries = remember(allEntries, currentGroup) {
+                    allEntries.filter { it.group == currentGroup }
+                }
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(SettingsOledColors.CanvasBlack)
+                ) {
+                    SettingsDetailTopBar(
+                        title = groupTitleFor(currentGroup, strings),
+                        backLabel = strings.backLabel,
+                        onBack = { activeGroup = null }
+                    )
+
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .imePadding(),
+                        contentPadding = PaddingValues(
+                            start = 16.dp,
+                            end = 16.dp,
+                            top = 8.dp,
+                            bottom = bottomPadding
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        item(key = "detail_${currentGroup.id}") {
+                            SettingsGroupCard {
+                                detailEntries.forEachIndexed { index, entry ->
+                                    if (index > 0) {
+                                        SettingsRowDivider()
                                     }
+                                    renderEntry(entry)
                                 }
                             }
                         }
@@ -789,6 +578,454 @@ fun SettingsScreen(
     }
 }
 
+private fun groupTitleFor(group: SettingsGroup, strings: SettingsStrings): String = when (group) {
+    SettingsGroup.AUDIO_EQ -> strings.groupAudioEq
+    SettingsGroup.NOW_PLAYING_MOTION -> strings.groupNowPlayingMotion
+    SettingsGroup.APPEARANCE_LANGUAGE -> strings.groupAppearanceLanguage
+    SettingsGroup.SOURCES_LINK_IMPORT -> strings.groupSourcesLinkImport
+    SettingsGroup.STORAGE_TRANSFER -> strings.groupStorageTransfer
+}
+
+private fun categoryIconFor(group: SettingsGroup): ImageVector = when (group) {
+    SettingsGroup.AUDIO_EQ -> Icons.Rounded.Equalizer
+    SettingsGroup.NOW_PLAYING_MOTION -> Icons.Rounded.Palette
+    SettingsGroup.APPEARANCE_LANGUAGE -> Icons.Rounded.Translate
+    SettingsGroup.SOURCES_LINK_IMPORT -> Icons.Rounded.Link
+    SettingsGroup.STORAGE_TRANSFER -> Icons.Rounded.Storage
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SettingsEntryRow(
+    entry: SettingsSearchEntry,
+    uiState: SettingsUiState,
+    strings: SettingsStrings,
+    onOpenEq: () -> Unit,
+    onNormalizeChange: (Boolean) -> Unit,
+    onGaplessChange: (Boolean) -> Unit,
+    onOpenPlayerStyle: () -> Unit,
+    onGlassBlurChange: (Boolean) -> Unit,
+    onDynamicMeshChange: (Boolean) -> Unit,
+    onLyricsMotionChange: (Boolean) -> Unit,
+    onLyricsFontScaleChange: (Float) -> Unit,
+    onHapticsChange: (Boolean) -> Unit,
+    onEditUsername: () -> Unit,
+    onPickAvatar: () -> Unit,
+    onClearAvatar: () -> Unit,
+    onLanguageChange: (String) -> Unit,
+    onMonochromeChange: (Boolean) -> Unit,
+    onOpenYtCookie: () -> Unit,
+    onOpenProxy: () -> Unit,
+    onLinkInputChange: (String) -> Unit,
+    onImportLink: () -> Unit,
+    onOpenTransfer: () -> Unit,
+    onClearCache: () -> Unit,
+    onMaxCacheMbChange: (Int) -> Unit,
+    onPickDownloadFolder: () -> Unit,
+    onClearDownloadFolder: () -> Unit,
+    onOpenReset: () -> Unit
+) {
+    val settings = uiState.settings
+    when (entry.id) {
+        SettingsEntryId.EQUALIZER_EDITOR -> {
+            val presetLabel = EqConfig.builtInPresets.firstOrNull {
+                it.id == settings.eqConfig.activePresetId
+            }?.name ?: strings.eqCustomLabel
+            SettingsActionRow(
+                icon = Icons.Rounded.Equalizer,
+                title = entry.title,
+                subtitle = entry.subtitle,
+                badgeText = if (settings.eqConfig.enabled) presetLabel else strings.offLabel,
+                badgeAccent = settings.eqConfig.enabled,
+                onClick = onOpenEq
+            )
+        }
+        SettingsEntryId.LOUDNESS_NORMALIZE -> {
+            SettingsToggleRow(
+                icon = Icons.Rounded.VolumeUp,
+                title = entry.title,
+                subtitle = entry.subtitle,
+                checked = settings.eqConfig.normalizeLoudness,
+                onCheckedChange = onNormalizeChange
+            )
+        }
+        SettingsEntryId.GAPLESS_PLAYBACK -> {
+            SettingsToggleRow(
+                icon = Icons.Rounded.GraphicEq,
+                title = entry.title,
+                subtitle = entry.subtitle,
+                checked = settings.eqConfig.gaplessEnabled,
+                onCheckedChange = onGaplessChange
+            )
+        }
+        SettingsEntryId.CROSSFADE_DURATION -> {
+            SettingsActionRow(
+                icon = Icons.Rounded.Tune,
+                title = entry.title,
+                subtitle = entry.subtitle,
+                badgeText = if (settings.eqConfig.crossfadeSeconds == 0) {
+                    strings.offLabel
+                } else {
+                    "${settings.eqConfig.crossfadeSeconds}s"
+                },
+                badgeAccent = settings.eqConfig.crossfadeSeconds > 0,
+                onClick = onOpenEq
+            )
+        }
+        SettingsEntryId.PLAYER_STYLE_PICKER -> {
+            SettingsActionRow(
+                icon = Icons.Rounded.Palette,
+                title = entry.title,
+                subtitle = entry.subtitle,
+                badgeText = settings.playerStyle.label,
+                badgeAccent = true,
+                onClick = onOpenPlayerStyle
+            )
+        }
+        SettingsEntryId.GLASS_BLUR -> {
+            SettingsToggleRow(
+                icon = Icons.Rounded.BlurOn,
+                title = entry.title,
+                subtitle = entry.subtitle,
+                checked = settings.glassBlurEnabled,
+                onCheckedChange = onGlassBlurChange
+            )
+        }
+        SettingsEntryId.DYNAMIC_MESH -> {
+            SettingsToggleRow(
+                icon = Icons.Rounded.Gradient,
+                title = entry.title,
+                subtitle = entry.subtitle,
+                checked = settings.dynamicMeshEnabled,
+                onCheckedChange = onDynamicMeshChange
+            )
+        }
+        SettingsEntryId.LYRICS_MOTION -> {
+            SettingsToggleRow(
+                icon = Icons.Rounded.MusicNote,
+                title = entry.title,
+                subtitle = entry.subtitle,
+                checked = settings.lyricsMotionEnabled,
+                onCheckedChange = onLyricsMotionChange
+            )
+        }
+        SettingsEntryId.LYRICS_FONT_SCALE -> {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(SettingsOledColors.IconBadge),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.TextFields,
+                            contentDescription = null,
+                            tint = SettingsOledColors.TextPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = entry.title,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = SettingsOledColors.TextPrimary
+                        )
+                        Text(
+                            text = entry.subtitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = SettingsOledColors.TextSecondary
+                        )
+                    }
+                    Text(
+                        text = String.format(Locale.US, "%.2fx", settings.lyricsFontScale),
+                        style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
+                        color = SettingsOledColors.TextPrimary
+                    )
+                }
+                Slider(
+                    value = settings.lyricsFontScale,
+                    onValueChange = { raw ->
+                        val snapped = (round(raw * 20f) / 20f).coerceIn(0.75f, 1.75f)
+                        onLyricsFontScaleChange(snapped)
+                    },
+                    valueRange = 0.75f..1.75f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = SettingsOledColors.TextPrimary,
+                        activeTrackColor = SettingsOledColors.TextPrimary,
+                        inactiveTrackColor = SettingsOledColors.InactiveTrack
+                    )
+                )
+            }
+        }
+        SettingsEntryId.HAPTIC_FEEDBACK -> {
+            SettingsToggleRow(
+                icon = Icons.Rounded.Vibration,
+                title = entry.title,
+                subtitle = entry.subtitle,
+                checked = settings.hapticsEnabled,
+                onCheckedChange = onHapticsChange
+            )
+        }
+        SettingsEntryId.PROFILE_CARD -> {
+            ProfileSettingsCardRow(
+                username = settings.username,
+                avatarPath = settings.avatarPath,
+                strings = strings,
+                onEditName = onEditUsername,
+                onPickAvatar = onPickAvatar,
+                onClearAvatar = onClearAvatar
+            )
+        }
+        SettingsEntryId.LANGUAGE_TOGGLE -> {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(SettingsOledColors.IconBadge),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Translate,
+                            contentDescription = null,
+                            tint = SettingsOledColors.TextPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = entry.title,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = SettingsOledColors.TextPrimary
+                        )
+                        Text(
+                            text = entry.subtitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = SettingsOledColors.TextSecondary
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    SettingsPillButton(
+                        text = strings.languageEnglish,
+                        selected = settings.languageCode != "vi",
+                        onClick = { onLanguageChange("en") },
+                        modifier = Modifier.weight(1f)
+                    )
+                    SettingsPillButton(
+                        text = strings.languageVietnamese,
+                        selected = settings.languageCode == "vi",
+                        onClick = { onLanguageChange("vi") },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+        SettingsEntryId.MONOCHROME_FLAC -> {
+            SettingsToggleRow(
+                icon = Icons.Rounded.HighQuality,
+                title = entry.title,
+                subtitle = entry.subtitle,
+                checked = settings.monochromeEnabled,
+                onCheckedChange = onMonochromeChange
+            )
+        }
+        SettingsEntryId.YT_COOKIE -> {
+            val hasCookie = !settings.ytCookie.isNullOrBlank()
+            SettingsActionRow(
+                icon = Icons.Rounded.Key,
+                title = entry.title,
+                subtitle = entry.subtitle,
+                badgeText = if (hasCookie) strings.configuredLabel else strings.notSetLabel,
+                badgeAccent = hasCookie,
+                onClick = onOpenYtCookie
+            )
+        }
+        SettingsEntryId.PROXY_URL -> {
+            val proxy = settings.proxyUrl
+            SettingsActionRow(
+                icon = Icons.Rounded.Language,
+                title = entry.title,
+                subtitle = entry.subtitle,
+                badgeText = proxy?.takeIf { it.isNotBlank() } ?: strings.notSetLabel,
+                badgeAccent = !proxy.isNullOrBlank(),
+                onClick = onOpenProxy
+            )
+        }
+        SettingsEntryId.LINK_IMPORTER -> {
+            LinkImporterRow(
+                state = uiState.linkImport,
+                strings = strings,
+                onInputChange = onLinkInputChange,
+                onImport = onImportLink
+            )
+        }
+        SettingsEntryId.TRANSFER_HUB -> {
+            SettingsActionRow(
+                icon = Icons.Rounded.Archive,
+                title = entry.title,
+                subtitle = entry.subtitle,
+                badgeText = "ZIP",
+                badgeAccent = true,
+                onClick = onOpenTransfer
+            )
+        }
+        SettingsEntryId.CACHE_CLEAR -> {
+            CacheControlRow(
+                cacheSizeBytes = uiState.cacheSizeBytes,
+                downloadsSizeBytes = uiState.downloadsSizeBytes,
+                cachedStreamCount = uiState.cachedStreamCount,
+                isClearing = uiState.isClearingCache,
+                strings = strings,
+                onClearCache = onClearCache
+            )
+        }
+        SettingsEntryId.CACHE_LIMIT -> {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(SettingsOledColors.IconBadge),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Storage,
+                            contentDescription = null,
+                            tint = SettingsOledColors.TextPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = entry.title,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = SettingsOledColors.TextPrimary
+                        )
+                        Text(
+                            text = entry.subtitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = SettingsOledColors.TextSecondary
+                        )
+                    }
+                }
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(256, 512, 1024, 2048).forEach { mb ->
+                        SettingsPillButton(
+                            text = if (mb >= 1024) "${mb / 1024} GB" else "$mb MB",
+                            selected = settings.maxCacheMb == mb,
+                            onClick = { onMaxCacheMbChange(mb) }
+                        )
+                    }
+                }
+            }
+        }
+        SettingsEntryId.DOWNLOAD_FOLDER -> {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(SettingsOledColors.IconBadge),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.FolderOpen,
+                        contentDescription = null,
+                        tint = SettingsOledColors.TextPrimary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = entry.title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = SettingsOledColors.TextPrimary
+                    )
+                    Text(
+                        text = settings.downloadTreeUri ?: entry.subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = SettingsOledColors.TextSecondary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                if (!settings.downloadTreeUri.isNullOrBlank()) {
+                    TextButton(
+                        onClick = onClearDownloadFolder,
+                        modifier = Modifier.defaultMinSize(minHeight = DockMetrics.MinTapTarget)
+                    ) {
+                        Text(text = strings.clearLabel, color = SettingsOledColors.ErrorTint)
+                    }
+                }
+                Button(
+                    onClick = onPickDownloadFolder,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = SettingsOledColors.IconBadge,
+                        contentColor = SettingsOledColors.TextPrimary
+                    ),
+                    elevation = null,
+                    shape = RoundedCornerShape(999.dp),
+                    modifier = Modifier.defaultMinSize(minHeight = DockMetrics.MinTapTarget)
+                ) {
+                    Text(text = strings.chooseFolderLabel, maxLines = 1)
+                }
+            }
+        }
+        SettingsEntryId.RESET_DEFAULTS -> {
+            SettingsActionRow(
+                icon = Icons.Rounded.RestartAlt,
+                title = entry.title,
+                subtitle = entry.subtitle,
+                destructive = true,
+                onClick = onOpenReset
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ProfileSettingsCardRow(
@@ -799,7 +1036,6 @@ private fun ProfileSettingsCardRow(
     onPickAvatar: () -> Unit,
     onClearAvatar: () -> Unit
 ) {
-    val colors = OndaTheme.colors
     val avatarFile = remember(avatarPath) {
         avatarPath?.let { File(it) }?.takeIf { it.exists() }
     }
@@ -818,8 +1054,7 @@ private fun ProfileSettingsCardRow(
                 modifier = Modifier
                     .size(56.dp)
                     .clip(CircleShape)
-                    .background(colors.accent.copy(alpha = 0.16f))
-                    .border(1.dp, GlassTokens.SpecularIce, CircleShape),
+                    .background(SettingsOledColors.IconBadge),
                 contentAlignment = Alignment.Center
             ) {
                 if (avatarFile != null) {
@@ -833,7 +1068,7 @@ private fun ProfileSettingsCardRow(
                     Icon(
                         imageVector = Icons.Rounded.Person,
                         contentDescription = null,
-                        tint = colors.accent,
+                        tint = SettingsOledColors.TextPrimary,
                         modifier = Modifier.size(28.dp)
                     )
                 }
@@ -844,14 +1079,14 @@ private fun ProfileSettingsCardRow(
                     text = username.ifBlank { strings.defaultListenerName },
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
-                    color = colors.textPrimary,
+                    color = SettingsOledColors.TextPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = strings.profileSubtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = colors.textSecondary,
+                    color = SettingsOledColors.TextSecondary,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -862,17 +1097,27 @@ private fun ProfileSettingsCardRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            OutlinedButton(
+            Button(
                 onClick = onEditName,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = SettingsOledColors.IconBadge,
+                    contentColor = SettingsOledColors.TextPrimary
+                ),
+                elevation = null,
                 modifier = Modifier.defaultMinSize(minHeight = DockMetrics.MinTapTarget),
-                shape = RoundedCornerShape(GlassTokens.RadiusPill)
+                shape = RoundedCornerShape(999.dp)
             ) {
                 Text(text = strings.editNameLabel)
             }
-            OutlinedButton(
+            Button(
                 onClick = onPickAvatar,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = SettingsOledColors.IconBadge,
+                    contentColor = SettingsOledColors.TextPrimary
+                ),
+                elevation = null,
                 modifier = Modifier.defaultMinSize(minHeight = DockMetrics.MinTapTarget),
-                shape = RoundedCornerShape(GlassTokens.RadiusPill)
+                shape = RoundedCornerShape(999.dp)
             ) {
                 Text(text = strings.changeAvatarLabel)
             }
@@ -881,7 +1126,7 @@ private fun ProfileSettingsCardRow(
                     onClick = onClearAvatar,
                     modifier = Modifier.defaultMinSize(minHeight = DockMetrics.MinTapTarget)
                 ) {
-                    Text(text = strings.removeAvatarLabel, color = colors.error)
+                    Text(text = strings.removeAvatarLabel, color = SettingsOledColors.ErrorTint)
                 }
             }
         }
@@ -895,7 +1140,6 @@ private fun LinkImporterRow(
     onInputChange: (String) -> Unit,
     onImport: () -> Unit
 ) {
-    val colors = OndaTheme.colors
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -903,34 +1147,42 @@ private fun LinkImporterRow(
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = Icons.Rounded.Link,
-                contentDescription = null,
-                tint = colors.accent,
-                modifier = Modifier.size(20.dp)
-            )
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(SettingsOledColors.IconBadge),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Link,
+                    contentDescription = null,
+                    tint = SettingsOledColors.TextPrimary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = strings.linkImporterTitle,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
-                    color = colors.textPrimary
+                    color = SettingsOledColors.TextPrimary
                 )
                 Text(
                     text = strings.linkImporterSubtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = colors.textSecondary
+                    color = SettingsOledColors.TextSecondary
                 )
             }
             state.detectedProvider?.let { provider ->
                 Text(
                     text = provider.name,
                     style = MaterialTheme.typography.labelSmall,
-                    color = colors.accent,
+                    color = SettingsOledColors.TextPrimary,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(GlassTokens.RadiusPill))
-                        .background(colors.accent.copy(alpha = 0.14f))
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(SettingsOledColors.IconBadge)
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 )
             }
@@ -940,21 +1192,24 @@ private fun LinkImporterRow(
             value = state.inputUrl,
             onValueChange = onInputChange,
             singleLine = true,
+            shape = RoundedCornerShape(16.dp),
             placeholder = {
                 Text(
                     text = strings.linkInputPlaceholder,
                     style = MaterialTheme.typography.bodySmall,
-                    color = colors.textTertiary,
+                    color = SettingsOledColors.TextMuted,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             },
             colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = colors.textPrimary,
-                unfocusedTextColor = colors.textPrimary,
-                focusedBorderColor = colors.accent,
-                unfocusedBorderColor = GlassTokens.SpecularEdgeDim,
-                cursorColor = colors.accent
+                focusedTextColor = SettingsOledColors.TextPrimary,
+                unfocusedTextColor = SettingsOledColors.TextPrimary,
+                focusedContainerColor = SettingsOledColors.IconBadge,
+                unfocusedContainerColor = SettingsOledColors.IconBadge,
+                focusedBorderColor = Color.Transparent,
+                unfocusedBorderColor = Color.Transparent,
+                cursorColor = SettingsOledColors.TextPrimary
             ),
             modifier = Modifier.fillMaxWidth()
         )
@@ -963,14 +1218,14 @@ private fun LinkImporterRow(
             Text(
                 text = err,
                 style = MaterialTheme.typography.bodySmall,
-                color = colors.error
+                color = SettingsOledColors.ErrorTint
             )
         }
         state.lastImportedTitle?.let { title ->
             Text(
                 text = String.format(strings.linkImportedSummary, state.lastImportedCount, title),
                 style = MaterialTheme.typography.bodySmall,
-                color = colors.success
+                color = SettingsOledColors.SuccessTint
             )
         }
 
@@ -978,10 +1233,11 @@ private fun LinkImporterRow(
             onClick = onImport,
             enabled = !state.isImporting,
             colors = ButtonDefaults.buttonColors(
-                containerColor = colors.accent,
-                contentColor = GlassTokens.AmoledBlack
+                containerColor = SettingsOledColors.TextPrimary,
+                contentColor = SettingsOledColors.CanvasBlack
             ),
-            shape = RoundedCornerShape(GlassTokens.RadiusMd),
+            elevation = null,
+            shape = RoundedCornerShape(999.dp),
             modifier = Modifier
                 .fillMaxWidth()
                 .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
@@ -990,7 +1246,7 @@ private fun LinkImporterRow(
                 CircularProgressIndicator(
                     modifier = Modifier.size(18.dp),
                     strokeWidth = 2.dp,
-                    color = GlassTokens.AmoledBlack
+                    color = SettingsOledColors.CanvasBlack
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(text = strings.importingLabel)
@@ -1010,19 +1266,26 @@ private fun CacheControlRow(
     strings: SettingsStrings,
     onClearCache: () -> Unit
 ) {
-    val colors = OndaTheme.colors
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            imageVector = Icons.Rounded.DeleteSweep,
-            contentDescription = null,
-            tint = colors.accent,
-            modifier = Modifier.size(20.dp)
-        )
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(SettingsOledColors.IconBadge),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.DeleteSweep,
+                contentDescription = null,
+                tint = SettingsOledColors.TextPrimary,
+                modifier = Modifier.size(20.dp)
+            )
+        }
         Spacer(modifier = Modifier.width(12.dp))
         Column(
             modifier = Modifier.weight(1f),
@@ -1032,29 +1295,34 @@ private fun CacheControlRow(
                 text = strings.cacheSizeTitle,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
-                color = colors.textPrimary
+                color = SettingsOledColors.TextPrimary
             )
             Text(
                 text = "${formatByteSize(cacheSizeBytes)} · $cachedStreamCount URL · " +
                     "Offline: ${formatByteSize(downloadsSizeBytes)}",
                 style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
-                color = colors.textSecondary,
+                color = SettingsOledColors.TextSecondary,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
         }
         Spacer(modifier = Modifier.width(8.dp))
-        OutlinedButton(
+        Button(
             onClick = onClearCache,
             enabled = !isClearing,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = SettingsOledColors.IconBadge,
+                contentColor = SettingsOledColors.TextPrimary
+            ),
+            elevation = null,
             modifier = Modifier.defaultMinSize(minHeight = DockMetrics.MinTapTarget),
-            shape = RoundedCornerShape(GlassTokens.RadiusPill)
+            shape = RoundedCornerShape(999.dp)
         ) {
             if (isClearing) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(16.dp),
                     strokeWidth = 2.dp,
-                    color = colors.accent
+                    color = SettingsOledColors.TextPrimary
                 )
             } else {
                 Text(text = strings.clearCacheButton, maxLines = 1)

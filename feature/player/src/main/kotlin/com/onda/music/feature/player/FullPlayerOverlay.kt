@@ -22,17 +22,22 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Style
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -47,6 +52,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -56,9 +62,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import com.onda.music.core.design.AgslMeshBackground
 import com.onda.music.core.design.DockMetrics
-import com.onda.music.core.design.GlassElevation
 import com.onda.music.core.design.GlassTokens
 import com.onda.music.core.design.LikeBurstOverlay
 import com.onda.music.core.design.LocalOndaColors
@@ -66,8 +70,6 @@ import com.onda.music.core.design.LocalOndaPalette
 import com.onda.music.core.design.MorphingCornerClipShape
 import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.design.rememberLikeBurstState
-import com.onda.music.core.design.smokedGlass
-import com.onda.music.core.model.PlaybackStatus
 import com.onda.music.core.model.PlayerStyle
 import com.onda.music.feature.player.styles.BedsidePlayerStyle
 import com.onda.music.feature.player.styles.BedsideTilesPlayerStyle
@@ -159,6 +161,9 @@ fun FullPlayerOverlay(
         )
     }
 
+    val isPosterStyle = settings.playerStyle == PlayerStyle.POSTER
+    var showPosterOverflowMenu by remember { mutableStateOf(false) }
+
     val stageContext = remember(
         playbackState,
         settings,
@@ -221,53 +226,204 @@ fun FullPlayerOverlay(
                     shape = morphShape
                     clip = true
                 }
-        ) {
-            AgslMeshBackground(
-                palette = palette,
-                animated = settings.dynamicMeshEnabled && playbackState.status == PlaybackStatus.PLAYING,
-                dimAlpha = if (settings.playerStyle == PlayerStyle.BEDSIDE) 0.85f else 0.52f,
-                modifier = Modifier.fillMaxSize()
-            )
-
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-            ) {
-                FullPlayerTopHeader(
-                    activeStyle = settings.playerStyle,
-                    sleepTimerRemainingMs = playbackState.sleepTimerRemainingMs,
-                    morphFraction = clampedMorph,
-                    containerHeightPx = containerHeightPx,
-                    onMorphFractionChange = onMorphFractionChange,
-                    onCollapse = onCollapse,
-                    onOpenStylePicker = { showStylePickerSheet = true },
-                    onOpenQueue = { showQueueSheet = true },
-                    onOpenSleepTimer = { showSleepTimerSheet = true },
-                    onOpenSettings = onOpenSettings
+                .background(Color(0xFF000000))
+                .then(
+                    if (isPosterStyle) {
+                        Modifier.verticalCollapseDrag(
+                            morphFraction = clampedMorph,
+                            containerHeightPx = containerHeightPx,
+                            onMorphFractionChange = onMorphFractionChange,
+                            onCollapse = onCollapse
+                        )
+                    } else {
+                        Modifier
+                    }
                 )
+        ) {
+            if (isPosterStyle) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    PosterPlayerStyle(
+                        ctx = stageContext,
+                        modifier = Modifier.fillMaxSize()
+                    )
 
-                Box(
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .statusBarsPadding()
+                            .padding(top = 8.dp, end = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box {
+                            IconButton(
+                                onClick = { showPosterOverflowMenu = true },
+                                modifier = Modifier.defaultMinSize(
+                                    minWidth = DockMetrics.MinTapTarget,
+                                    minHeight = DockMetrics.MinTapTarget
+                                )
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0x40000000)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.MoreHoriz,
+                                        contentDescription = "Player options",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+
+                            DropdownMenu(
+                                expanded = showPosterOverflowMenu,
+                                onDismissRequest = { showPosterOverflowMenu = false },
+                                containerColor = Color(0xFF141414)
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Player Style", color = Color.White) },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Style,
+                                            contentDescription = null,
+                                            tint = Color.White
+                                        )
+                                    },
+                                    colors = MenuDefaults.itemColors(textColor = Color.White),
+                                    onClick = {
+                                        showPosterOverflowMenu = false
+                                        showStylePickerSheet = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Up Next Queue", color = Color.White) },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Rounded.QueueMusic,
+                                            contentDescription = null,
+                                            tint = Color.White
+                                        )
+                                    },
+                                    colors = MenuDefaults.itemColors(textColor = Color.White),
+                                    onClick = {
+                                        showPosterOverflowMenu = false
+                                        showQueueSheet = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = if (playbackState.sleepTimerRemainingMs != null) {
+                                                "Sleep Timer (${formatDurationMs(playbackState.sleepTimerRemainingMs ?: 0L)})"
+                                            } else {
+                                                "Sleep Timer"
+                                            },
+                                            color = Color.White
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Bedtime,
+                                            contentDescription = null,
+                                            tint = Color.White
+                                        )
+                                    },
+                                    colors = MenuDefaults.itemColors(textColor = Color.White),
+                                    onClick = {
+                                        showPosterOverflowMenu = false
+                                        showSleepTimerSheet = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Settings", color = Color.White) },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Settings,
+                                            contentDescription = null,
+                                            tint = Color.White
+                                        )
+                                    },
+                                    colors = MenuDefaults.itemColors(textColor = Color.White),
+                                    onClick = {
+                                        showPosterOverflowMenu = false
+                                        onOpenSettings()
+                                    }
+                                )
+                            }
+                        }
+
+                        IconButton(
+                            onClick = {
+                                onMorphFractionChange(0f)
+                                onCollapse()
+                            },
+                            modifier = Modifier.defaultMinSize(
+                                minWidth = DockMetrics.MinTapTarget,
+                                minHeight = DockMetrics.MinTapTarget
+                            )
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0x40000000)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.KeyboardArrowDown,
+                                    contentDescription = "Collapse player",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                Column(
                     modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
+                        .fillMaxSize()
+                        .statusBarsPadding()
                 ) {
-                    AnimatedContent(
-                        targetState = settings.playerStyle,
-                        transitionSpec = { fadeIn() togetherWith fadeOut() },
-                        label = "PlayerStyleStage"
-                    ) { style ->
-                        when (style) {
-                            PlayerStyle.FLAGSHIP -> FlagshipPlayerStyle(ctx = stageContext)
-                            PlayerStyle.CLASSIC -> ClassicPlayerStyle(ctx = stageContext)
-                            PlayerStyle.POSTER -> PosterPlayerStyle(ctx = stageContext)
-                            PlayerStyle.TURNTABLE -> TurntablePlayerStyle(ctx = stageContext)
-                            PlayerStyle.VIDEO -> VideoPlayerStyle(ctx = stageContext)
-                            PlayerStyle.IPOD -> IpodPlayerStyle(ctx = stageContext)
-                            PlayerStyle.TIMELINE -> TimelinePlayerStyle(ctx = stageContext)
-                            PlayerStyle.LYRICS -> LyricsStagePlayerStyle(ctx = stageContext)
-                            PlayerStyle.BEDSIDE -> BedsidePlayerStyle(ctx = stageContext)
-                            PlayerStyle.BEDSIDE_TILES -> BedsideTilesPlayerStyle(ctx = stageContext)
+                    FullPlayerTopHeader(
+                        activeStyle = settings.playerStyle,
+                        sleepTimerRemainingMs = playbackState.sleepTimerRemainingMs,
+                        morphFraction = clampedMorph,
+                        containerHeightPx = containerHeightPx,
+                        onMorphFractionChange = onMorphFractionChange,
+                        onCollapse = onCollapse,
+                        onOpenStylePicker = { showStylePickerSheet = true },
+                        onOpenQueue = { showQueueSheet = true },
+                        onOpenSleepTimer = { showSleepTimerSheet = true },
+                        onOpenSettings = onOpenSettings
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                    ) {
+                        AnimatedContent(
+                            targetState = settings.playerStyle,
+                            transitionSpec = { fadeIn() togetherWith fadeOut() },
+                            label = "PlayerStyleStage"
+                        ) { style ->
+                            when (style) {
+                                PlayerStyle.FLAGSHIP -> FlagshipPlayerStyle(ctx = stageContext)
+                                PlayerStyle.CLASSIC -> ClassicPlayerStyle(ctx = stageContext)
+                                PlayerStyle.POSTER -> PosterPlayerStyle(ctx = stageContext)
+                                PlayerStyle.TURNTABLE -> TurntablePlayerStyle(ctx = stageContext)
+                                PlayerStyle.VIDEO -> VideoPlayerStyle(ctx = stageContext)
+                                PlayerStyle.IPOD -> IpodPlayerStyle(ctx = stageContext)
+                                PlayerStyle.TIMELINE -> TimelinePlayerStyle(ctx = stageContext)
+                                PlayerStyle.LYRICS -> LyricsStagePlayerStyle(ctx = stageContext)
+                                PlayerStyle.BEDSIDE -> BedsidePlayerStyle(ctx = stageContext)
+                                PlayerStyle.BEDSIDE_TILES -> BedsideTilesPlayerStyle(ctx = stageContext)
+                            }
                         }
                     }
                 }
@@ -310,6 +466,40 @@ fun FullPlayerOverlay(
     }
 }
 
+private fun Modifier.verticalCollapseDrag(
+    morphFraction: Float,
+    containerHeightPx: Float,
+    onMorphFractionChange: (Float) -> Unit,
+    onCollapse: () -> Unit
+): Modifier = pointerInput(morphFraction, containerHeightPx) {
+    var dragAccumulator = 0f
+    detectVerticalDragGestures(
+        onDragStart = {
+            dragAccumulator = 0f
+        },
+        onVerticalDrag = { change, dragAmount ->
+            change.consume()
+            dragAccumulator = (dragAccumulator + dragAmount).coerceAtLeast(0f)
+            val nextMorph = (1f - (dragAccumulator / (containerHeightPx * 0.65f))).coerceIn(0f, 1f)
+            onMorphFractionChange(nextMorph)
+        },
+        onDragEnd = {
+            val current = (1f - (dragAccumulator / (containerHeightPx * 0.65f))).coerceIn(0f, 1f)
+            if (current < 0.72f) {
+                onMorphFractionChange(0f)
+                onCollapse()
+            } else {
+                onMorphFractionChange(1f)
+            }
+            dragAccumulator = 0f
+        },
+        onDragCancel = {
+            onMorphFractionChange(1f)
+            dragAccumulator = 0f
+        }
+    )
+}
+
 @Composable
 private fun FullPlayerTopHeader(
     activeStyle: PlayerStyle,
@@ -323,39 +513,15 @@ private fun FullPlayerTopHeader(
     onOpenSleepTimer: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
-    val palette = OndaTheme.palette
-    var dragAccumulator by remember { mutableFloatStateOf(0f) }
-
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .pointerInput(morphFraction, containerHeightPx) {
-                detectVerticalDragGestures(
-                    onDragStart = {
-                        dragAccumulator = 0f
-                    },
-                    onVerticalDrag = { change, dragAmount ->
-                        change.consume()
-                        dragAccumulator += dragAmount
-                        val nextMorph = (1f - (dragAccumulator / (containerHeightPx * 0.65f))).coerceIn(0f, 1f)
-                        onMorphFractionChange(nextMorph)
-                    },
-                    onDragEnd = {
-                        val current = (1f - (dragAccumulator / (containerHeightPx * 0.65f))).coerceIn(0f, 1f)
-                        if (current < 0.72f) {
-                            onMorphFractionChange(0f)
-                            onCollapse()
-                        } else {
-                            onMorphFractionChange(1f)
-                        }
-                        dragAccumulator = 0f
-                    },
-                    onDragCancel = {
-                        onMorphFractionChange(1f)
-                        dragAccumulator = 0f
-                    }
-                )
-            }
+            .verticalCollapseDrag(
+                morphFraction = morphFraction,
+                containerHeightPx = containerHeightPx,
+                onMorphFractionChange = onMorphFractionChange,
+                onCollapse = onCollapse
+            )
             .padding(horizontal = 10.dp, vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -365,7 +531,7 @@ private fun FullPlayerTopHeader(
                 .width(38.dp)
                 .height(4.dp)
                 .clip(RoundedCornerShape(GlassTokens.RadiusPill))
-                .background(GlassTokens.SpecularBright.copy(alpha = 0.45f))
+                .background(Color(0xFF2E2E2E))
         )
 
         Row(
@@ -386,7 +552,7 @@ private fun FullPlayerTopHeader(
                 Icon(
                     imageVector = Icons.Rounded.KeyboardArrowDown,
                     contentDescription = "Collapse player",
-                    tint = GlassTokens.TextPrimary,
+                    tint = Color.White,
                     modifier = Modifier.size(28.dp)
                 )
             }
@@ -395,33 +561,30 @@ private fun FullPlayerTopHeader(
                 modifier = Modifier
                     .weight(1f, fill = false)
                     .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
-                    .smokedGlass(
-                        shape = RoundedCornerShape(GlassTokens.RadiusPill),
-                        elevation = GlassElevation.SUBTLE,
-                        accentTint = palette.primary
-                    )
+                    .clip(RoundedCornerShape(GlassTokens.RadiusPill))
+                    .background(Color(0xFF141414))
                     .clickable(onClick = onOpenStylePicker)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Icon(
                     imageVector = Icons.Rounded.Style,
                     contentDescription = null,
-                    tint = palette.primary,
+                    tint = Color.White,
                     modifier = Modifier.size(16.dp)
                 )
                 Text(
                     text = activeStyle.label,
                     style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
-                    color = GlassTokens.TextPrimary,
+                    color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Icon(
                     imageVector = Icons.Rounded.KeyboardArrowUp,
                     contentDescription = null,
-                    tint = GlassTokens.TextSecondary,
+                    tint = Color(0xFF9E9E9E),
                     modifier = Modifier.size(16.dp)
                 )
             }
@@ -437,7 +600,7 @@ private fun FullPlayerTopHeader(
                     Icon(
                         imageVector = Icons.Rounded.Bedtime,
                         contentDescription = "Sleep timer",
-                        tint = if (sleepTimerRemainingMs != null) palette.primary else GlassTokens.TextSecondary,
+                        tint = if (sleepTimerRemainingMs != null) Color.White else Color(0xFF9E9E9E),
                         modifier = Modifier.size(21.dp)
                     )
                 }
@@ -452,7 +615,7 @@ private fun FullPlayerTopHeader(
                     Icon(
                         imageVector = Icons.Rounded.QueueMusic,
                         contentDescription = "Queue",
-                        tint = GlassTokens.TextSecondary,
+                        tint = Color(0xFF9E9E9E),
                         modifier = Modifier.size(22.dp)
                     )
                 }
@@ -467,7 +630,7 @@ private fun FullPlayerTopHeader(
                     Icon(
                         imageVector = Icons.Rounded.Settings,
                         contentDescription = "Settings",
-                        tint = GlassTokens.TextSecondary,
+                        tint = Color(0xFF9E9E9E),
                         modifier = Modifier.size(21.dp)
                     )
                 }

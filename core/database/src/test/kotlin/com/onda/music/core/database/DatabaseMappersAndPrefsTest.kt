@@ -180,7 +180,7 @@ class DatabaseMappersAndPrefsTest {
         val preferences = OndaPreferences(dataStore)
 
         val defaults = preferences.currentSettings()
-        assertEquals(PlayerStyle.FLAGSHIP, defaults.playerStyle)
+        assertEquals(PlayerStyle.POSTER, defaults.playerStyle)
         assertEquals(RepeatMode.OFF, defaults.repeatMode)
         assertFalse(defaults.shuffleEnabled)
         assertEquals("en", defaults.languageCode)

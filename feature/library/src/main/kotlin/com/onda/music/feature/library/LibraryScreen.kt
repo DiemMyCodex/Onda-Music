@@ -4,6 +4,7 @@ import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -56,7 +57,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.onda.music.core.design.AgslMeshBackground
 import com.onda.music.core.design.GlassElevation
 import com.onda.music.core.design.GlassTokens
 import com.onda.music.core.design.OndaTheme
@@ -188,9 +188,10 @@ fun LibraryScreen(
             .distinctBy { it.id }
     }
 
-    AgslMeshBackground(
-        modifier = modifier.fillMaxSize(),
-        dimAlpha = 0.72f
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(GlassTokens.AmoledBlack)
     ) {
         val activePlaylist = uiState.selectedPlaylist
         if (uiState.selectedPlaylistId != null && activePlaylist != null) {
@@ -893,8 +894,7 @@ private fun PlaylistDetailView(
                                 .smokedGlass(
                                     shape = RoundedCornerShape(GlassTokens.RadiusMd),
                                     elevation = if (isDragging || isActive) GlassElevation.SHEET else GlassElevation.CARD,
-                                    accentTint = if (isDragging || isActive) OndaTheme.colors.accent else OndaTheme.colors.accentSecondary,
-                                    borderWidth = if (isDragging) GlassTokens.BorderProminent else GlassTokens.BorderHairline
+                                    accentTint = if (isDragging || isActive) OndaTheme.colors.accent else OndaTheme.colors.accentSecondary
                                 )
                                 .clickable { onPlayTrack(track) }
                                 .padding(start = 10.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),

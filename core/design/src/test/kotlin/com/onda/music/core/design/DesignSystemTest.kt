@@ -54,6 +54,25 @@ class DesignSystemTest {
     }
 
     @Test
+    fun monochromeOledTokensAndStylesAreBorderless() {
+        assertEquals(Color(0xFF000000), GlassTokens.AmoledBlack)
+        assertEquals(Color(0xFF141414), GlassTokens.ObsidianSurface)
+        assertEquals(Color(0xFF141414), GlassTokens.MatteCard)
+        assertEquals(Color(0xFF242424), GlassTokens.IconBadgeSurface)
+        assertEquals(Color(0xFF2E2E2E), GlassTokens.InactiveSurface)
+        assertEquals(Color(0xFF1F1F1F), GlassTokens.HairlineDivider)
+        assertEquals(Color(0xFFFFFFFF), GlassTokens.WaveCyan)
+        assertEquals(Color(0xFF9E9E9E), GlassTokens.SilverLavender)
+        assertEquals(Color.White, OndaArtworkPalette.Default.primary)
+        assertEquals(Color(0xFF9E9E9E), OndaArtworkPalette.Default.secondary)
+        assertEquals(Color(0xFF242424), OndaArtworkPalette.Default.tertiary)
+
+        GlassElevation.entries.forEach { elevation ->
+            assertEquals(0.dp, GlassKit.styleFor(elevation).borderWidth)
+        }
+    }
+
+    @Test
     fun likeBurstQuadraticBezierHitsEndpointsAndMidCurve() {
         val p0 = Offset(0f, 0f)
         val p1 = Offset(50f, -40f)

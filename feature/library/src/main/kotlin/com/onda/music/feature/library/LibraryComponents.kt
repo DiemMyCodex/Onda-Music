@@ -1,7 +1,6 @@
 package com.onda.music.feature.library
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -287,9 +286,8 @@ internal fun LibraryCategoryPills(
                     .heightIn(min = 48.dp)
                     .smokedGlass(
                         shape = RoundedCornerShape(GlassTokens.RadiusPill),
-                        elevation = if (selected) GlassElevation.CARD else GlassElevation.SUBTLE,
-                        accentTint = tint,
-                        borderWidth = if (selected) GlassTokens.BorderProminent else GlassTokens.BorderHairline
+                        elevation = if (selected) GlassElevation.SHEET else GlassElevation.SUBTLE,
+                        accentTint = tint
                     )
                     .clickable { onSelectTab(tab) }
                     .padding(horizontal = 16.dp, vertical = 12.dp),
@@ -393,12 +391,7 @@ internal fun PlaylistRowCard(
             modifier = Modifier
                 .size(52.dp)
                 .clip(RoundedCornerShape(GlassTokens.RadiusSm))
-                .background(GlassTokens.DeepSlateBlue.copy(alpha = 0.72f))
-                .border(
-                    width = GlassTokens.BorderHairline,
-                    color = GlassTokens.SpecularEdgeDim,
-                    shape = RoundedCornerShape(GlassTokens.RadiusSm)
-                ),
+                .background(GlassTokens.IconBadgeSurface),
             contentAlignment = Alignment.Center
         ) {
             if (!playlist.artworkUrl.isNullOrBlank()) {
@@ -511,8 +504,7 @@ internal fun LibraryTrackRow(
             .smokedGlass(
                 shape = RoundedCornerShape(GlassTokens.RadiusMd),
                 elevation = if (isActive) GlassElevation.SHEET else GlassElevation.CARD,
-                accentTint = accent,
-                borderWidth = if (isActive) GlassTokens.BorderProminent else GlassTokens.BorderHairline
+                accentTint = accent
             )
             .clickable(onClick = onPlay)
             .padding(start = 10.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
@@ -640,12 +632,7 @@ internal fun TrackArtworkBox(
         modifier = modifier
             .size(48.dp)
             .clip(RoundedCornerShape(GlassTokens.RadiusSm))
-            .background(GlassTokens.DeepSlateBlue.copy(alpha = 0.65f))
-            .border(
-                width = GlassTokens.BorderHairline,
-                color = GlassTokens.SpecularEdgeDim,
-                shape = RoundedCornerShape(GlassTokens.RadiusSm)
-            ),
+            .background(GlassTokens.IconBadgeSurface),
         contentAlignment = Alignment.Center
     ) {
         if (!artworkUrl.isNullOrBlank()) {
@@ -684,8 +671,7 @@ internal fun SourceBadge(
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(6.dp))
-            .background(tint.copy(alpha = 0.16f))
-            .border(0.5.dp, tint.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
+            .background(GlassTokens.IconBadgeSurface)
             .padding(horizontal = 5.dp, vertical = 1.dp)
     ) {
         Text(
@@ -1015,7 +1001,7 @@ internal fun PlaylistEditorDialog(
                         focusedTextColor = OndaTheme.colors.textPrimary,
                         unfocusedTextColor = OndaTheme.colors.textPrimary,
                         focusedBorderColor = OndaTheme.colors.accent,
-                        unfocusedBorderColor = GlassTokens.SpecularEdgeDim
+                        unfocusedBorderColor = GlassTokens.HairlineDivider
                     )
                 )
                 OutlinedTextField(
@@ -1027,7 +1013,7 @@ internal fun PlaylistEditorDialog(
                         focusedTextColor = OndaTheme.colors.textPrimary,
                         unfocusedTextColor = OndaTheme.colors.textPrimary,
                         focusedBorderColor = OndaTheme.colors.accent,
-                        unfocusedBorderColor = GlassTokens.SpecularEdgeDim
+                        unfocusedBorderColor = GlassTokens.HairlineDivider
                     )
                 )
             }

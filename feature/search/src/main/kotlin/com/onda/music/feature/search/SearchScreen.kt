@@ -1,5 +1,6 @@
 package com.onda.music.feature.search
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,7 +35,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.onda.music.core.design.AgslMeshBackground
 import com.onda.music.core.design.DockMetrics
 import com.onda.music.core.design.GlassElevation
 import com.onda.music.core.design.GlassTokens
@@ -123,73 +123,72 @@ fun SearchScreen(
 ) {
     val focusManager = LocalFocusManager.current
 
-    Box(modifier = modifier.fillMaxSize()) {
-        AgslMeshBackground(
-            animated = true,
-            dimAlpha = 0.68f
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(GlassTokens.AmoledBlack)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-            ) {
-                SearchTopHeader(onOpenSettings = onOpenSettings)
+            SearchTopHeader(onOpenSettings = onOpenSettings)
 
-                SmokedSearchBar(
-                    query = uiState.query,
-                    onQueryChange = onQueryChange,
-                    onClear = onClearQuery,
-                    onSubmit = {
-                        focusManager.clearFocus()
-                        onSubmitSearch()
-                    },
-                    modifier = Modifier.padding(horizontal = 16.dp)
+            SmokedSearchBar(
+                query = uiState.query,
+                onQueryChange = onQueryChange,
+                onClear = onClearQuery,
+                onSubmit = {
+                    focusManager.clearFocus()
+                    onSubmitSearch()
+                },
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            if (uiState.query.isNotBlank()) {
+                SourceFilterRow(
+                    activeFilter = uiState.activeFilter,
+                    onSelectFilter = onSelectFilter
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
 
-                Spacer(modifier = Modifier.height(10.dp))
-
-                if (uiState.query.isNotBlank()) {
-                    SourceFilterRow(
-                        activeFilter = uiState.activeFilter,
-                        onSelectFilter = onSelectFilter
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-
-                if (uiState.query.isBlank()) {
-                    SearchBrowseBody(
-                        uiState = uiState,
-                        onOpenLinkSheet = onOpenLinkSheet,
-                        onSelectHistoryItem = {
-                            focusManager.clearFocus()
-                            onSelectHistoryItem(it)
-                        },
-                        onDeleteHistoryItem = onDeleteHistoryItem,
-                        onClearAllHistory = onClearAllHistory,
-                        onSelectMoodCategory = {
-                            focusManager.clearFocus()
-                            onSelectMoodCategory(it)
-                        },
-                        onRetryMoods = onRetryMoods
-                    )
-                } else {
-                    SearchResultsBody(
-                        uiState = uiState,
-                        onSelectSuggestion = {
-                            focusManager.clearFocus()
-                            onSelectSuggestion(it)
-                        },
-                        onPlayTrack = onPlayTrack,
-                        onToggleLike = onToggleLike,
-                        onOpenAlbum = onOpenAlbum,
-                        onOpenPlaylist = onOpenPlaylist,
-                        onSearchArtist = {
-                            focusManager.clearFocus()
-                            onSearchArtist(it)
-                        },
-                        onRetrySearch = onSubmitSearch
-                    )
-                }
+            if (uiState.query.isBlank()) {
+                SearchBrowseBody(
+                    uiState = uiState,
+                    onOpenLinkSheet = onOpenLinkSheet,
+                    onSelectHistoryItem = {
+                        focusManager.clearFocus()
+                        onSelectHistoryItem(it)
+                    },
+                    onDeleteHistoryItem = onDeleteHistoryItem,
+                    onClearAllHistory = onClearAllHistory,
+                    onSelectMoodCategory = {
+                        focusManager.clearFocus()
+                        onSelectMoodCategory(it)
+                    },
+                    onRetryMoods = onRetryMoods
+                )
+            } else {
+                SearchResultsBody(
+                    uiState = uiState,
+                    onSelectSuggestion = {
+                        focusManager.clearFocus()
+                        onSelectSuggestion(it)
+                    },
+                    onPlayTrack = onPlayTrack,
+                    onToggleLike = onToggleLike,
+                    onOpenAlbum = onOpenAlbum,
+                    onOpenPlaylist = onOpenPlaylist,
+                    onSearchArtist = {
+                        focusManager.clearFocus()
+                        onSearchArtist(it)
+                    },
+                    onRetrySearch = onSubmitSearch
+                )
             }
         }
 

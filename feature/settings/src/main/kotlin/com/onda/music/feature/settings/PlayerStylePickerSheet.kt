@@ -2,7 +2,6 @@ package com.onda.music.feature.settings
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -10,9 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -51,10 +48,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.onda.music.core.design.DockMetrics
-import com.onda.music.core.design.GlassElevation
-import com.onda.music.core.design.GlassSurface
-import com.onda.music.core.design.GlassTokens
-import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.design.press3D
 import com.onda.music.core.model.PlayerStyle
 
@@ -75,15 +68,14 @@ fun PlayerStylePickerSheet(
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val colors = OndaTheme.colors
     val rows = PlayerStyle.entries.chunked(2)
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = GlassTokens.SmokedGlassElevated,
-        contentColor = colors.textPrimary,
-        dragHandle = { BottomSheetDefaults.DragHandle(color = colors.textTertiary) }
+        containerColor = SettingsOledColors.MatteCard,
+        contentColor = SettingsOledColors.TextPrimary,
+        dragHandle = { BottomSheetDefaults.DragHandle(color = SettingsOledColors.TextMuted) }
     ) {
         Column(
             modifier = Modifier
@@ -101,14 +93,14 @@ fun PlayerStylePickerSheet(
                 Icon(
                     imageVector = Icons.Rounded.Palette,
                     contentDescription = null,
-                    tint = colors.accent,
+                    tint = SettingsOledColors.TextPrimary,
                     modifier = Modifier.size(24.dp)
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(
                     text = strings.playerStyleSheetTitle,
                     style = MaterialTheme.typography.titleLarge,
-                    color = colors.textPrimary,
+                    color = SettingsOledColors.TextPrimary,
                     modifier = Modifier.weight(1f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -120,7 +112,7 @@ fun PlayerStylePickerSheet(
                     Icon(
                         imageVector = Icons.Rounded.Close,
                         contentDescription = strings.closeLabel,
-                        tint = colors.textSecondary
+                        tint = SettingsOledColors.TextSecondary
                     )
                 }
             }
@@ -135,7 +127,6 @@ fun PlayerStylePickerSheet(
                             PlayerStyleTile(
                                 style = style,
                                 selected = style == selectedStyle,
-                                accentColor = colors.accent,
                                 onClick = { onSelectStyle(style) },
                                 modifier = Modifier.weight(1f)
                             )
@@ -150,47 +141,48 @@ fun PlayerStylePickerSheet(
             Text(
                 text = strings.playerStyleVisualToggles,
                 style = MaterialTheme.typography.labelLarge,
-                color = colors.accent
+                color = SettingsOledColors.TextSecondary
             )
 
-            GlassSurface(
-                modifier = Modifier.fillMaxWidth(),
-                elevation = GlassElevation.SUBTLE,
-                shape = RoundedCornerShape(GlassTokens.RadiusMd)
+            SettingsMatteCard(
+                backgroundColor = SettingsOledColors.IconBadge,
+                cornerRadius = 24
             ) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    SettingsToggleRow(
-                        icon = Icons.Rounded.BlurOn,
-                        title = strings.glassBlurTitle,
-                        subtitle = strings.glassBlurSubtitle,
-                        checked = glassBlurEnabled,
-                        onCheckedChange = onGlassBlurChange
-                    )
-                    SettingsRowDivider()
-                    SettingsToggleRow(
-                        icon = Icons.Rounded.Gradient,
-                        title = strings.dynamicMeshTitle,
-                        subtitle = strings.dynamicMeshSubtitle,
-                        checked = dynamicMeshEnabled,
-                        onCheckedChange = onDynamicMeshChange
-                    )
-                    SettingsRowDivider()
-                    SettingsToggleRow(
-                        icon = Icons.Rounded.MusicNote,
-                        title = strings.lyricsMotionTitle,
-                        subtitle = strings.lyricsMotionSubtitle,
-                        checked = lyricsMotionEnabled,
-                        onCheckedChange = onLyricsMotionChange
-                    )
-                    SettingsRowDivider()
-                    SettingsToggleRow(
-                        icon = Icons.Rounded.Vibration,
-                        title = strings.hapticsTitle,
-                        subtitle = strings.hapticsSubtitle,
-                        checked = hapticsEnabled,
-                        onCheckedChange = onHapticsChange
-                    )
-                }
+                SettingsToggleRow(
+                    icon = Icons.Rounded.BlurOn,
+                    title = strings.glassBlurTitle,
+                    subtitle = strings.glassBlurSubtitle,
+                    checked = glassBlurEnabled,
+                    onCheckedChange = onGlassBlurChange,
+                    iconBadgeColor = SettingsOledColors.MatteCard
+                )
+                SettingsRowDivider(color = SettingsOledColors.MatteCard)
+                SettingsToggleRow(
+                    icon = Icons.Rounded.Gradient,
+                    title = strings.dynamicMeshTitle,
+                    subtitle = strings.dynamicMeshSubtitle,
+                    checked = dynamicMeshEnabled,
+                    onCheckedChange = onDynamicMeshChange,
+                    iconBadgeColor = SettingsOledColors.MatteCard
+                )
+                SettingsRowDivider(color = SettingsOledColors.MatteCard)
+                SettingsToggleRow(
+                    icon = Icons.Rounded.MusicNote,
+                    title = strings.lyricsMotionTitle,
+                    subtitle = strings.lyricsMotionSubtitle,
+                    checked = lyricsMotionEnabled,
+                    onCheckedChange = onLyricsMotionChange,
+                    iconBadgeColor = SettingsOledColors.MatteCard
+                )
+                SettingsRowDivider(color = SettingsOledColors.MatteCard)
+                SettingsToggleRow(
+                    icon = Icons.Rounded.Vibration,
+                    title = strings.hapticsTitle,
+                    subtitle = strings.hapticsSubtitle,
+                    checked = hapticsEnabled,
+                    onCheckedChange = onHapticsChange,
+                    iconBadgeColor = SettingsOledColors.MatteCard
+                )
             }
         }
     }
@@ -200,17 +192,13 @@ fun PlayerStylePickerSheet(
 private fun PlayerStyleTile(
     style: PlayerStyle,
     selected: Boolean,
-    accentColor: Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val shape = RoundedCornerShape(GlassTokens.RadiusMd)
-    val borderColor = if (selected) accentColor else GlassTokens.SpecularEdgeDim
-    val bgColor = if (selected) {
-        accentColor.copy(alpha = 0.14f)
-    } else {
-        GlassTokens.ObsidianSurface.copy(alpha = 0.65f)
-    }
+    val shape = RoundedCornerShape(20.dp)
+    val bgColor = if (selected) SettingsOledColors.TextPrimary else SettingsOledColors.IconBadge
+    val glyphColor = if (selected) SettingsOledColors.CanvasBlack else SettingsOledColors.TextPrimary
+    val dimGlyphColor = if (selected) Color(0x66000000) else Color(0x669E9E9E)
 
     Column(
         modifier = modifier
@@ -218,7 +206,6 @@ private fun PlayerStyleTile(
             .press3D()
             .clip(shape)
             .background(bgColor)
-            .border(if (selected) 1.5.dp else 1.dp, borderColor, shape)
             .clickable(onClick = onClick)
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -230,7 +217,8 @@ private fun PlayerStyleTile(
         ) {
             PlayerStyleMiniGlyph(
                 style = style,
-                accentColor = if (selected) accentColor else GlassTokens.TextSecondary,
+                accentColor = glyphColor,
+                dimColor = dimGlyphColor,
                 modifier = Modifier.size(width = 48.dp, height = 34.dp)
             )
             if (selected) {
@@ -238,13 +226,13 @@ private fun PlayerStyleTile(
                     modifier = Modifier
                         .size(22.dp)
                         .clip(CircleShape)
-                        .background(accentColor),
+                        .background(SettingsOledColors.CanvasBlack),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.Check,
                         contentDescription = null,
-                        tint = GlassTokens.AmoledBlack,
+                        tint = SettingsOledColors.TextPrimary,
                         modifier = Modifier.size(14.dp)
                     )
                 }
@@ -254,7 +242,7 @@ private fun PlayerStyleTile(
             text = style.label,
             style = MaterialTheme.typography.titleSmall,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-            color = if (selected) GlassTokens.TextPrimary else GlassTokens.TextSecondary,
+            color = if (selected) SettingsOledColors.CanvasBlack else SettingsOledColors.TextSecondary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -265,12 +253,12 @@ private fun PlayerStyleTile(
 private fun PlayerStyleMiniGlyph(
     style: PlayerStyle,
     accentColor: Color,
+    dimColor: Color,
     modifier: Modifier = Modifier
 ) {
     Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
-        val dimColor = GlassTokens.TextTertiary.copy(alpha = 0.45f)
         when (style) {
             PlayerStyle.FLAGSHIP -> {
                 drawRoundRect(
@@ -304,13 +292,13 @@ private fun PlayerStyleMiniGlyph(
             }
             PlayerStyle.POSTER -> {
                 drawRoundRect(
-                    color = accentColor.copy(alpha = 0.3f),
+                    color = accentColor.copy(alpha = 0.28f),
                     topLeft = Offset.Zero,
                     size = Size(w, h),
                     cornerRadius = CornerRadius(6f, 6f)
                 )
                 drawRect(
-                    color = GlassTokens.AmoledBlack.copy(alpha = 0.65f),
+                    color = SettingsOledColors.CanvasBlack.copy(alpha = 0.55f),
                     topLeft = Offset(0f, h * 0.58f),
                     size = Size(w, h * 0.42f)
                 )

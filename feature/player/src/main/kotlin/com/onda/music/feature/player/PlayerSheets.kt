@@ -58,6 +58,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -65,11 +66,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.onda.music.core.design.DockMetrics
-import com.onda.music.core.design.GlassElevation
 import com.onda.music.core.design.GlassTokens
 import com.onda.music.core.design.OdometerText
-import com.onda.music.core.design.OndaTheme
-import com.onda.music.core.design.smokedGlass
 import com.onda.music.core.model.PlayerStyle
 import com.onda.music.core.model.Track
 import sh.calvin.reorderable.ReorderableItem
@@ -100,7 +98,6 @@ fun QueueSheet(
     onRemoveItem: (Int) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val palette = OndaTheme.palette
     val haptics = LocalHapticFeedback.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var localItems by remember { mutableStateOf(buildKeyedQueue(queue)) }
@@ -123,8 +120,8 @@ fun QueueSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = GlassTokens.ObsidianSurface,
-        contentColor = GlassTokens.TextPrimary
+        containerColor = Color(0xFF141414),
+        contentColor = Color.White
     ) {
         Column(
             modifier = Modifier
@@ -147,18 +144,18 @@ fun QueueSheet(
                     Icon(
                         imageVector = Icons.Rounded.QueueMusic,
                         contentDescription = null,
-                        tint = palette.primary
+                        tint = Color.White
                     )
                     Column {
                         Text(
                             text = "Up Next",
                             style = MaterialTheme.typography.titleLarge,
-                            color = GlassTokens.TextPrimary
+                            color = Color.White
                         )
                         Text(
                             text = "${localItems.size} tracks in queue",
                             style = MaterialTheme.typography.bodySmall,
-                            color = GlassTokens.TextSecondary
+                            color = Color(0xFF9E9E9E)
                         )
                     }
                 }
@@ -172,7 +169,7 @@ fun QueueSheet(
                     Icon(
                         imageVector = Icons.Rounded.Close,
                         contentDescription = "Close queue",
-                        tint = GlassTokens.TextSecondary
+                        tint = Color(0xFF9E9E9E)
                     )
                 }
             }
@@ -187,7 +184,7 @@ fun QueueSheet(
                     Text(
                         text = "Queue is empty",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = GlassTokens.TextSecondary
+                        color = Color(0xFF9E9E9E)
                     )
                 }
             } else {
@@ -214,11 +211,8 @@ fun QueueSheet(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .defaultMinSize(minHeight = 60.dp)
-                                    .smokedGlass(
-                                        shape = shape,
-                                        elevation = if (isDragging || isCurrent) GlassElevation.SHEET else GlassElevation.SUBTLE,
-                                        accentTint = if (isCurrent) palette.primary else palette.secondary
-                                    )
+                                    .clip(shape)
+                                    .background(if (isDragging || isCurrent) Color(0xFF242424) else Color(0xFF1C1C1C))
                                     .clickable {
                                         onSelectIndex(index)
                                     }
@@ -247,7 +241,7 @@ fun QueueSheet(
                                     Icon(
                                         imageVector = Icons.Rounded.DragHandle,
                                         contentDescription = "Reorder track",
-                                        tint = GlassTokens.TextTertiary
+                                        tint = Color(0xFF8A8A8A)
                                     )
                                 }
 
@@ -266,14 +260,14 @@ fun QueueSheet(
                                         style = MaterialTheme.typography.titleSmall.copy(
                                             fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium
                                         ),
-                                        color = if (isCurrent) palette.primary else GlassTokens.TextPrimary,
+                                        color = Color.White,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
                                         text = item.track.artist,
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = GlassTokens.TextSecondary,
+                                        color = Color(0xFF9E9E9E),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -283,7 +277,7 @@ fun QueueSheet(
                                     Icon(
                                         imageVector = Icons.Rounded.GraphicEq,
                                         contentDescription = "Playing",
-                                        tint = palette.primary,
+                                        tint = Color.White,
                                         modifier = Modifier
                                             .padding(horizontal = 6.dp)
                                             .size(20.dp)
@@ -303,7 +297,7 @@ fun QueueSheet(
                                     Icon(
                                         imageVector = Icons.Rounded.Close,
                                         contentDescription = "Remove from queue",
-                                        tint = GlassTokens.TextTertiary,
+                                        tint = Color(0xFF8A8A8A),
                                         modifier = Modifier.size(18.dp)
                                     )
                                 }
@@ -324,7 +318,6 @@ fun SleepTimerSheet(
     onCancelTimer: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val palette = OndaTheme.palette
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val presets = remember {
         listOf(
@@ -339,8 +332,8 @@ fun SleepTimerSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = GlassTokens.ObsidianSurface,
-        contentColor = GlassTokens.TextPrimary
+        containerColor = Color(0xFF141414),
+        contentColor = Color.White
     ) {
         Column(
             modifier = Modifier
@@ -362,19 +355,19 @@ fun SleepTimerSheet(
                     Icon(
                         imageVector = Icons.Rounded.Bedtime,
                         contentDescription = null,
-                        tint = palette.primary
+                        tint = Color.White
                     )
                     Text(
                         text = "Sleep Timer",
                         style = MaterialTheme.typography.titleLarge,
-                        color = GlassTokens.TextPrimary
+                        color = Color.White
                     )
                 }
                 if (remainingMs != null && remainingMs > 0L) {
                     OdometerText(
                         text = formatDurationMs(remainingMs),
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = palette.primary
+                        color = Color.White
                     )
                 }
             }
@@ -384,11 +377,8 @@ fun SleepTimerSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
-                        .smokedGlass(
-                            shape = RoundedCornerShape(GlassTokens.RadiusMd),
-                            elevation = GlassElevation.CARD,
-                            accentTint = palette.secondary
-                        )
+                        .clip(RoundedCornerShape(GlassTokens.RadiusMd))
+                        .background(Color(0xFF1C1C1C))
                         .clickable {
                             onSelectDurationMs(durationMs)
                             onDismiss()
@@ -400,12 +390,12 @@ fun SleepTimerSheet(
                     Text(
                         text = label,
                         style = MaterialTheme.typography.titleSmall,
-                        color = GlassTokens.TextPrimary
+                        color = Color.White
                     )
                     Icon(
                         imageVector = Icons.Rounded.Schedule,
                         contentDescription = null,
-                        tint = GlassTokens.TextSecondary,
+                        tint = Color(0xFF9E9E9E),
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -417,12 +407,7 @@ fun SleepTimerSheet(
                         .fillMaxWidth()
                         .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
                         .clip(RoundedCornerShape(GlassTokens.RadiusMd))
-                        .background(GlassTokens.ErrorCoral.copy(alpha = 0.16f))
-                        .border(
-                            width = GlassTokens.BorderStandard,
-                            color = GlassTokens.ErrorCoral.copy(alpha = 0.45f),
-                            shape = RoundedCornerShape(GlassTokens.RadiusMd)
-                        )
+                        .background(Color(0xFF242424))
                         .clickable {
                             onCancelTimer()
                             onDismiss()
@@ -459,9 +444,9 @@ private fun playerStyleIcon(style: PlayerStyle): ImageVector {
 
 private fun playerStyleSubtitle(style: PlayerStyle): String {
     return when (style) {
-        PlayerStyle.FLAGSHIP -> "Smoked glass & 3D mesh"
+        PlayerStyle.FLAGSHIP -> "Matte stage & carousel"
         PlayerStyle.CLASSIC -> "Balanced centered cover"
-        PlayerStyle.POSTER -> "Edge-to-edge hero bleed"
+        PlayerStyle.POSTER -> "Curved-arc full-bleed lyrics"
         PlayerStyle.TURNTABLE -> "Vinyl disc & tonearm"
         PlayerStyle.VIDEO -> "Media3 video & lyrics"
         PlayerStyle.IPOD -> "Rotary wheel & CoverFlow"
@@ -479,15 +464,14 @@ fun PlayerStyleSelectorSheet(
     onSelectStyle: (PlayerStyle) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val palette = OndaTheme.palette
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val styles = remember { PlayerStyle.entries }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = GlassTokens.ObsidianSurface,
-        contentColor = GlassTokens.TextPrimary
+        containerColor = Color(0xFF141414),
+        contentColor = Color.White
     ) {
         Column(
             modifier = Modifier
@@ -506,12 +490,12 @@ fun PlayerStyleSelectorSheet(
                     Text(
                         text = "Player Style",
                         style = MaterialTheme.typography.titleLarge,
-                        color = GlassTokens.TextPrimary
+                        color = Color.White
                     )
                     Text(
                         text = "10 native 120fps stages",
                         style = MaterialTheme.typography.bodySmall,
-                        color = GlassTokens.TextSecondary
+                        color = Color(0xFF9E9E9E)
                     )
                 }
                 IconButton(
@@ -524,7 +508,7 @@ fun PlayerStyleSelectorSheet(
                     Icon(
                         imageVector = Icons.Rounded.Close,
                         contentDescription = "Close style picker",
-                        tint = GlassTokens.TextSecondary
+                        tint = Color(0xFF9E9E9E)
                     )
                 }
             }
@@ -545,12 +529,8 @@ fun PlayerStyleSelectorSheet(
                         modifier = Modifier
                             .fillMaxWidth()
                             .defaultMinSize(minHeight = 88.dp)
-                            .smokedGlass(
-                                shape = cardShape,
-                                elevation = if (selected) GlassElevation.HERO else GlassElevation.CARD,
-                                accentTint = if (selected) palette.primary else palette.secondary,
-                                borderWidth = if (selected) 1.5.dp else null
-                            )
+                            .clip(cardShape)
+                            .background(if (selected) Color(0xFF242424) else Color(0xFF1C1C1C))
                             .clickable {
                                 onSelectStyle(style)
                                 onDismiss()
@@ -566,33 +546,33 @@ fun PlayerStyleSelectorSheet(
                             Icon(
                                 imageVector = playerStyleIcon(style),
                                 contentDescription = null,
-                                tint = if (selected) palette.primary else palette.secondary,
+                                tint = if (selected) Color.White else Color(0xFF9E9E9E),
                                 modifier = Modifier.size(22.dp)
                             )
                             if (selected) {
                                 Icon(
                                     imageVector = Icons.Rounded.Check,
                                     contentDescription = "Active",
-                                    tint = palette.primary,
+                                    tint = Color.White,
                                     modifier = Modifier.size(18.dp)
                                 )
                             } else {
                                 Canvas(modifier = Modifier.size(8.dp)) {
-                                    drawCircle(color = GlassTokens.SpecularEdgeDim)
+                                    drawCircle(color = Color(0xFF2E2E2E))
                                 }
                             }
                         }
                         Text(
                             text = style.label,
                             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                            color = if (selected) palette.primary else GlassTokens.TextPrimary,
+                            color = Color.White,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = playerStyleSubtitle(style),
                             style = MaterialTheme.typography.bodySmall,
-                            color = GlassTokens.TextSecondary,
+                            color = Color(0xFF9E9E9E),
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )

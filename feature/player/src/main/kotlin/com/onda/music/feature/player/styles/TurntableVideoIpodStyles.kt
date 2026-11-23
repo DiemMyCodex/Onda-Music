@@ -4,10 +4,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -73,13 +71,10 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.onda.music.core.design.DockMetrics
-import com.onda.music.core.design.GlassElevation
 import com.onda.music.core.design.GlassTokens
 import com.onda.music.core.design.OdometerText
 import com.onda.music.core.design.OndaTheme
-import com.onda.music.core.design.smokedGlass
 import com.onda.music.core.model.PlaybackStatus
-import com.onda.music.feature.player.GlassPillButton
 import com.onda.music.feature.player.LyricsPane
 import com.onda.music.feature.player.PlayerSeekSection
 import com.onda.music.feature.player.PlayerTransportControls
@@ -99,7 +94,6 @@ fun TurntablePlayerStyle(
     ctx: PlayerStageContext,
     modifier: Modifier = Modifier
 ) {
-    val palette = OndaTheme.palette
     val reducedMotion = OndaTheme.reducedMotion
     val state = ctx.playbackState
     val track = state.currentTrack
@@ -155,8 +149,7 @@ fun TurntablePlayerStyle(
                             rotationZ = discAngleDeg
                         }
                         .clip(CircleShape)
-                        .background(Color(0xFF0A0C12))
-                        .border(1.5.dp, GlassTokens.SpecularBright.copy(alpha = 0.25f), CircleShape),
+                        .background(Color(0xFF141414)),
                     contentAlignment = Alignment.Center
                 ) {
                     Canvas(modifier = Modifier.fillMaxSize()) {
@@ -175,9 +168,9 @@ fun TurntablePlayerStyle(
                             brush = Brush.sweepGradient(
                                 colors = listOf(
                                     Color.Transparent,
-                                    palette.primary.copy(alpha = 0.22f),
+                                    Color.White.copy(alpha = 0.14f),
                                     Color.Transparent,
-                                    palette.secondary.copy(alpha = 0.16f),
+                                    Color(0xFF9E9E9E).copy(alpha = 0.12f),
                                     Color.Transparent
                                 )
                             ),
@@ -192,17 +185,14 @@ fun TurntablePlayerStyle(
                         artworkUrl = track?.artworkUrl,
                         contentDescription = track?.title,
                         shape = CircleShape,
-                        modifier = Modifier
-                            .fillMaxSize(0.44f)
-                            .border(2.dp, palette.primary.copy(alpha = 0.7f), CircleShape)
+                        modifier = Modifier.fillMaxSize(0.44f)
                     )
 
                     Box(
                         modifier = Modifier
                             .size(14.dp)
                             .clip(CircleShape)
-                            .background(GlassTokens.AmoledBlack)
-                            .border(1.5.dp, GlassTokens.SpecularBright, CircleShape)
+                            .background(Color(0xFF000000))
                     )
                 }
 
@@ -247,27 +237,21 @@ fun TurntablePlayerStyle(
                     }
 
                     drawCircle(
-                        color = GlassTokens.SmokedGlassElevated,
+                        color = Color(0xFF242424),
                         radius = 18.dp.toPx(),
                         center = pivot
-                    )
-                    drawCircle(
-                        color = palette.primary.copy(alpha = 0.7f),
-                        radius = 18.dp.toPx(),
-                        center = pivot,
-                        style = Stroke(width = 1.5.dp.toPx())
                     )
 
                     rotate(degrees = tonearmAngleDeg, pivot = pivot) {
                         drawLine(
-                            color = GlassTokens.TextPrimary.copy(alpha = 0.9f),
+                            color = Color.White.copy(alpha = 0.9f),
                             start = Offset(pivot.x - 16.dp.toPx(), pivot.y),
                             end = Offset(pivot.x + armLength, pivot.y),
                             strokeWidth = 4.dp.toPx(),
                             cap = StrokeCap.Round
                         )
                         drawCircle(
-                            color = palette.primary,
+                            color = Color.White,
                             radius = 6.dp.toPx(),
                             center = Offset(pivot.x + armLength, pivot.y)
                         )
@@ -279,11 +263,8 @@ fun TurntablePlayerStyle(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .smokedGlass(
-                    shape = RoundedCornerShape(GlassTokens.RadiusXl),
-                    elevation = GlassElevation.CARD,
-                    accentTint = palette.primary
-                )
+                .clip(RoundedCornerShape(GlassTokens.RadiusXl))
+                .background(Color(0xFF141414))
                 .padding(horizontal = 18.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
@@ -305,17 +286,17 @@ fun TurntablePlayerStyle(
                 OdometerText(
                     text = formatDurationMs((durationMs * activeTonearmProgress).toLong()),
                     style = MaterialTheme.typography.labelMedium,
-                    color = palette.primary
+                    color = Color.White
                 )
                 Text(
                     text = "Drag tonearm to seek",
                     style = MaterialTheme.typography.labelSmall,
-                    color = GlassTokens.TextTertiary
+                    color = Color(0xFF8A8A8A)
                 )
                 Text(
                     text = formatDurationMs(state.durationMs),
                     style = MaterialTheme.typography.labelMedium,
-                    color = GlassTokens.TextSecondary
+                    color = Color(0xFF9E9E9E)
                 )
             }
 
@@ -338,7 +319,6 @@ fun VideoPlayerStyle(
     ctx: PlayerStageContext,
     modifier: Modifier = Modifier
 ) {
-    val palette = OndaTheme.palette
     val state = ctx.playbackState
     val track = state.currentTrack
     val player = ctx.activePlayer
@@ -378,11 +358,7 @@ fun VideoPlayerStyle(
                 .fillMaxWidth()
                 .aspectRatio(16f / 9f)
                 .clip(RoundedCornerShape(GlassTokens.RadiusLg))
-                .smokedGlass(
-                    shape = RoundedCornerShape(GlassTokens.RadiusLg),
-                    elevation = GlassElevation.HERO,
-                    accentTint = palette.primary
-                ),
+                .background(Color(0xFF141414)),
             contentAlignment = Alignment.Center
         ) {
             TrackArtworkImage(
@@ -427,15 +403,12 @@ fun VideoPlayerStyle(
                     .padding(10.dp)
             ) {
                 Text(
-                    text = "Audio Mesh Fallback",
+                    text = "Audio Fallback",
                     style = MaterialTheme.typography.labelSmall,
-                    color = GlassTokens.TextPrimary,
+                    color = Color.White,
                     modifier = Modifier
-                        .smokedGlass(
-                            shape = RoundedCornerShape(GlassTokens.RadiusPill),
-                            elevation = GlassElevation.SUBTLE,
-                            accentTint = palette.secondary
-                        )
+                        .clip(RoundedCornerShape(GlassTokens.RadiusPill))
+                        .background(Color(0xCC141414))
                         .padding(horizontal = 10.dp, vertical = 5.dp)
                 )
             }
@@ -445,11 +418,8 @@ fun VideoPlayerStyle(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .smokedGlass(
-                    shape = RoundedCornerShape(GlassTokens.RadiusLg),
-                    elevation = GlassElevation.CARD,
-                    accentTint = palette.secondary
-                )
+                .clip(RoundedCornerShape(GlassTokens.RadiusLg))
+                .background(Color(0xFF141414))
         ) {
             LyricsPane(
                 lyrics = ctx.lyrics,
@@ -472,11 +442,8 @@ fun VideoPlayerStyle(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .smokedGlass(
-                    shape = RoundedCornerShape(GlassTokens.RadiusXl),
-                    elevation = GlassElevation.CARD,
-                    accentTint = palette.primary
-                )
+                .clip(RoundedCornerShape(GlassTokens.RadiusXl))
+                .background(Color(0xFF141414))
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -491,7 +458,8 @@ fun VideoPlayerStyle(
             )
             PlayerSeekSection(
                 playbackState = state,
-                onSeekToFraction = ctx.onSeekToFraction
+                onSeekToFraction = ctx.onSeekToFraction,
+                accentColor = Color.White
             )
             PlayerTransportControls(
                 playbackState = state,
@@ -512,7 +480,6 @@ fun IpodPlayerStyle(
     ctx: PlayerStageContext,
     modifier: Modifier = Modifier
 ) {
-    val palette = OndaTheme.palette
     val haptics = LocalHapticFeedback.current
     val state = ctx.playbackState
     val track = state.currentTrack
@@ -563,11 +530,8 @@ fun IpodPlayerStyle(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .smokedGlass(
-                    shape = RoundedCornerShape(GlassTokens.RadiusXl),
-                    elevation = GlassElevation.HERO,
-                    accentTint = palette.primary
-                )
+                .clip(RoundedCornerShape(GlassTokens.RadiusXl))
+                .background(Color(0xFF141414))
                 .padding(14.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
@@ -579,12 +543,12 @@ fun IpodPlayerStyle(
                 Text(
                     text = "ONDA POD",
                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                    color = palette.primary
+                    color = Color.White
                 )
                 Text(
                     text = if (displayTracks.isNotEmpty()) "${safeIndex + 1} / ${displayTracks.size}" else "0 / 0",
                     style = MaterialTheme.typography.labelSmall,
-                    color = GlassTokens.TextSecondary
+                    color = Color(0xFF9E9E9E)
                 )
             }
 
@@ -640,11 +604,6 @@ fun IpodPlayerStyle(
                                 modifier = Modifier
                                     .aspectRatio(1f)
                                     .fillMaxSize()
-                                    .border(
-                                        width = GlassTokens.BorderStandard,
-                                        color = GlassTokens.SpecularBright.copy(alpha = 0.45f),
-                                        shape = RoundedCornerShape(GlassTokens.RadiusMd)
-                                    )
                             )
                         }
                     }
@@ -661,14 +620,14 @@ fun IpodPlayerStyle(
                 Text(
                     text = track?.title ?: "Nothing playing",
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = GlassTokens.TextPrimary,
+                    color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = track?.artist ?: "Select a track",
                     style = MaterialTheme.typography.bodySmall,
-                    color = GlassTokens.TextSecondary,
+                    color = Color(0xFF9E9E9E),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -677,17 +636,13 @@ fun IpodPlayerStyle(
                         .fillMaxWidth()
                         .height(6.dp)
                         .clip(RoundedCornerShape(GlassTokens.RadiusPill))
-                        .background(GlassTokens.GlassHighlight.copy(alpha = 0.14f))
+                        .background(Color.White.copy(alpha = 0.14f))
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(shownProgress)
                             .height(6.dp)
-                            .background(
-                                brush = Brush.horizontalGradient(
-                                    colors = listOf(palette.primary, palette.secondary)
-                                )
-                            )
+                            .background(Color.White)
                     )
                 }
                 Row(
@@ -697,12 +652,12 @@ fun IpodPlayerStyle(
                     OdometerText(
                         text = formatDurationMs((durationMs * shownProgress).toLong()),
                         style = MaterialTheme.typography.labelSmall,
-                        color = GlassTokens.TextSecondary
+                        color = Color(0xFF9E9E9E)
                     )
                     Text(
                         text = formatDurationMs(state.durationMs),
                         style = MaterialTheme.typography.labelSmall,
-                        color = GlassTokens.TextTertiary
+                        color = Color(0xFF8A8A8A)
                     )
                 }
             }
@@ -714,11 +669,7 @@ fun IpodPlayerStyle(
             modifier = Modifier
                 .size(228.dp)
                 .clip(CircleShape)
-                .smokedGlass(
-                    shape = CircleShape,
-                    elevation = GlassElevation.SHEET,
-                    accentTint = palette.secondary
-                )
+                .background(Color(0xFF141414))
                 .pointerInput(durationMs, ctx.settings.hapticsEnabled) {
                     var lastAngleRad = 0f
                     var workingFraction = baseProgress
@@ -772,7 +723,7 @@ fun IpodPlayerStyle(
                 Text(
                     text = "MENU",
                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                    color = GlassTokens.TextPrimary
+                    color = Color.White
                 )
             }
 
@@ -786,7 +737,7 @@ fun IpodPlayerStyle(
                 Icon(
                     imageVector = Icons.Rounded.SkipPrevious,
                     contentDescription = "Previous",
-                    tint = GlassTokens.TextPrimary
+                    tint = Color.White
                 )
             }
 
@@ -800,7 +751,7 @@ fun IpodPlayerStyle(
                 Icon(
                     imageVector = Icons.Rounded.SkipNext,
                     contentDescription = "Next",
-                    tint = GlassTokens.TextPrimary
+                    tint = Color.White
                 )
             }
 
@@ -814,7 +765,7 @@ fun IpodPlayerStyle(
                 Icon(
                     imageVector = if (state.status == PlaybackStatus.PLAYING) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                     contentDescription = "Play or pause",
-                    tint = GlassTokens.TextPrimary
+                    tint = Color.White
                 )
             }
 
@@ -822,12 +773,7 @@ fun IpodPlayerStyle(
                 modifier = Modifier
                     .size(78.dp)
                     .clip(CircleShape)
-                    .background(
-                        brush = Brush.radialGradient(
-                            colors = listOf(palette.primary.copy(alpha = 0.35f), GlassTokens.ObsidianSurface)
-                        )
-                    )
-                    .border(1.dp, GlassTokens.SpecularBright.copy(alpha = 0.5f), CircleShape)
+                    .background(Color(0xFF242424))
                     .clickable {
                         if (ctx.settings.hapticsEnabled) {
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -839,7 +785,7 @@ fun IpodPlayerStyle(
                 Icon(
                     imageVector = if (ctx.showInlineLyrics) Icons.Rounded.Style else Icons.Rounded.Lyrics,
                     contentDescription = "Toggle lyrics",
-                    tint = palette.primary,
+                    tint = Color.White,
                     modifier = Modifier.size(24.dp)
                 )
             }

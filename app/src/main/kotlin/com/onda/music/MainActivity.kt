@@ -172,7 +172,7 @@ private fun OndaRootShell(languageCode: String) {
         showSettings = true
     }
 
-    BackHandler(enabled = showSettings) {
+    BackHandler(enabled = showSettings && morphAnimatable.value <= 0.05f) {
         showSettings = false
     }
 
@@ -215,40 +215,41 @@ private fun OndaRootShell(languageCode: String) {
                         )
                     }
                 }
+
+                AnimatedVisibility(
+                    visible = showSettings,
+                    enter = fadeIn() + slideInHorizontally { it / 4 },
+                    exit = fadeOut() + slideOutHorizontally { it / 4 }
+                ) {
+                    SettingsRoute(
+                        onBack = { showSettings = false },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
             }
         }
 
-        if (!showSettings) {
-            UnifiedDock(
-                tabLabels = tabLabels,
-                tabIcons = tabIcons,
-                selectedTabIndex = selectedTabIndex,
-                onSelectTab = { selectedTabIndex = it },
-                morphFraction = morphAnimatable.value,
-                onMorphFractionChange = onMorphFractionChange,
-                onExpandPlayer = { onMorphFractionChange(1f) },
-                modifier = Modifier.align(Alignment.BottomCenter),
-                inactiveTabIcons = inactiveTabIcons
-            )
+        UnifiedDock(
+            tabLabels = tabLabels,
+            tabIcons = tabIcons,
+            selectedTabIndex = selectedTabIndex,
+            onSelectTab = { index ->
+                selectedTabIndex = index
+                showSettings = false
+            },
+            morphFraction = morphAnimatable.value,
+            onMorphFractionChange = onMorphFractionChange,
+            onExpandPlayer = { onMorphFractionChange(1f) },
+            modifier = Modifier.align(Alignment.BottomCenter),
+            inactiveTabIcons = inactiveTabIcons
+        )
 
-            FullPlayerOverlay(
-                morphFraction = morphAnimatable.value,
-                onMorphFractionChange = onMorphFractionChange,
-                onCollapse = { onMorphFractionChange(0f) },
-                onOpenSettings = openSettingsFromAny,
-                modifier = Modifier.fillMaxSize()
-            )
-        }
-
-        AnimatedVisibility(
-            visible = showSettings,
-            enter = fadeIn() + slideInHorizontally { it / 4 },
-            exit = fadeOut() + slideOutHorizontally { it / 4 }
-        ) {
-            SettingsRoute(
-                onBack = { showSettings = false },
-                modifier = Modifier.fillMaxSize()
-            )
-        }
+        FullPlayerOverlay(
+            morphFraction = morphAnimatable.value,
+            onMorphFractionChange = onMorphFractionChange,
+            onCollapse = { onMorphFractionChange(0f) },
+            onOpenSettings = openSettingsFromAny,
+            modifier = Modifier.fillMaxSize()
+        )
     }
 }

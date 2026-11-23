@@ -24,7 +24,7 @@ import javax.inject.Singleton
 
 @Serializable
 data class OndaUserSettings(
-    val playerStyle: PlayerStyle = PlayerStyle.FLAGSHIP,
+    val playerStyle: PlayerStyle = PlayerStyle.POSTER,
     val eqConfig: EqConfig = EqConfig(),
     val repeatMode: RepeatMode = RepeatMode.OFF,
     val shuffleEnabled: Boolean = false,
@@ -200,7 +200,7 @@ class OndaPreferences @Inject constructor(
     private fun mapSettings(prefs: Preferences): OndaUserSettings {
         val style = prefs[Keys.playerStyle]?.let { raw ->
             runCatching { PlayerStyle.valueOf(raw) }.getOrNull()
-        } ?: PlayerStyle.FLAGSHIP
+        } ?: PlayerStyle.POSTER
         val repeat = prefs[Keys.repeatMode]?.let { raw ->
             runCatching { RepeatMode.valueOf(raw) }.getOrNull()
         } ?: RepeatMode.OFF

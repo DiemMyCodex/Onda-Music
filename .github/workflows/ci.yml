@@ -26,8 +26,8 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Run Unit Tests and Build ARM64 Debug APK
-        run: ./gradlew testDebugUnitTest assembleArm64Debug --no-daemon --console=plain
+      - name: Run Unit Tests and Build Debug APKs
+        run: ./gradlew testDebugUnitTest :app:assembleDebug :app:assembleArm64Debug --no-daemon --console=plain
 
       - name: Upload ARM64 Debug APK
         uses: actions/upload-artifact@v4

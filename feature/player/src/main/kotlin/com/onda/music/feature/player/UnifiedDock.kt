@@ -9,6 +9,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -63,16 +64,14 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import com.onda.music.core.design.DockMetrics
-import com.onda.music.core.design.GlassElevation
 import com.onda.music.core.design.GlassTokens
 import com.onda.music.core.design.LocalOndaColors
 import com.onda.music.core.design.LocalOndaPalette
 import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.design.ondaBackdropBlur
 import com.onda.music.core.design.press3D
-import com.onda.music.core.design.smokedGlass
 import com.onda.music.core.model.PlaybackStatus
 import com.onda.music.core.model.Track
 import kotlinx.coroutines.launch
@@ -96,6 +95,7 @@ fun UnifiedDock(
     onMorphFractionChange: (Float) -> Unit,
     onExpandPlayer: () -> Unit,
     modifier: Modifier = Modifier,
+    inactiveTabIcons: List<ImageVector> = tabIcons,
     viewModel: PlayerViewModel = hiltViewModel()
 ) {
     val playbackState by viewModel.playbackState.collectAsState()
@@ -124,7 +124,7 @@ fun UnifiedDock(
             modifier = modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(horizontal = 12.dp, vertical = 10.dp)
+                .padding(start = 12.dp, end = 12.dp, bottom = 8.dp)
                 .graphicsLayer {
                     alpha = dockAlpha
                     translationY = slideOffsetPx
@@ -158,6 +158,7 @@ fun UnifiedDock(
             DockTabPill(
                 tabLabels = tabLabels,
                 tabIcons = tabIcons,
+                inactiveTabIcons = inactiveTabIcons,
                 selectedTabIndex = selectedTabIndex,
                 blurEnabled = settings.glassBlurEnabled,
                 hapticsEnabled = settings.hapticsEnabled,
@@ -188,28 +189,18 @@ private fun MiniPlayerBar(
     val horizontalOffset = remember { Animatable(0f) }
     val dragThresholdPx = with(density) { 58.dp.toPx() }
     val expandDistancePx = with(density) { 360.dp.toPx() }
-    val shape = RoundedCornerShape(GlassTokens.RadiusLg)
+    val shape = RoundedCornerShape(24.dp)
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(DockMetrics.MiniPlayerHeight)
+            .height(62.dp)
             .graphicsLayer {
                 translationX = horizontalOffset.value
             }
             .press3D(maxTiltDegrees = 4f, pressedScale = 0.985f)
-            .then(
-                if (blurEnabled) {
-                    Modifier.ondaBackdropBlur(radius = 20.dp)
-                } else {
-                    Modifier
-                }
-            )
-            .smokedGlass(
-                shape = shape,
-                elevation = GlassElevation.DOCK,
-                accentTint = palette.primary
-            )
+            .clip(shape)
+            .border(width = 0.5.dp, color = Color(0x26FFFFFF), shape = shape)
             .pointerInput(track.id, morphFraction) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
@@ -291,6 +282,19 @@ private fun MiniPlayerBar(
                 }
             }
     ) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(Color(0xE6181818), shape)
+                .then(
+                    if (blurEnabled) {
+                        Modifier.ondaBackdropBlur(radius = 16.dp)
+                    } else {
+                        Modifier
+                    }
+                )
+        )
+
         Row(
             modifier = Modifier
                 .fillMaxSize()
@@ -300,7 +304,7 @@ private fun MiniPlayerBar(
             TrackArtworkImage(
                 artworkUrl = track.artworkUrl,
                 contentDescription = track.title,
-                shape = RoundedCornerShape(GlassTokens.RadiusSm),
+                shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.size(44.dp)
             )
 
@@ -312,15 +316,22 @@ private fun MiniPlayerBar(
             ) {
                 Text(
                     text = track.title,
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                    color = GlassTokens.TextPrimary,
-                    maxLines = 1,
+                    style = MaterialTheme.typography.titleSmall.copy(
+                        fontSize = 14.sp,
+                        lineHeight = 17.sp,
+                        fontWeight = FontWeight.SemiBold
+                    ),
+                    color = Color.White,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = track.artist,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = GlassTokens.TextSecondary,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontSize = 12.sp,
+                        lineHeight = 15.sp
+                    ),
+                    color = Color(0xFFA0A0A0),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -331,15 +342,12 @@ private fun MiniPlayerBar(
                     if (hapticsEnabled) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     onTogglePlayPause()
                 },
-                modifier = Modifier.defaultMinSize(
-                    minWidth = DockMetrics.MinTapTarget,
-                    minHeight = DockMetrics.MinTapTarget
-                )
+                modifier = Modifier.defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
             ) {
                 Icon(
                     imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                     contentDescription = if (isPlaying) "Pause" else "Play",
-                    tint = GlassTokens.TextPrimary,
+                    tint = Color.White,
                     modifier = Modifier.size(26.dp)
                 )
             }
@@ -349,15 +357,12 @@ private fun MiniPlayerBar(
                     if (hapticsEnabled) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     onSkipNext()
                 },
-                modifier = Modifier.defaultMinSize(
-                    minWidth = DockMetrics.MinTapTarget,
-                    minHeight = DockMetrics.MinTapTarget
-                )
+                modifier = Modifier.defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
             ) {
                 Icon(
                     imageVector = Icons.Rounded.SkipNext,
                     contentDescription = "Next track",
-                    tint = GlassTokens.TextPrimary,
+                    tint = Color.White,
                     modifier = Modifier.size(24.dp)
                 )
             }
@@ -466,75 +471,79 @@ private fun DockTabPill(
     selectedTabIndex: Int,
     blurEnabled: Boolean,
     hapticsEnabled: Boolean,
-    onSelectTab: (Int) -> Unit
+    onSelectTab: (Int) -> Unit,
+    inactiveTabIcons: List<ImageVector> = tabIcons
 ) {
-    val palette = OndaTheme.palette
     val haptics = LocalHapticFeedback.current
     val itemCount = minOf(tabLabels.size, tabIcons.size)
     if (itemCount == 0) return
 
-    val pillShape = RoundedCornerShape(GlassTokens.RadiusPill)
+    val pillShape = RoundedCornerShape(999.dp)
 
-    Row(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(DockMetrics.NavBarHeight)
-            .then(
-                if (blurEnabled) {
-                    Modifier.ondaBackdropBlur(radius = 24.dp)
-                } else {
-                    Modifier
-                }
-            )
-            .smokedGlass(
-                shape = pillShape,
-                elevation = GlassElevation.DOCK,
-                accentTint = palette.secondary
-            )
-            .padding(horizontal = 6.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
+            .height(64.dp)
+            .clip(pillShape)
+            .border(width = 0.5.dp, color = Color(0x22FFFFFF), shape = pillShape)
     ) {
-        for (index in 0 until itemCount) {
-            val selected = index == selectedTabIndex
-            val label = tabLabels[index]
-            val icon = tabIcons[index]
-            val contentTint by animateColorAsState(
-                targetValue = if (selected) palette.primary else GlassTokens.TextSecondary,
-                label = "DockTabTint"
-            )
-            val indicatorAlpha = if (selected) 0.16f else 0f
-
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .defaultMinSize(minWidth = DockMetrics.MinTapTarget, minHeight = DockMetrics.MinTapTarget)
-                    .clip(pillShape)
-                    .background(palette.primary.copy(alpha = indicatorAlpha))
-                    .clickable {
-                        if (hapticsEnabled) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        onSelectTab(index)
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(Color(0xE6141414), pillShape)
+                .then(
+                    if (blurEnabled) {
+                        Modifier.ondaBackdropBlur(radius = 20.dp)
+                    } else {
+                        Modifier
                     }
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = label,
-                    tint = contentTint,
-                    modifier = Modifier.size(22.dp)
                 )
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
-                    ),
-                    color = contentTint,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+        )
+
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 6.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            for (index in 0 until itemCount) {
+                val selected = index == selectedTabIndex
+                val label = tabLabels[index]
+                val icon = if (selected) {
+                    tabIcons[index]
+                } else {
+                    inactiveTabIcons.getOrElse(index) { tabIcons[index] }
+                }
+                val iconTint by animateColorAsState(
+                    targetValue = if (selected) Color.White else Color(0xFF9E9E9E),
+                    label = "DockTabTint"
                 )
+                val indicatorColor by animateColorAsState(
+                    targetValue = if (selected) Color(0x26FFFFFF) else Color.Transparent,
+                    label = "DockTabIndicator"
+                )
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
+                        .clip(pillShape)
+                        .background(indicatorColor, pillShape)
+                        .clickable {
+                            if (hapticsEnabled) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onSelectTab(index)
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = label,
+                        tint = iconTint,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
             }
         }
     }

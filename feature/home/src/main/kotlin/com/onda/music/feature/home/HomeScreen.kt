@@ -13,15 +13,16 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -29,14 +30,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.onda.music.core.design.AppMotion
-import com.onda.music.core.design.GlassElevation
-import com.onda.music.core.design.GlassSurface
-import com.onda.music.core.design.GlassTokens
+import com.onda.music.core.design.DockMetrics
 import com.onda.music.core.design.OndaTheme
-import com.onda.music.core.design.dockBottomPadding
 import com.onda.music.core.design.homeRecede
 import com.onda.music.core.model.Album
 import com.onda.music.core.model.MoodCategory
@@ -58,7 +59,6 @@ fun HomeRoute(
         sharedTransitionScope = sharedTransitionScope,
         animatedVisibilityScope = animatedVisibilityScope,
         onOpenSettings = onOpenSettings,
-        onOpenSearch = onOpenSearch,
         onRefresh = { viewModel.refresh(initial = false) },
         onPlayHero = viewModel::playHero,
         onPlayTrack = viewModel::playTrack,
@@ -72,6 +72,37 @@ fun HomeRoute(
     )
 }
 
+@Composable
+fun DiscoverRoute(
+    onOpenSettings: () -> Unit,
+    modifier: Modifier = Modifier,
+    viewModel: HomeViewModel = hiltViewModel()
+) {
+    val uiState by viewModel.uiState.collectAsState()
+    DiscoverScreen(
+        uiState = uiState,
+        onOpenSettings = onOpenSettings,
+        onRefresh = { viewModel.refresh(initial = false) },
+        onPlayTrack = viewModel::playTrack,
+        onToggleLike = viewModel::toggleLike,
+        onOpenAlbum = viewModel::openAlbum,
+        onOpenMood = viewModel::openMood,
+        onCloseDetail = viewModel::closeDetail,
+        onPlayAllCollection = viewModel::playAllCollection,
+        onPlayCollectionTrack = viewModel::playCollectionTrack,
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun rememberOledDockBottomClearance(hasMiniPlayer: Boolean): Dp {
+    val extraClearance = if (hasMiniPlayer) 32.dp else 96.dp
+    return DockMetrics.rememberBottomPadding(
+        hasMiniPlayer = hasMiniPlayer,
+        extraClearance = extraClearance
+    )
+}
+
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 internal fun HomeScreen(
@@ -79,7 +110,6 @@ internal fun HomeScreen(
     sharedTransitionScope: SharedTransitionScope?,
     animatedVisibilityScope: AnimatedVisibilityScope?,
     onOpenSettings: () -> Unit,
-    onOpenSearch: () -> Unit,
     onRefresh: () -> Unit,
     onPlayHero: () -> Unit,
     onPlayTrack: (Track, List<Track>) -> Unit,
@@ -99,60 +129,47 @@ internal fun HomeScreen(
         animationSpec = AppMotion.adaptiveSpring(reducedMotion = reducedMotion),
         label = "HomeDetailFraction"
     )
+    val bottomClearance = rememberOledDockBottomClearance(hasMiniPlayer = uiState.hasMiniPlayer)
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(GlassTokens.AmoledBlack)
+            .background(OledBlack)
     ) {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
-                .homeRecede(fraction = detailFraction, reducedMotion = reducedMotion)
-                .dockBottomPadding(hasMiniPlayer = uiState.hasMiniPlayer),
-            contentPadding = PaddingValues(top = 4.dp, bottom = 20.dp),
+                .homeRecede(fraction = detailFraction, reducedMotion = reducedMotion),
+            contentPadding = PaddingValues(top = 0.dp, bottom = bottomClearance),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            item(key = "home_top_bar") {
-                HomeTopBar(
-                    username = uiState.username,
-                    avatarPath = uiState.avatarPath,
-                    strings = strings,
-                    isRefreshing = uiState.isRefreshing,
-                    accentColor = uiState.heroPalette.primary,
-                    onRefresh = onRefresh,
-                    onOpenSearch = onOpenSearch,
-                    onOpenSettings = onOpenSettings
-                )
+            val heroTrack = uiState.heroTrack
+            if (heroTrack != null) {
+                item(key = "hero_card") {
+                    FullBleedHeroSection(
+                        track = heroTrack,
+                        subtitle = uiState.heroSubtitle,
+                        strings = strings,
+                        isPlaying = uiState.isPlaying,
+                        isActiveTrack = uiState.activeTrackId == heroTrack.id,
+                        onPlayClick = onPlayHero
+                    )
+                }
+            } else {
+                item(key = "top_bar_clearance") {
+                    Spacer(
+                        modifier = Modifier
+                            .statusBarsPadding()
+                            .height(60.dp)
+                    )
+                }
             }
 
             if (uiState.isOfflineFallback) {
                 item(key = "offline_banner") {
                     OfflineFallbackBanner(
                         strings = strings,
-                        accentColor = uiState.heroPalette.primary,
                         onRetry = onRefresh
-                    )
-                }
-            }
-
-            val heroTrack = uiState.heroTrack
-            if (heroTrack != null) {
-                item(key = "hero_card") {
-                    HeroTrackCard(
-                        track = heroTrack,
-                        subtitle = uiState.heroSubtitle,
-                        palette = uiState.heroPalette,
-                        strings = strings,
-                        isPlaying = uiState.isPlaying,
-                        isActiveTrack = uiState.activeTrackId == heroTrack.id,
-                        dynamicMeshEnabled = uiState.dynamicMeshEnabled,
-                        detailFraction = detailFraction,
-                        sharedTransitionScope = sharedTransitionScope,
-                        animatedVisibilityScope = animatedVisibilityScope,
-                        onPlayClick = onPlayHero,
-                        onToggleLike = { onToggleLike(heroTrack) }
                     )
                 }
             }
@@ -165,17 +182,14 @@ internal fun HomeScreen(
                             .padding(vertical = 48.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        CircularProgressIndicator(color = uiState.heroPalette.primary)
+                        CircularProgressIndicator(color = Color.White)
                     }
                 }
             }
 
             if (uiState.recentlyPlayed.isNotEmpty()) {
                 item(key = "recently_played_header") {
-                    SectionHeader(
-                        title = strings.recentlyPlayed,
-                        count = uiState.recentlyPlayed.size
-                    )
+                    SectionHeader(title = strings.recentlyPlayed)
                 }
                 item(key = "recently_played_row") {
                     TrackHorizontalShelf(
@@ -183,7 +197,6 @@ internal fun HomeScreen(
                         strings = strings,
                         activeTrackId = uiState.activeTrackId,
                         isPlaying = uiState.isPlaying,
-                        accentColor = uiState.heroPalette.primary,
                         detailFraction = detailFraction,
                         sharedTransitionScope = sharedTransitionScope,
                         animatedVisibilityScope = animatedVisibilityScope,
@@ -194,10 +207,7 @@ internal fun HomeScreen(
 
             if (uiState.mostPlayed.isNotEmpty()) {
                 item(key = "most_played_header") {
-                    SectionHeader(
-                        title = strings.mostPlayed,
-                        count = uiState.mostPlayed.size
-                    )
+                    SectionHeader(title = strings.mostPlayed)
                 }
                 item(key = "most_played_row") {
                     TrackHorizontalShelf(
@@ -205,7 +215,6 @@ internal fun HomeScreen(
                         strings = strings,
                         activeTrackId = uiState.activeTrackId,
                         isPlaying = uiState.isPlaying,
-                        accentColor = uiState.heroPalette.primary,
                         detailFraction = detailFraction,
                         sharedTransitionScope = sharedTransitionScope,
                         animatedVisibilityScope = animatedVisibilityScope,
@@ -216,10 +225,7 @@ internal fun HomeScreen(
 
             if (uiState.quickPicks.isNotEmpty()) {
                 item(key = "quick_picks_header") {
-                    SectionHeader(
-                        title = strings.quickPicks,
-                        count = uiState.quickPicks.size
-                    )
+                    SectionHeader(title = strings.quickPicks)
                 }
                 items(
                     items = uiState.quickPicks.take(6),
@@ -230,7 +236,6 @@ internal fun HomeScreen(
                         strings = strings,
                         isActive = track.id == uiState.activeTrackId,
                         isPlaying = uiState.isPlaying,
-                        accentColor = uiState.heroPalette.primary,
                         onPlay = { onPlayTrack(track, uiState.quickPicks) },
                         onToggleLike = { onToggleLike(track) }
                     )
@@ -239,16 +244,12 @@ internal fun HomeScreen(
 
             if (uiState.newReleases.isNotEmpty()) {
                 item(key = "new_releases_header") {
-                    SectionHeader(
-                        title = strings.newReleases,
-                        count = uiState.newReleases.size
-                    )
+                    SectionHeader(title = strings.newReleases)
                 }
                 item(key = "new_releases_row") {
                     AlbumHorizontalShelf(
                         albums = uiState.newReleases,
                         strings = strings,
-                        accentColor = uiState.heroPalette.primary,
                         detailFraction = detailFraction,
                         sharedTransitionScope = sharedTransitionScope,
                         animatedVisibilityScope = animatedVisibilityScope,
@@ -272,7 +273,6 @@ internal fun HomeScreen(
                                 strings = strings,
                                 activeTrackId = uiState.activeTrackId,
                                 isPlaying = uiState.isPlaying,
-                                accentColor = uiState.heroPalette.primary,
                                 detailFraction = detailFraction,
                                 sharedTransitionScope = sharedTransitionScope,
                                 animatedVisibilityScope = animatedVisibilityScope,
@@ -285,7 +285,6 @@ internal fun HomeScreen(
                             AlbumHorizontalShelf(
                                 albums = chartShelf.albums,
                                 strings = strings,
-                                accentColor = uiState.heroPalette.primary,
                                 detailFraction = detailFraction,
                                 sharedTransitionScope = sharedTransitionScope,
                                 animatedVisibilityScope = animatedVisibilityScope,
@@ -311,7 +310,6 @@ internal fun HomeScreen(
                                 strings = strings,
                                 activeTrackId = uiState.activeTrackId,
                                 isPlaying = uiState.isPlaying,
-                                accentColor = uiState.heroPalette.primary,
                                 detailFraction = detailFraction,
                                 sharedTransitionScope = sharedTransitionScope,
                                 animatedVisibilityScope = animatedVisibilityScope,
@@ -324,7 +322,6 @@ internal fun HomeScreen(
                             AlbumHorizontalShelf(
                                 albums = shelf.albums,
                                 strings = strings,
-                                accentColor = uiState.heroPalette.primary,
                                 detailFraction = detailFraction,
                                 sharedTransitionScope = sharedTransitionScope,
                                 animatedVisibilityScope = animatedVisibilityScope,
@@ -337,15 +334,12 @@ internal fun HomeScreen(
 
             if (uiState.moodCategories.isNotEmpty()) {
                 item(key = "moods_header") {
-                    SectionHeader(
-                        title = strings.moodsAndGenres,
-                        count = uiState.moodCategories.size
-                    )
+                    SectionHeader(title = strings.moodsAndGenres)
                 }
                 item(key = "moods_row") {
                     LazyRow(
                         contentPadding = ShelfHorizontalPadding,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                         items(
                             items = uiState.moodCategories,
@@ -362,10 +356,7 @@ internal fun HomeScreen(
 
             if (uiState.localTracks.isNotEmpty() && (uiState.isOfflineFallback || uiState.shelves.isEmpty())) {
                 item(key = "local_header") {
-                    SectionHeader(
-                        title = strings.offlineLibrary,
-                        count = uiState.localTracks.size
-                    )
+                    SectionHeader(title = strings.offlineLibrary)
                 }
                 item(key = "local_row") {
                     TrackHorizontalShelf(
@@ -373,7 +364,6 @@ internal fun HomeScreen(
                         strings = strings,
                         activeTrackId = uiState.activeTrackId,
                         isPlaying = uiState.isPlaying,
-                        accentColor = uiState.heroPalette.primary,
                         detailFraction = detailFraction,
                         sharedTransitionScope = sharedTransitionScope,
                         animatedVisibilityScope = animatedVisibilityScope,
@@ -384,23 +374,27 @@ internal fun HomeScreen(
 
             if (!uiState.isLoading && heroTrack == null && uiState.shelves.isEmpty() && uiState.localTracks.isEmpty()) {
                 item(key = "empty_home") {
-                    GlassSurface(
+                    Text(
+                        text = uiState.errorMessage ?: strings.emptyDetail,
+                        fontSize = 14.sp,
+                        color = OledMutedText,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp),
-                        elevation = GlassElevation.CARD,
-                        accentTint = uiState.heroPalette.primary
-                    ) {
-                        Text(
-                            text = uiState.errorMessage ?: strings.emptyDetail,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = OndaTheme.colors.textSecondary,
-                            modifier = Modifier.padding(18.dp)
-                        )
-                    }
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                    )
                 }
             }
         }
+
+        MinimalFloatingTopBar(
+            username = uiState.username,
+            avatarPath = uiState.avatarPath,
+            settingsDescription = strings.settingsDescription,
+            onOpenSettings = onOpenSettings,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .homeRecede(fraction = detailFraction, reducedMotion = reducedMotion)
+        )
 
         AnimatedVisibility(
             visible = detailVisible,
@@ -429,12 +423,240 @@ internal fun HomeScreen(
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
+internal fun DiscoverScreen(
+    uiState: HomeUiState,
+    onOpenSettings: () -> Unit,
+    onRefresh: () -> Unit,
+    onPlayTrack: (Track, List<Track>) -> Unit,
+    onToggleLike: (Track) -> Unit,
+    onOpenAlbum: (Album) -> Unit,
+    onOpenMood: (MoodCategory) -> Unit,
+    onCloseDetail: () -> Unit,
+    onPlayAllCollection: () -> Unit,
+    onPlayCollectionTrack: (Track) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val strings = resolveHomeStrings(uiState.languageCode)
+    val discoverHeading = if (uiState.languageCode.startsWith("vi", ignoreCase = true)) {
+        "Khám phá"
+    } else {
+        "Discover"
+    }
+    val reducedMotion = OndaTheme.reducedMotion
+    val detailVisible = uiState.detailSheet != null
+    val detailFraction by animateFloatAsState(
+        targetValue = if (detailVisible) 1f else 0f,
+        animationSpec = AppMotion.adaptiveSpring(reducedMotion = reducedMotion),
+        label = "DiscoverDetailFraction"
+    )
+    val bottomClearance = rememberOledDockBottomClearance(hasMiniPlayer = uiState.hasMiniPlayer)
+    val hasDiscoverContent = uiState.chartShelves.isNotEmpty() ||
+        uiState.newReleases.isNotEmpty() ||
+        uiState.moodCategories.isNotEmpty() ||
+        uiState.quickPicks.isNotEmpty()
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(OledBlack)
+    ) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .homeRecede(fraction = detailFraction, reducedMotion = reducedMotion),
+            contentPadding = PaddingValues(top = 0.dp, bottom = bottomClearance),
+            verticalArrangement = Arrangement.spacedBy(20.dp)
+        ) {
+            item(key = "discover_top_clearance") {
+                Spacer(
+                    modifier = Modifier
+                        .statusBarsPadding()
+                        .height(58.dp)
+                )
+            }
+
+            item(key = "discover_heading") {
+                Text(
+                    text = discoverHeading,
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+            }
+
+            if (uiState.isOfflineFallback) {
+                item(key = "discover_offline_banner") {
+                    OfflineFallbackBanner(
+                        strings = strings,
+                        onRetry = onRefresh
+                    )
+                }
+            }
+
+            if (uiState.isLoading && !hasDiscoverContent) {
+                item(key = "discover_loading") {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 48.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(color = Color.White)
+                    }
+                }
+            }
+
+            uiState.chartShelves.forEach { chartShelf ->
+                if (chartShelf.tracks.isNotEmpty() || chartShelf.albums.isNotEmpty()) {
+                    item(key = "discover_chart_header_${chartShelf.id}") {
+                        SectionHeader(
+                            title = chartShelf.title.ifBlank { strings.charts },
+                            subtitle = chartShelf.subtitle
+                        )
+                    }
+                    if (chartShelf.tracks.isNotEmpty()) {
+                        item(key = "discover_chart_tracks_${chartShelf.id}") {
+                            TrackHorizontalShelf(
+                                tracks = chartShelf.tracks,
+                                strings = strings,
+                                activeTrackId = uiState.activeTrackId,
+                                isPlaying = uiState.isPlaying,
+                                detailFraction = detailFraction,
+                                sharedTransitionScope = null,
+                                animatedVisibilityScope = null,
+                                onPlayTrack = { track -> onPlayTrack(track, chartShelf.tracks) }
+                            )
+                        }
+                    }
+                    if (chartShelf.albums.isNotEmpty()) {
+                        item(key = "discover_chart_albums_${chartShelf.id}") {
+                            AlbumHorizontalShelf(
+                                albums = chartShelf.albums,
+                                strings = strings,
+                                detailFraction = detailFraction,
+                                sharedTransitionScope = null,
+                                animatedVisibilityScope = null,
+                                onOpenAlbum = onOpenAlbum
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (uiState.newReleases.isNotEmpty()) {
+                item(key = "discover_new_releases_header") {
+                    SectionHeader(title = strings.newReleases)
+                }
+                item(key = "discover_new_releases_row") {
+                    AlbumHorizontalShelf(
+                        albums = uiState.newReleases,
+                        strings = strings,
+                        detailFraction = detailFraction,
+                        sharedTransitionScope = null,
+                        animatedVisibilityScope = null,
+                        onOpenAlbum = onOpenAlbum
+                    )
+                }
+            }
+
+            if (uiState.moodCategories.isNotEmpty()) {
+                item(key = "discover_moods_header") {
+                    SectionHeader(title = strings.moodsAndGenres)
+                }
+                item(key = "discover_moods_row") {
+                    LazyRow(
+                        contentPadding = ShelfHorizontalPadding,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        items(
+                            items = uiState.moodCategories,
+                            key = { mood -> mood.id }
+                        ) { mood ->
+                            MoodPillCard(
+                                mood = mood,
+                                onClick = { onOpenMood(mood) }
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (uiState.quickPicks.isNotEmpty()) {
+                item(key = "discover_quick_picks_header") {
+                    SectionHeader(title = strings.quickPicks)
+                }
+                items(
+                    items = uiState.quickPicks.take(8),
+                    key = { track -> "discover_qp_${track.id}" }
+                ) { track ->
+                    QuickPickCompactRow(
+                        track = track,
+                        strings = strings,
+                        isActive = track.id == uiState.activeTrackId,
+                        isPlaying = uiState.isPlaying,
+                        onPlay = { onPlayTrack(track, uiState.quickPicks) },
+                        onToggleLike = { onToggleLike(track) }
+                    )
+                }
+            }
+
+            if (!uiState.isLoading && !hasDiscoverContent) {
+                item(key = "discover_empty") {
+                    Text(
+                        text = uiState.errorMessage ?: strings.emptyDetail,
+                        fontSize = 14.sp,
+                        color = OledMutedText,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                    )
+                }
+            }
+        }
+
+        MinimalFloatingTopBar(
+            username = uiState.username,
+            avatarPath = uiState.avatarPath,
+            settingsDescription = strings.settingsDescription,
+            onOpenSettings = onOpenSettings,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .homeRecede(fraction = detailFraction, reducedMotion = reducedMotion)
+        )
+
+        AnimatedVisibility(
+            visible = detailVisible,
+            enter = fadeIn() + slideInVertically { it / 6 },
+            exit = fadeOut() + slideOutVertically { it / 6 }
+        ) {
+            val detail = uiState.detailSheet ?: return@AnimatedVisibility
+            AlbumPlaylistDetailSheet(
+                detail = detail,
+                strings = strings,
+                palette = uiState.heroPalette,
+                activeTrackId = uiState.activeTrackId,
+                hasMiniPlayer = uiState.hasMiniPlayer,
+                dynamicMeshEnabled = uiState.dynamicMeshEnabled,
+                detailFraction = detailFraction,
+                sharedTransitionScope = null,
+                animatedVisibilityScope = null,
+                onClose = onCloseDetail,
+                onPlayAll = onPlayAllCollection,
+                onPlayTrack = onPlayCollectionTrack,
+                onToggleLike = onToggleLike
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
 private fun TrackHorizontalShelf(
     tracks: List<Track>,
     strings: HomeStrings,
     activeTrackId: String?,
     isPlaying: Boolean,
-    accentColor: Color,
     detailFraction: Float,
     sharedTransitionScope: SharedTransitionScope?,
     animatedVisibilityScope: AnimatedVisibilityScope?,
@@ -442,7 +664,7 @@ private fun TrackHorizontalShelf(
 ) {
     LazyRow(
         contentPadding = ShelfHorizontalPadding,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         items(
             items = tracks,
@@ -453,7 +675,6 @@ private fun TrackHorizontalShelf(
                 strings = strings,
                 isActive = track.id == activeTrackId,
                 isPlaying = isPlaying,
-                accentColor = accentColor,
                 detailFraction = detailFraction,
                 sharedTransitionScope = sharedTransitionScope,
                 animatedVisibilityScope = animatedVisibilityScope,
@@ -468,7 +689,6 @@ private fun TrackHorizontalShelf(
 private fun AlbumHorizontalShelf(
     albums: List<Album>,
     strings: HomeStrings,
-    accentColor: Color,
     detailFraction: Float,
     sharedTransitionScope: SharedTransitionScope?,
     animatedVisibilityScope: AnimatedVisibilityScope?,
@@ -476,7 +696,7 @@ private fun AlbumHorizontalShelf(
 ) {
     LazyRow(
         contentPadding = ShelfHorizontalPadding,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         items(
             items = albums,
@@ -485,7 +705,6 @@ private fun AlbumHorizontalShelf(
             AlbumSquareCard(
                 album = album,
                 strings = strings,
-                accentColor = accentColor,
                 detailFraction = detailFraction,
                 sharedTransitionScope = sharedTransitionScope,
                 animatedVisibilityScope = animatedVisibilityScope,

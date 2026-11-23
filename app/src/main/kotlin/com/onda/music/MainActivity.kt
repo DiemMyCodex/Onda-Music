@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -23,6 +24,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Explore
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.LibraryMusic
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Search
@@ -38,14 +44,16 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import com.onda.music.core.database.OndaPreferences
 import com.onda.music.core.database.OndaUserSettings
 import com.onda.music.core.design.AppMotion
-import com.onda.music.core.design.GlassTokens
 import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.design.homeRecede
+import com.onda.music.feature.home.DiscoverRoute
 import com.onda.music.feature.home.HomeRoute
 import com.onda.music.feature.library.LibraryRoute
 import com.onda.music.feature.player.FullPlayerOverlay
@@ -64,7 +72,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        )
         setContent {
             val userSettings by ondaPreferences.settings.collectAsState(initial = OndaUserSettings())
             OndaTheme {
@@ -113,16 +125,25 @@ private fun OndaRootShell(languageCode: String) {
 
     val tabLabels = remember(languageCode) {
         if (languageCode.startsWith("vi", ignoreCase = true)) {
-            listOf("Trang chủ", "Tìm kiếm", "Thư viện")
+            listOf("Trang chủ", "Tìm kiếm", "Thư viện", "Khám phá")
         } else {
-            listOf("Home", "Search", "Library")
+            listOf("Home", "Search", "Library", "Discover")
         }
     }
     val tabIcons = remember {
         listOf(
             Icons.Rounded.Home,
             Icons.Rounded.Search,
-            Icons.Rounded.LibraryMusic
+            Icons.Rounded.LibraryMusic,
+            Icons.Rounded.Explore
+        )
+    }
+    val inactiveTabIcons = remember {
+        listOf(
+            Icons.Outlined.Home,
+            Icons.Outlined.Search,
+            Icons.Outlined.LibraryMusic,
+            Icons.Outlined.Explore
         )
     }
 
@@ -158,7 +179,7 @@ private fun OndaRootShell(languageCode: String) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(GlassTokens.AmoledBlack)
+            .background(Color(0xFF000000))
     ) {
         SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
             Box(
@@ -186,7 +207,10 @@ private fun OndaRootShell(languageCode: String) {
                         1 -> SearchRoute(
                             onOpenSettings = openSettingsFromAny
                         )
-                        else -> LibraryRoute(
+                        2 -> LibraryRoute(
+                            onOpenSettings = openSettingsFromAny
+                        )
+                        else -> DiscoverRoute(
                             onOpenSettings = openSettingsFromAny
                         )
                     }
@@ -203,7 +227,8 @@ private fun OndaRootShell(languageCode: String) {
                 morphFraction = morphAnimatable.value,
                 onMorphFractionChange = onMorphFractionChange,
                 onExpandPlayer = { onMorphFractionChange(1f) },
-                modifier = Modifier.align(Alignment.BottomCenter)
+                modifier = Modifier.align(Alignment.BottomCenter),
+                inactiveTabIcons = inactiveTabIcons
             )
 
             FullPlayerOverlay(

@@ -22,7 +22,7 @@ import kotlin.math.min
 import kotlin.math.pow
 
 object GlassTokens {
-    val AmoledBlack = Color(0xFF050609)
+    val AmoledBlack = Color(0xFF000000)
     val ObsidianSurface = Color(0xFF0C0F16)
     val SmokedGlassBase = Color(0xCC111520)
     val SmokedGlassCard = Color(0xB8141926)

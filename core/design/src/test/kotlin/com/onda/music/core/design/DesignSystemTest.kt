@@ -16,13 +16,13 @@ class DesignSystemTest {
             hasMiniPlayer = true,
             navigationBarInset = 24.dp
         )
-        assertEquals(168.dp, withMini)
+        assertEquals(184.dp, withMini)
 
         val withoutMini = DockMetrics.contentBottomPadding(
             hasMiniPlayer = false,
             navigationBarInset = 24.dp
         )
-        assertEquals(104.dp, withoutMini)
+        assertEquals(122.dp, withoutMini)
     }
 
     @Test

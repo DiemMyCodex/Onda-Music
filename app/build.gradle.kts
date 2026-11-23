@@ -117,6 +117,8 @@ dependencies {
     implementation(libs.compose.ui)
     implementation(libs.compose.animation)
     implementation(libs.material3)
+    implementation(libs.compose.material.icons.core)
+    implementation(libs.compose.material.icons.extended)
     implementation(libs.coil)
     implementation(libs.coil.svg)
     implementation(libs.coil.network.okhttp)

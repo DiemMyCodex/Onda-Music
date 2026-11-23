@@ -24,6 +24,7 @@ import com.onda.music.core.sources.YtMusicClient
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
@@ -266,7 +267,7 @@ class SearchViewModel @Inject constructor(
 
             try {
                 coroutineScope {
-                    val suggestionsDeferred = if (fetchSuggestions) {
+                    val suggestionsDeferred: Deferred<List<String>>? = if (fetchSuggestions) {
                         async(Dispatchers.IO) {
                             ytMusicClient.searchSuggestions(query).getOrDefault(emptyList())
                         }
@@ -279,7 +280,7 @@ class SearchViewModel @Inject constructor(
                     val ytDeferred = async(Dispatchers.IO) {
                         ytMusicClient.search(query)
                     }
-                    val monoDeferred = if (searchMonochrome) {
+                    val monoDeferred: Deferred<Result<List<Track>>>? = if (searchMonochrome) {
                         async(Dispatchers.IO) {
                             monochromeClient.searchTracks(query)
                         }

@@ -1,6 +1,5 @@
 package com.onda.music.feature.player.styles
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
@@ -419,7 +418,7 @@ fun VideoPlayerStyle(
                 )
             }
 
-            AnimatedVisibility(
+            androidx.compose.animation.AnimatedVisibility(
                 visible = !hasVideoFrames,
                 enter = fadeIn(),
                 exit = fadeOut(),

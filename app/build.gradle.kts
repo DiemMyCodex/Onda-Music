@@ -39,10 +39,36 @@ extensions.configure<ApplicationExtension> {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            val keystorePath = System.getenv("ONDA_KEYSTORE_PATH")
+            val keystorePassword = System.getenv("ONDA_KEYSTORE_PASSWORD")
+            val keyAliasValue = System.getenv("ONDA_KEY_ALIAS")
+            val keyPasswordValue = System.getenv("ONDA_KEY_PASSWORD")
+            if (!keystorePath.isNullOrBlank() &&
+                !keystorePassword.isNullOrBlank() &&
+                !keyAliasValue.isNullOrBlank() &&
+                !keyPasswordValue.isNullOrBlank() &&
+                file(keystorePath).exists()
+            ) {
+                storeFile = file(keystorePath)
+                storePassword = keystorePassword
+                keyAlias = keyAliasValue
+                keyPassword = keyPasswordValue
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            val releaseSigning = signingConfigs.getByName("release")
+            signingConfig = if (releaseSigning.storeFile != null) {
+                releaseSigning
+            } else {
+                signingConfigs.getByName("debug")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

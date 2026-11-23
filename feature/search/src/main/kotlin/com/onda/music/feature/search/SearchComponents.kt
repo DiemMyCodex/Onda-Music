@@ -1,19 +1,25 @@
 package com.onda.music.feature.search
 
+import android.os.Build
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -23,6 +29,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
@@ -32,36 +39,54 @@ import androidx.compose.material.icons.rounded.HighQuality
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Smartphone
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.onda.music.core.design.DockMetrics
 import com.onda.music.core.design.GlassElevation
 import com.onda.music.core.design.GlassSurface
 import com.onda.music.core.design.GlassTokens
 import com.onda.music.core.design.OndaTheme
-import com.onda.music.core.design.press3D
 import com.onda.music.core.design.smokedGlass
 import com.onda.music.core.model.Album
 import com.onda.music.core.model.Artist
@@ -70,49 +95,162 @@ import com.onda.music.core.model.Playlist
 import com.onda.music.core.model.SourceKind
 import com.onda.music.core.model.Track
 
+private val SearchTitleBlockHeight = 62.dp
+private val SearchTopInset = 12.dp
+
 @Composable
-internal fun SearchTopHeader(
+internal fun searchExpandedTopPadding(hasFilterRow: Boolean): Dp {
+    val statusBar = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    return statusBar + SearchTopInset + SearchTitleBlockHeight + 52.dp + (if (hasFilterRow) 62.dp else 14.dp)
+}
+
+@Composable
+internal fun SearchGlassTopBar(
+    collapseProgress: () -> Float,
     onOpenSettings: () -> Unit,
-    modifier: Modifier = Modifier
+    below: (@Composable () -> Unit)? = null,
+    modifier: Modifier = Modifier,
+    searchField: @Composable () -> Unit
 ) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "Search",
-                style = MaterialTheme.typography.displayMedium,
-                color = OndaTheme.colors.textPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = "YT Music, Monochrome FLAC & Local",
-                style = MaterialTheme.typography.bodySmall,
-                color = OndaTheme.colors.textTertiary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        IconButton(
-            onClick = onOpenSettings,
+    val reducedMotion = OndaTheme.reducedMotion
+    val statusBar = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val density = LocalDensity.current
+    val titleTravelPx = with(density) { SearchTitleBlockHeight.toPx() }
+    val settingsReservePx = with(density) { 56.dp.toPx() }
+    val settingsDropPx = with(density) { (52.dp / 2 - SearchTitleBlockHeight / 2).toPx() }
+
+    Box(modifier = modifier.fillMaxWidth()) {
+        Box(
             modifier = Modifier
-                .defaultMinSize(minWidth = DockMetrics.MinTapTarget, minHeight = DockMetrics.MinTapTarget)
-                .smokedGlass(
-                    shape = CircleShape,
-                    elevation = GlassElevation.SUBTLE,
-                    accentTint = OndaTheme.colors.accentSoft
-                )
+                .matchParentSize()
+                .drawWithCache {
+                    onDrawBehind {
+                        val p = collapseProgress().coerceIn(0f, 1f)
+                        if (p > 0.01f) {
+                            drawRect(
+                                brush = Brush.verticalGradient(
+                                    colorStops = arrayOf(
+                                        0.0f to GlassTokens.AmoledBlack.copy(alpha = (0.96f * p).coerceIn(0f, 1f)),
+                                        0.62f to GlassTokens.AmoledBlack.copy(alpha = (0.82f * p).coerceIn(0f, 1f)),
+                                        1.0f to Color.Transparent
+                                    )
+                                )
+                            )
+                        }
+                    }
+                }
+        )
+
+        Column(modifier = Modifier.padding(top = statusBar + SearchTopInset)) {
+            Box(
+                modifier = Modifier
+                    .height(SearchTitleBlockHeight)
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .graphicsLayer {
+                        val p = collapseProgress().coerceIn(0f, 1f)
+                        alpha = (1f - p * 1.6f).coerceIn(0f, 1f)
+                        translationY = -p * titleTravelPx
+                        val s = 1f - p * 0.16f
+                        scaleX = s
+                        scaleY = s
+                        transformOrigin = TransformOrigin(0f, 0.5f)
+                        if (!reducedMotion && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            renderEffect = if (p > 0.08f) SearchBlurCache.blur(p * 12f) else null
+                        }
+                    },
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Column(modifier = Modifier.padding(end = 56.dp)) {
+                    Text(
+                        text = "Search",
+                        style = MaterialTheme.typography.displaySmall.copy(
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 34.sp
+                        ),
+                        color = OndaTheme.colors.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "YT Music, Monochrome FLAC & Local",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = OndaTheme.colors.textTertiary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer {
+                        translationY = -collapseProgress().coerceIn(0f, 1f) * titleTravelPx
+                    }
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                ) {
+                    Box(
+                        modifier = Modifier.layout { measurable, constraints ->
+                            val reserve = (settingsReservePx * collapseProgress().coerceIn(0f, 1f)).toInt()
+                            val width = (constraints.maxWidth - reserve).coerceAtLeast(0)
+                            val placeable = measurable.measure(
+                                constraints.copy(minWidth = width, maxWidth = width)
+                            )
+                            layout(constraints.maxWidth, placeable.height) {
+                                placeable.place(0, 0)
+                            }
+                        }
+                    ) {
+                        searchField()
+                    }
+                }
+                if (below != null) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    below()
+                }
+            }
+        }
+
+        val settingsInteraction = remember { MutableInteractionSource() }
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = statusBar + SearchTopInset, end = 16.dp)
+                .height(SearchTitleBlockHeight)
+                .graphicsLayer {
+                    translationY = collapseProgress().coerceIn(0f, 1f) * settingsDropPx
+                },
+            contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = Icons.Rounded.Settings,
-                contentDescription = "Settings",
-                tint = OndaTheme.colors.textPrimary
-            )
+            Box(
+                modifier = Modifier
+                    .defaultMinSize(minWidth = DockMetrics.MinTapTarget, minHeight = DockMetrics.MinTapTarget)
+                    .size(DockMetrics.MinTapTarget)
+                    .searchPressBounce(settingsInteraction, pressedScale = 0.90f)
+                    .smokedGlass(
+                        shape = CircleShape,
+                        elevation = GlassElevation.SUBTLE,
+                        accentTint = OndaTheme.colors.accentSoft
+                    )
+                    .clickable(
+                        interactionSource = settingsInteraction,
+                        indication = SearchHighlightIndication(cornerRadius = 24.dp),
+                        onClick = onOpenSettings
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Settings,
+                    contentDescription = "Settings",
+                    tint = OndaTheme.colors.textPrimary,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
         }
     }
 }
@@ -123,14 +261,19 @@ internal fun SmokedSearchBar(
     onQueryChange: (String) -> Unit,
     onClear: () -> Unit,
     onSubmit: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester = remember { FocusRequester() },
+    isFocused: Boolean = false,
+    onFocusChange: (Boolean) -> Unit = {},
+    onDismissFocus: (() -> Unit)? = null
 ) {
     val shape = RoundedCornerShape(GlassTokens.RadiusPill)
+    val showBackArrow = (isFocused || query.isNotEmpty()) && onDismissFocus != null
     GlassSurface(
         modifier = modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = 52.dp),
-        elevation = GlassElevation.CARD,
+        elevation = if (isFocused) GlassElevation.SHEET else GlassElevation.CARD,
         shape = shape,
         accentTint = OndaTheme.colors.accentSoft
     ) {
@@ -138,16 +281,33 @@ internal fun SmokedSearchBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .defaultMinSize(minHeight = 52.dp)
-                .padding(horizontal = 14.dp),
+                .padding(start = if (showBackArrow) 4.dp else 14.dp, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.Rounded.Search,
-                contentDescription = null,
-                tint = OndaTheme.colors.accent,
-                modifier = Modifier.size(20.dp)
-            )
-            Spacer(modifier = Modifier.width(10.dp))
+            if (showBackArrow) {
+                IconButton(
+                    onClick = onDismissFocus!!,
+                    modifier = Modifier.defaultMinSize(
+                        minWidth = DockMetrics.MinTapTarget,
+                        minHeight = DockMetrics.MinTapTarget
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                        contentDescription = "Back",
+                        tint = OndaTheme.colors.textPrimary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            } else {
+                Icon(
+                    imageVector = Icons.Rounded.Search,
+                    contentDescription = null,
+                    tint = OndaTheme.colors.accent,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+            }
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -173,7 +333,10 @@ internal fun SmokedSearchBar(
                     cursorBrush = SolidColor(OndaTheme.colors.accent),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(focusRequester)
+                        .onFocusChanged { onFocusChange(it.isFocused) }
                 )
             }
             if (query.isNotEmpty()) {
@@ -190,6 +353,8 @@ internal fun SmokedSearchBar(
                         tint = OndaTheme.colors.textSecondary
                     )
                 }
+            } else {
+                Spacer(modifier = Modifier.width(10.dp))
             }
         }
     }
@@ -209,9 +374,11 @@ internal fun SourceFilterRow(
         items(SearchSourceFilter.entries, key = { it.name }) { filter ->
             val selected = filter == activeFilter
             val shape = RoundedCornerShape(GlassTokens.RadiusPill)
+            val interactionSource = remember { MutableInteractionSource() }
             Box(
                 modifier = Modifier
                     .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
+                    .searchPressBounce(interactionSource, pressedScale = 0.94f)
                     .clip(shape)
                     .then(
                         if (selected) {
@@ -223,7 +390,11 @@ internal fun SourceFilterRow(
                             )
                         }
                     )
-                    .clickable { onSelectFilter(filter) }
+                    .clickable(
+                        interactionSource = interactionSource,
+                        indication = SearchHighlightIndication(cornerRadius = GlassTokens.RadiusPill),
+                        onClick = { onSelectFilter(filter) }
+                    )
                     .padding(horizontal = 16.dp, vertical = 10.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -244,12 +415,17 @@ internal fun LinkImportPromoCard(
     modifier: Modifier = Modifier
 ) {
     val shape = RoundedCornerShape(GlassTokens.RadiusLg)
+    val interactionSource = remember { MutableInteractionSource() }
     GlassSurface(
         modifier = modifier
             .fillMaxWidth()
-            .press3D(maxTiltDegrees = 4f)
+            .searchPressBounce(interactionSource, pressedScale = 0.97f)
             .clip(shape)
-            .clickable(onClick = onClick),
+            .clickable(
+                interactionSource = interactionSource,
+                indication = SearchHighlightIndication(cornerRadius = GlassTokens.RadiusLg),
+                onClick = onClick
+            ),
         elevation = GlassElevation.HERO,
         shape = shape,
         accentTint = OndaTheme.colors.accent
@@ -339,12 +515,18 @@ private fun HistoryChip(
     onDelete: () -> Unit
 ) {
     val shape = RoundedCornerShape(GlassTokens.RadiusPill)
+    val interactionSource = remember { MutableInteractionSource() }
     Row(
         modifier = Modifier
             .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
+            .searchPressBounce(interactionSource, pressedScale = 0.95f)
             .smokedGlass(shape = shape, elevation = GlassElevation.SUBTLE)
             .clip(shape)
-            .clickable(onClick = onClick)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = SearchHighlightIndication(cornerRadius = GlassTokens.RadiusPill),
+                onClick = onClick
+            )
             .padding(start = 12.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -383,7 +565,8 @@ private fun HistoryChip(
 internal fun MoodCategoryRow(
     pair: List<MoodCategory>,
     onSelect: (MoodCategory) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    coverUrls: List<String?> = emptyList()
 ) {
     Row(
         modifier = modifier
@@ -391,9 +574,18 @@ internal fun MoodCategoryRow(
             .padding(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        pair.forEach { category ->
+        pair.forEachIndexed { idx, category ->
+            val tileCovers = if (coverUrls.isNotEmpty()) {
+                listOfNotNull(
+                    coverUrls.getOrNull((idx * 2) % coverUrls.size),
+                    coverUrls.getOrNull((idx * 2 + 1) % coverUrls.size)
+                )
+            } else {
+                emptyList()
+            }
             MoodCategoryCard(
                 category = category,
+                covers = tileCovers,
                 onClick = { onSelect(category) },
                 modifier = Modifier.weight(1f)
             )
@@ -408,44 +600,171 @@ internal fun MoodCategoryRow(
 internal fun MoodCategoryCard(
     category: MoodCategory,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    covers: List<String?> = emptyList()
 ) {
-    val accent = GlassTokens.ensureContrastOnDark(Color(category.accentColorHex), GlassTokens.ObsidianSurface, 3.2)
-    val shape = RoundedCornerShape(GlassTokens.RadiusMd)
-    GlassSurface(
-        modifier = modifier
-            .defaultMinSize(minHeight = 64.dp)
-            .press3D(maxTiltDegrees = 5f)
-            .clip(shape)
-            .clickable(onClick = onClick),
-        elevation = GlassElevation.CARD,
-        shape = shape,
-        accentTint = accent
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .defaultMinSize(minHeight = 64.dp)
-                .padding(horizontal = 12.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .width(4.dp)
-                    .height(28.dp)
-                    .clip(RoundedCornerShape(GlassTokens.RadiusPill))
-                    .background(accent)
+    val accent = remember(category.accentColorHex) {
+        liftMoodTint(category.accentColorHex)
+    }
+    var titleWraps by remember(category.title) { mutableStateOf(false) }
+    val interactionSource = remember { MutableInteractionSource() }
+    val tileSurface = Color(0xFF121214)
+    val tileBrush = remember(accent) {
+        Brush.linearGradient(
+            colors = listOf(
+                blendColorOver(accent.copy(alpha = 0.52f), tileSurface),
+                blendColorOver(accent.copy(alpha = 0.16f), tileSurface)
             )
-            Spacer(modifier = Modifier.width(10.dp))
-            Text(
-                text = category.title,
-                style = MaterialTheme.typography.titleSmall,
-                color = OndaTheme.colors.textPrimary,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
+        )
+    }
+
+    Box(
+        modifier = modifier
+            .height(76.dp)
+            .searchPressBounce(interactionSource, pressedScale = 0.96f)
+            .clip(RoundedCornerShape(14.dp))
+            .background(brush = tileBrush)
+            .border(0.75.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(14.dp))
+            .clickable(
+                interactionSource = interactionSource,
+                indication = SearchHighlightIndication(cornerRadius = 14.dp),
+                onClick = onClick
+            )
+    ) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 2.dp)
+                .size(width = 84.dp, height = 76.dp)
+                .then(
+                    if (titleWraps) {
+                        Modifier.graphicsLayer {
+                            compositingStrategy = CompositingStrategy.Offscreen
+                        }
+                    } else {
+                        Modifier
+                    }
+                )
+                .drawWithCache {
+                    val fade = Brush.horizontalGradient(
+                        0.00f to Color.Transparent,
+                        0.42f to Color.Black.copy(alpha = 0.55f),
+                        0.70f to Color.Black
+                    )
+                    onDrawWithContent {
+                        drawContent()
+                        if (titleWraps) {
+                            drawRect(brush = fade, blendMode = BlendMode.DstIn)
+                        }
+                    }
+                }
+        ) {
+            MoodLayeredTile(
+                url = covers.getOrNull(1),
+                accent = accent,
+                rotation = -24f,
+                offsetX = (-2).dp,
+                offsetY = 2.dp,
+                size = 44.dp
+            )
+            MoodLayeredTile(
+                url = covers.getOrNull(0),
+                accent = accent,
+                rotation = -6f,
+                offsetX = 28.dp,
+                offsetY = 13.dp,
+                size = 48.dp
+            )
+        }
+
+        Text(
+            text = category.title,
+            style = MaterialTheme.typography.titleMedium.copy(
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                lineHeight = 18.sp
+            ),
+            color = Color.White,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            onTextLayout = { result ->
+                val wraps = result.lineCount > 1
+                if (wraps != titleWraps) titleWraps = wraps
+            },
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .padding(start = 14.dp, end = 68.dp)
+        )
+    }
+}
+
+@Composable
+private fun MoodLayeredTile(
+    url: String?,
+    accent: Color,
+    rotation: Float,
+    offsetX: Dp,
+    offsetY: Dp,
+    size: Dp
+) {
+    val density = LocalDensity.current
+    Box(
+        modifier = Modifier
+            .size(size)
+            .graphicsLayer {
+                rotationZ = rotation
+                translationX = with(density) { offsetX.toPx() }
+                translationY = with(density) { offsetY.toPx() }
+                shape = RoundedCornerShape(8.dp)
+                clip = true
+            }
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(
+                        blendColorOver(accent.copy(alpha = 0.36f), Color(0xFF1D1D20)),
+                        Color(0xFF1A1A1D)
+                    )
+                )
+            )
+            .border(0.75.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(8.dp)),
+        contentAlignment = Alignment.Center
+    ) {
+        if (!url.isNullOrBlank()) {
+            AsyncImage(
+                model = url,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Rounded.MusicNote,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.45f),
+                modifier = Modifier.size(size * 0.42f)
             )
         }
     }
+}
+
+private fun liftMoodTint(accentColorHex: Long): Color {
+    val argb = accentColorHex.toInt()
+    val r = (argb shr 16) and 0xFF
+    val g = (argb shr 8) and 0xFF
+    val b = argb and 0xFF
+    if (r == 0 && g == 0 && b == 0) return Color(0xFF3A3A44)
+    val lift = { c: Int -> (c + (170 - c) * 0.45f).toInt().coerceIn(40, 220) }
+    return Color(lift(r), lift(g), lift(b))
+}
+
+private fun blendColorOver(top: Color, bottom: Color): Color {
+    val a = top.alpha
+    return Color(
+        red = top.red * a + bottom.red * (1f - a),
+        green = top.green * a + bottom.green * (1f - a),
+        blue = top.blue * a + bottom.blue * (1f - a),
+        alpha = 1f
+    )
 }
 
 @Composable
@@ -455,6 +774,30 @@ internal fun MoodLoadFallbackCard(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    if (isLoading) {
+        Column(
+            modifier = modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                SearchLoadingDots(dotColor = OndaTheme.colors.accent)
+                Text(
+                    text = "Loading moods and genres",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = OndaTheme.colors.textSecondary
+                )
+            }
+            MoodGridSkeleton()
+        }
+        return
+    }
+
     val shape = RoundedCornerShape(GlassTokens.RadiusMd)
     GlassSurface(
         modifier = modifier
@@ -471,43 +814,27 @@ internal fun MoodLoadFallbackCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            if (isLoading) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        strokeWidth = 2.dp,
-                        color = OndaTheme.colors.accent
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = "Loading moods and genres",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = OndaTheme.colors.textSecondary
-                    )
-                }
-            } else {
-                Text(
-                    text = errorMessage ?: "No moods available right now.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = OndaTheme.colors.textSecondary,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+            Text(
+                text = errorMessage ?: "No moods available right now.",
+                style = MaterialTheme.typography.bodySmall,
+                color = OndaTheme.colors.textSecondary,
+                modifier = Modifier.weight(1f),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            IconButton(
+                onClick = onRetry,
+                modifier = Modifier.defaultMinSize(
+                    minWidth = DockMetrics.MinTapTarget,
+                    minHeight = DockMetrics.MinTapTarget
                 )
-                Spacer(modifier = Modifier.width(8.dp))
-                IconButton(
-                    onClick = onRetry,
-                    modifier = Modifier.defaultMinSize(
-                        minWidth = DockMetrics.MinTapTarget,
-                        minHeight = DockMetrics.MinTapTarget
-                    )
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Refresh,
-                        contentDescription = "Retry moods",
-                        tint = OndaTheme.colors.accent
-                    )
-                }
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Refresh,
+                    contentDescription = "Retry moods",
+                    tint = OndaTheme.colors.accent
+                )
             }
         }
     }
@@ -568,10 +895,13 @@ internal fun SearchTrackRow(
         }
     }.ifBlank { "Track" }
 
+    val interactionSource = remember { MutableInteractionSource() }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
+            .searchPressBounce(interactionSource, pressedScale = 0.98f)
             .clip(shape)
             .then(
                 if (isCurrent) {
@@ -584,7 +914,11 @@ internal fun SearchTrackRow(
                     Modifier.background(Color.Transparent, shape)
                 }
             )
-            .clickable(onClick = onClick)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = SearchHighlightIndication(cornerRadius = GlassTokens.RadiusMd),
+                onClick = onClick
+            )
             .defaultMinSize(minHeight = 64.dp)
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -594,7 +928,8 @@ internal fun SearchTrackRow(
             placeholderIcon = Icons.Rounded.MusicNote,
             size = 48.dp,
             cornerRadius = GlassTokens.RadiusSm,
-            isActive = isCurrent && isPlaying
+            isActive = isCurrent,
+            isPlaying = isPlaying
         )
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -671,15 +1006,27 @@ internal fun SourceTagBadge(source: SourceKind) {
 internal fun SearchAlbumCard(
     album: Album,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onCaptureBounds: (Rect) -> Unit = {}
 ) {
     val shape = RoundedCornerShape(GlassTokens.RadiusMd)
+    val interactionSource = remember { MutableInteractionSource() }
+    var cardBounds by remember { mutableStateOf<Rect?>(null) }
+
     GlassSurface(
         modifier = modifier
             .width(148.dp)
-            .press3D(maxTiltDegrees = 5f)
+            .onGloballyPositioned { cardBounds = it.boundsInRoot() }
+            .searchPressBounce(interactionSource, pressedScale = 0.96f)
             .clip(shape)
-            .clickable(onClick = onClick),
+            .clickable(
+                interactionSource = interactionSource,
+                indication = SearchHighlightIndication(cornerRadius = GlassTokens.RadiusMd),
+                onClick = {
+                    cardBounds?.let(onCaptureBounds)
+                    onClick()
+                }
+            ),
         elevation = GlassElevation.CARD,
         shape = shape
     ) {
@@ -713,16 +1060,28 @@ internal fun SearchAlbumCard(
 internal fun SearchPlaylistCard(
     playlist: Playlist,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onCaptureBounds: (Rect) -> Unit = {}
 ) {
     val shape = RoundedCornerShape(GlassTokens.RadiusMd)
+    val interactionSource = remember { MutableInteractionSource() }
+    var cardBounds by remember { mutableStateOf<Rect?>(null) }
+
     GlassSurface(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
-            .press3D(maxTiltDegrees = 4f)
+            .onGloballyPositioned { cardBounds = it.boundsInRoot() }
+            .searchPressBounce(interactionSource, pressedScale = 0.97f)
             .clip(shape)
-            .clickable(onClick = onClick),
+            .clickable(
+                interactionSource = interactionSource,
+                indication = SearchHighlightIndication(cornerRadius = GlassTokens.RadiusMd),
+                onClick = {
+                    cardBounds?.let(onCaptureBounds)
+                    onClick()
+                }
+            ),
         elevation = GlassElevation.CARD,
         shape = shape
     ) {
@@ -772,11 +1131,17 @@ internal fun SearchArtistChip(
     modifier: Modifier = Modifier
 ) {
     val shape = RoundedCornerShape(GlassTokens.RadiusPill)
+    val interactionSource = remember { MutableInteractionSource() }
     GlassSurface(
         modifier = modifier
             .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
+            .searchPressBounce(interactionSource, pressedScale = 0.96f)
             .clip(shape)
-            .clickable(onClick = onClick),
+            .clickable(
+                interactionSource = interactionSource,
+                indication = SearchHighlightIndication(cornerRadius = GlassTokens.RadiusPill),
+                onClick = onClick
+            ),
         elevation = GlassElevation.SUBTLE,
         shape = shape
     ) {
@@ -806,10 +1171,11 @@ internal fun SearchArtistChip(
 internal fun ArtworkThumbnail(
     artworkUrl: String?,
     placeholderIcon: androidx.compose.ui.graphics.vector.ImageVector,
-    size: androidx.compose.ui.unit.Dp,
-    cornerRadius: androidx.compose.ui.unit.Dp,
+    size: Dp,
+    cornerRadius: Dp,
     modifier: Modifier = Modifier,
-    isActive: Boolean = false
+    isActive: Boolean = false,
+    isPlaying: Boolean = true
 ) {
     val shape = RoundedCornerShape(cornerRadius)
     Box(
@@ -840,12 +1206,20 @@ internal fun ArtworkThumbnail(
                     .background(GlassTokens.AmoledBlack.copy(alpha = 0.45f)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.PlayArrow,
-                    contentDescription = "Playing",
-                    tint = OndaTheme.colors.accent,
-                    modifier = Modifier.size(22.dp)
-                )
+                if (isPlaying) {
+                    SearchPlayingIndicator(
+                        color = OndaTheme.colors.accent,
+                        isPlaying = true,
+                        modifier = Modifier.height((size * 0.3f).coerceIn(12.dp, 18.dp))
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Rounded.Pause,
+                        contentDescription = "Paused",
+                        tint = OndaTheme.colors.accent,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
         }
     }

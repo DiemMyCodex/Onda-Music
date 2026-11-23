@@ -3,6 +3,15 @@ package com.onda.music.feature.home
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -29,7 +38,6 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
-import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.Person
@@ -77,24 +85,53 @@ internal fun MinimalFloatingTopBar(
     avatarPath: String?,
     settingsDescription: String,
     onOpenSettings: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    scrollProgress: () -> Float = { 0f }
 ) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .statusBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        MinimalOndaWaveIcon(modifier = Modifier.size(30.dp))
-
-        UserAvatarSettingsButton(
-            avatarPath = avatarPath,
-            username = username,
-            contentDescription = settingsDescription,
-            onClick = onOpenSettings
+    Box(modifier = modifier.fillMaxWidth()) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .graphicsLayer {
+                    alpha = homeSmoothstep(0.15f, 0.65f, scrollProgress())
+                }
+                .background(
+                    Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0.0f to Color(0xEC000000),
+                            0.72f to Color(0xCC000000),
+                            1.0f to Color.Transparent
+                        )
+                    )
+                )
         )
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(0.75.dp)
+                .graphicsLayer {
+                    alpha = homeSmoothstep(0.25f, 0.75f, scrollProgress()) * 0.55f
+                }
+                .background(Color.White.copy(alpha = 0.14f))
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            MinimalOndaWaveIcon(modifier = Modifier.size(30.dp))
+
+            UserAvatarSettingsButton(
+                avatarPath = avatarPath,
+                username = username,
+                contentDescription = settingsDescription,
+                onClick = onOpenSettings
+            )
+        }
     }
 }
 
@@ -152,12 +189,18 @@ private fun UserAvatarSettingsButton(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val interactionSource = remember { MutableInteractionSource() }
     Box(
         modifier = modifier
-            .defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
+            .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
             .size(48.dp)
+            .homePressBounce(interactionSource, pressedScale = 0.90f)
             .clip(CircleShape)
-            .clickable(onClick = onClick),
+            .clickable(
+                interactionSource = interactionSource,
+                indication = HomeHighlightIndication(cornerRadius = 24.dp),
+                onClick = onClick
+            ),
         contentAlignment = Alignment.Center
     ) {
         Box(
@@ -426,11 +469,17 @@ internal fun TrackSquareCard(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val interactionSource = remember { MutableInteractionSource() }
 
     Column(
         modifier = modifier
             .width(148.dp)
-            .clickable(onClick = onClick)
+            .homePressBounce(interactionSource, pressedScale = 0.96f)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = HomeHighlightIndication(cornerRadius = 26.dp, spillX = 4.dp, spillY = 4.dp),
+                onClick = onClick
+            )
     ) {
         val artModifier = Modifier
             .size(148.dp)
@@ -485,12 +534,22 @@ internal fun TrackSquareCard(
                         .background(Color(0xCC000000)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = if (isPlaying) Icons.Rounded.GraphicEq else Icons.Rounded.Pause,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp)
-                    )
+                    if (isPlaying) {
+                        HomePlayingIndicator(
+                            color = Color.White,
+                            isPlaying = true,
+                            barWidth = 2.dp,
+                            spacing = 1.5.dp,
+                            modifier = Modifier.height(14.dp)
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Rounded.Pause,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
             }
         }
@@ -527,15 +586,23 @@ internal fun AlbumSquareCard(
     detailFraction: Float,
     sharedTransitionScope: SharedTransitionScope?,
     animatedVisibilityScope: AnimatedVisibilityScope?,
-    onClick: () -> Unit,
+    onClick: (Rect?) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val interactionSource = remember { MutableInteractionSource() }
+    var cardBounds by remember { mutableStateOf<Rect?>(null) }
 
     Column(
         modifier = modifier
             .width(148.dp)
-            .clickable(onClick = onClick)
+            .onGloballyPositioned { cardBounds = it.boundsInRoot() }
+            .homePressBounce(interactionSource, pressedScale = 0.96f)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = HomeHighlightIndication(cornerRadius = 26.dp, spillX = 4.dp, spillY = 4.dp),
+                onClick = { onClick(cardBounds) }
+            )
     ) {
         val artModifier = Modifier
             .size(148.dp)
@@ -615,16 +682,25 @@ internal fun AlbumSquareCard(
 @Composable
 internal fun MoodPillCard(
     mood: MoodCategory,
-    onClick: () -> Unit,
+    onClick: (Rect?) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val moodAccent = Color(mood.accentColorHex or 0xFF000000L)
+    val interactionSource = remember { MutableInteractionSource() }
+    var cardBounds by remember { mutableStateOf<Rect?>(null) }
+
     Row(
         modifier = modifier
             .defaultMinSize(minWidth = 104.dp, minHeight = DockMetrics.MinTapTarget)
+            .onGloballyPositioned { cardBounds = it.boundsInRoot() }
+            .homePressBounce(interactionSource, pressedScale = 0.96f)
             .clip(RoundedCornerShape(999.dp))
             .background(OledSubtleSurface)
-            .clickable(onClick = onClick)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = HomeHighlightIndication(cornerRadius = 999.dp),
+                onClick = { onClick(cardBounds) }
+            )
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -663,11 +739,19 @@ internal fun QuickPickCompactRow(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val interactionSource = remember { MutableInteractionSource() }
+    val likeInteraction = remember { MutableInteractionSource() }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
-            .clickable(onClick = onPlay)
+            .homePressBounce(interactionSource, pressedScale = 0.98f)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = HomeHighlightIndication(cornerRadius = 16.dp),
+                onClick = onPlay
+            )
             .padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -722,20 +806,35 @@ internal fun QuickPickCompactRow(
         }
 
         if (isActive) {
-            Icon(
-                imageVector = if (isPlaying) Icons.Rounded.GraphicEq else Icons.Rounded.Pause,
-                contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier.size(18.dp)
-            )
+            if (isPlaying) {
+                HomePlayingIndicator(
+                    color = Color.White,
+                    isPlaying = true,
+                    barWidth = 2.2.dp,
+                    spacing = 1.5.dp,
+                    modifier = Modifier.height(14.dp)
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Rounded.Pause,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
         }
 
         Box(
             modifier = Modifier
                 .defaultMinSize(minWidth = DockMetrics.MinTapTarget, minHeight = DockMetrics.MinTapTarget)
                 .size(DockMetrics.MinTapTarget)
+                .homePressBounce(likeInteraction, pressedScale = 0.88f)
                 .clip(CircleShape)
-                .clickable(onClick = onToggleLike),
+                .clickable(
+                    interactionSource = likeInteraction,
+                    indication = HomeHighlightIndication(cornerRadius = 24.dp),
+                    onClick = onToggleLike
+                ),
             contentAlignment = Alignment.Center
         ) {
             Icon(

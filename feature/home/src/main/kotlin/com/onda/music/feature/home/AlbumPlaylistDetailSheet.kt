@@ -5,45 +5,61 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Album
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
-import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.MusicNote
-import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.QueueMusic
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
+import androidx.compose.ui.util.lerp
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
@@ -57,8 +73,6 @@ import com.onda.music.core.design.OndaArtworkPalette
 import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.design.ProgressiveGlassScrim
 import com.onda.music.core.design.dockBottomPadding
-import com.onda.music.core.design.morphingCornerClip
-import com.onda.music.core.design.smokedGlass
 import com.onda.music.core.model.Track
 
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -68,9 +82,12 @@ internal fun AlbumPlaylistDetailSheet(
     strings: HomeStrings,
     palette: OndaArtworkPalette,
     activeTrackId: String?,
+    isPlaying: Boolean,
     hasMiniPlayer: Boolean,
     dynamicMeshEnabled: Boolean,
+    glassBlurEnabled: Boolean,
     detailFraction: Float,
+    launchOrigin: CardLaunchOrigin,
     sharedTransitionScope: SharedTransitionScope?,
     animatedVisibilityScope: AnimatedVisibilityScope?,
     onClose: () -> Unit,
@@ -80,21 +97,46 @@ internal fun AlbumPlaylistDetailSheet(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val reducedMotion = OndaTheme.reducedMotion
+    val lazyListState = rememberLazyListState()
+    var rootSize by remember { mutableStateOf(IntSize.Zero) }
+    var headerHeightPx by remember { mutableFloatStateOf(0f) }
+    var coverBoundsInWindow by remember { mutableStateOf<Rect?>(null) }
+    val collapseState = rememberHomeDetailCollapseProgress(
+        lazyListState = lazyListState,
+        headerHeightPx = headerHeightPx
+    )
+    val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(GlassTokens.AmoledBlack.copy(alpha = 0.94f))
-            .morphingCornerClip(
-                startRadius = GlassTokens.RadiusXl,
-                endRadius = 0.dp,
-                fractionProvider = { detailFraction }
-            )
+            .onSizeChanged { rootSize = it }
+            .graphicsLayer {
+                val p = detailFraction.coerceIn(0f, 1f)
+                val origin = launchOrigin.bounds
+                if (!reducedMotion && origin != null && rootSize.width > 0 && rootSize.height > 0) {
+                    val fw = rootSize.width.toFloat()
+                    val fh = rootSize.height.toFloat()
+                    val startScaleX = (origin.width / fw).coerceIn(0.14f, 1f)
+                    val startScaleY = (origin.height / fh).coerceIn(0.14f, 1f)
+                    scaleX = lerp(startScaleX, 1f, p)
+                    scaleY = lerp(startScaleY, 1f, p)
+                    translationX = lerp(origin.center.x - fw * 0.5f, 0f, p)
+                    translationY = lerp(origin.center.y - fh * 0.5f, 0f, p)
+                    transformOrigin = TransformOrigin.Center
+                    val cornerPx = lerp(launchOrigin.cornerRadius, 0.dp, p).coerceAtLeast(0.dp).toPx()
+                    shape = RoundedCornerShape(cornerPx)
+                    clip = cornerPx > 0.5f
+                }
+                alpha = homeSmoothstep(0f, 0.14f, p)
+            }
+            .background(GlassTokens.AmoledBlack.copy(alpha = 0.96f))
     ) {
         if (dynamicMeshEnabled) {
             AgslMeshBackground(
                 palette = palette,
-                animated = true,
+                animated = !reducedMotion,
                 speed = 0.7f,
                 dimAlpha = 0.65f,
                 modifier = Modifier.fillMaxSize()
@@ -109,85 +151,30 @@ internal fun AlbumPlaylistDetailSheet(
                 .align(Alignment.TopCenter)
         )
 
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
+                .graphicsLayer {
+                    alpha = homeSmoothstep(0.08f, 0.42f, detailFraction.coerceIn(0f, 1f))
+                }
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Box(
-                    modifier = Modifier
-                        .defaultMinSize(minWidth = DockMetrics.MinTapTarget, minHeight = DockMetrics.MinTapTarget)
-                        .size(DockMetrics.MinTapTarget)
-                        .smokedGlass(
-                            shape = CircleShape,
-                            elevation = GlassElevation.CARD,
-                            accentTint = palette.primary
-                        )
-                        .clickable(onClick = onClose),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Close,
-                        contentDescription = strings.closeDescription,
-                        tint = OndaTheme.colors.textPrimary,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-
-                if (detail.tracks.isNotEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
-                            .clip(RoundedCornerShape(GlassTokens.RadiusPill))
-                            .background(
-                                brush = Brush.horizontalGradient(
-                                    colors = listOf(palette.primary, palette.secondary)
-                                )
-                            )
-                            .clickable(onClick = onPlayAll)
-                            .padding(horizontal = 18.dp, vertical = 12.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.PlayArrow,
-                                contentDescription = null,
-                                tint = palette.onAccent,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Text(
-                                text = strings.playAllAction,
-                                style = MaterialTheme.typography.labelLarge,
-                                color = palette.onAccent,
-                                maxLines = 1
-                            )
-                        }
-                    }
-                }
-            }
-
             LazyColumn(
+                state = lazyListState,
                 modifier = Modifier
                     .fillMaxSize()
                     .dockBottomPadding(hasMiniPlayer = hasMiniPlayer),
-                contentPadding = PaddingValues(bottom = 24.dp),
+                contentPadding = PaddingValues(top = statusBarTop + 68.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 item(key = "detail_header") {
                     GlassSurface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp),
+                            .padding(horizontal = 16.dp)
+                            .onGloballyPositioned { headerHeightPx = it.size.height.toFloat() }
+                            .graphicsLayer {
+                                alpha = collapseState.headerContentAlpha
+                            },
                         elevation = GlassElevation.SHEET,
                         shape = RoundedCornerShape(GlassTokens.RadiusLg),
                         accentTint = palette.primary
@@ -205,7 +192,10 @@ internal fun AlbumPlaylistDetailSheet(
                                 "playlist_art_${detail.sourceId}"
                             }
                             val artModifier = Modifier
-                                .size(92.dp)
+                                .size(96.dp)
+                                .onGloballyPositioned {
+                                    coverBoundsInWindow = Rect(it.positionInWindow(), it.size.toDetailSize())
+                                }
                                 .clip(RoundedCornerShape(GlassTokens.RadiusMd))
                                 .let { base ->
                                     if (sharedTransitionScope != null && animatedVisibilityScope != null) {
@@ -251,6 +241,7 @@ internal fun AlbumPlaylistDetailSheet(
                                 Text(
                                     text = detail.title,
                                     style = MaterialTheme.typography.headlineMedium,
+                                    fontWeight = FontWeight.Bold,
                                     color = OndaTheme.colors.textPrimary,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis
@@ -288,13 +279,26 @@ internal fun AlbumPlaylistDetailSheet(
 
                 if (detail.isLoading) {
                     item(key = "detail_loading") {
-                        Box(
+                        HomeBonesHost(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 36.dp),
-                            contentAlignment = Alignment.Center
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
                         ) {
-                            CircularProgressIndicator(color = palette.primary)
+                            repeat(6) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    HomeBone(width = 44.dp, height = 44.dp, shape = RoundedCornerShape(8.dp))
+                                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        HomeBone(width = 188.dp, height = 14.dp, shape = RoundedCornerShape(6.dp))
+                                        HomeBone(width = 122.dp, height = 12.dp, shape = RoundedCornerShape(6.dp))
+                                    }
+                                }
+                            }
                         }
                     }
                 } else if (!detail.errorMessage.isNullOrBlank() && detail.tracks.isEmpty()) {
@@ -340,6 +344,7 @@ internal fun AlbumPlaylistDetailSheet(
                             track = track,
                             strings = strings,
                             isActive = track.id == activeTrackId,
+                            isPlaying = isPlaying,
                             accentColor = palette.primary,
                             onClick = { onPlayTrack(track) },
                             onToggleLike = { onToggleLike(track) }
@@ -347,6 +352,23 @@ internal fun AlbumPlaylistDetailSheet(
                     }
                 }
             }
+
+            HomeDetailCollapsingTopBar(
+                morphProgress = collapseState.morphProgress,
+                title = detail.title,
+                subtitle = detail.subtitle,
+                artworkUrl = detail.artworkUrl,
+                isAlbum = detail.isAlbum,
+                palette = palette,
+                closeDescription = strings.closeDescription,
+                playAllLabel = strings.playAllAction,
+                hasTracks = detail.tracks.isNotEmpty(),
+                glassBlurEnabled = glassBlurEnabled,
+                coverBoundsInWindow = coverBoundsInWindow,
+                onClose = onClose,
+                onPlayAll = onPlayAll,
+                modifier = Modifier.align(Alignment.TopCenter)
+            )
         }
     }
 }
@@ -357,17 +379,26 @@ private fun DetailTrackRow(
     track: Track,
     strings: HomeStrings,
     isActive: Boolean,
+    isPlaying: Boolean,
     accentColor: Color,
     onClick: () -> Unit,
     onToggleLike: () -> Unit
 ) {
     val context = LocalContext.current
+    val interactionSource = remember { MutableInteractionSource() }
+    val likeInteraction = remember { MutableInteractionSource() }
+
     GlassSurface(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
             .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
-            .clickable(onClick = onClick),
+            .homePressBounce(interactionSource, pressedScale = 0.98f)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = HomeHighlightIndication(cornerRadius = GlassTokens.RadiusMd),
+                onClick = onClick
+            ),
         elevation = GlassElevation.SUBTLE,
         shape = RoundedCornerShape(GlassTokens.RadiusMd),
         accentTint = if (isActive) accentColor else OndaTheme.colors.accentSoft
@@ -383,9 +414,17 @@ private fun DetailTrackRow(
                 modifier = Modifier.size(28.dp),
                 contentAlignment = Alignment.Center
             ) {
-                if (isActive) {
+                if (isActive && isPlaying) {
+                    HomePlayingIndicator(
+                        color = accentColor,
+                        isPlaying = true,
+                        barWidth = 2.2.dp,
+                        spacing = 1.5.dp,
+                        modifier = Modifier.height(14.dp)
+                    )
+                } else if (isActive) {
                     Icon(
-                        imageVector = Icons.Rounded.GraphicEq,
+                        imageVector = Icons.Rounded.Pause,
                         contentDescription = null,
                         tint = accentColor,
                         modifier = Modifier.size(18.dp)
@@ -460,8 +499,13 @@ private fun DetailTrackRow(
                 modifier = Modifier
                     .defaultMinSize(minWidth = DockMetrics.MinTapTarget, minHeight = DockMetrics.MinTapTarget)
                     .size(DockMetrics.MinTapTarget)
+                    .homePressBounce(likeInteraction, pressedScale = 0.88f)
                     .clip(CircleShape)
-                    .clickable(onClick = onToggleLike),
+                    .clickable(
+                        interactionSource = likeInteraction,
+                        indication = HomeHighlightIndication(cornerRadius = 24.dp),
+                        onClick = onToggleLike
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -474,3 +518,5 @@ private fun DetailTrackRow(
         }
     }
 }
+
+private fun IntSize.toDetailSize(): Size = Size(width.toFloat(), height.toFloat())

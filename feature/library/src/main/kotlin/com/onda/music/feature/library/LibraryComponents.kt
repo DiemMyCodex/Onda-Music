@@ -1,13 +1,17 @@
 package com.onda.music.feature.library
 
+import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -15,6 +19,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -38,6 +43,7 @@ import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
@@ -67,24 +73,218 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.onda.music.core.design.GlassElevation
 import com.onda.music.core.design.GlassSurface
 import com.onda.music.core.design.GlassTokens
 import com.onda.music.core.design.OdometerText
 import com.onda.music.core.design.OndaTheme
-import com.onda.music.core.design.press3D
 import com.onda.music.core.design.smokedGlass
 import com.onda.music.core.model.DownloadStatus
 import com.onda.music.core.model.Playlist
 import com.onda.music.core.model.SourceKind
 import com.onda.music.core.model.Track
 import java.util.Locale
+
+private val LibraryTitleBlockHeight = 62.dp
+private val LibraryTopInset = 12.dp
+
+@Composable
+internal fun libraryExpandedTopPadding(): Dp {
+    val statusBar = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    return statusBar + LibraryTopInset + LibraryTitleBlockHeight + 10.dp + 48.dp + 12.dp
+}
+
+@Composable
+internal fun libraryCollapsedTopPadding(): Dp {
+    val statusBar = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    return statusBar + LibraryTopInset + 48.dp + 10.dp
+}
+
+@Composable
+internal fun LibraryGlassTopBar(
+    subtitle: String,
+    collapseProgress: () -> Float,
+    selectedTab: LibraryTab,
+    onSelectTab: (LibraryTab) -> Unit,
+    onCreatePlaylist: () -> Unit,
+    onOpenSettings: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val reducedMotion = OndaTheme.reducedMotion
+    val statusBar = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val density = LocalDensity.current
+    val titleTravelPx = with(density) { (LibraryTitleBlockHeight + 10.dp).toPx() }
+    val actionsReservePx = with(density) { 108.dp.toPx() }
+
+    Box(modifier = modifier.fillMaxWidth()) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .drawWithCache {
+                    onDrawBehind {
+                        val p = collapseProgress().coerceIn(0f, 1f)
+                        if (p > 0.01f) {
+                            drawRect(
+                                brush = Brush.verticalGradient(
+                                    colorStops = arrayOf(
+                                        0.0f to GlassTokens.AmoledBlack.copy(alpha = (0.96f * p).coerceIn(0f, 1f)),
+                                        0.64f to GlassTokens.AmoledBlack.copy(alpha = (0.82f * p).coerceIn(0f, 1f)),
+                                        1.0f to Color.Transparent
+                                    )
+                                )
+                            )
+                        }
+                    }
+                }
+        )
+
+        Column(modifier = Modifier.padding(top = statusBar + LibraryTopInset)) {
+            Box(
+                modifier = Modifier
+                    .height(LibraryTitleBlockHeight)
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .graphicsLayer {
+                        val p = collapseProgress().coerceIn(0f, 1f)
+                        alpha = (1f - p * 1.6f).coerceIn(0f, 1f)
+                        translationY = -p * titleTravelPx
+                        val s = 1f - p * 0.16f
+                        scaleX = s
+                        scaleY = s
+                        transformOrigin = TransformOrigin(0f, 0.5f)
+                        if (!reducedMotion && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            renderEffect = if (p > 0.08f) LibraryBlurCache.blur(p * 12f) else null
+                        }
+                    },
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Column(modifier = Modifier.padding(end = 112.dp)) {
+                    Text(
+                        text = "Library",
+                        style = MaterialTheme.typography.displaySmall.copy(
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 34.sp
+                        ),
+                        color = OndaTheme.colors.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = OndaTheme.colors.textSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer {
+                        translationY = -collapseProgress().coerceIn(0f, 1f) * titleTravelPx
+                    }
+            ) {
+                Box(
+                    modifier = Modifier.layout { measurable, constraints ->
+                        val reserve = (actionsReservePx * collapseProgress().coerceIn(0f, 1f)).toInt()
+                        val width = (constraints.maxWidth - reserve).coerceAtLeast(0)
+                        val placeable = measurable.measure(
+                            constraints.copy(minWidth = width, maxWidth = width)
+                        )
+                        layout(constraints.maxWidth, placeable.height) {
+                            placeable.place(0, 0)
+                        }
+                    }
+                ) {
+                    LibraryCategoryPills(
+                        selectedTab = selectedTab,
+                        onSelectTab = onSelectTab
+                    )
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = statusBar + LibraryTopInset, end = 16.dp)
+                .height(48.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            val addInteraction = remember { MutableInteractionSource() }
+            Box(
+                modifier = Modifier
+                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                    .size(48.dp)
+                    .libraryPressBounce(addInteraction, pressedScale = 0.90f)
+                    .smokedGlass(
+                        shape = CircleShape,
+                        elevation = GlassElevation.SUBTLE,
+                        accentTint = OndaTheme.colors.accent
+                    )
+                    .clickable(
+                        interactionSource = addInteraction,
+                        indication = LibraryHighlightIndication(cornerRadius = 24.dp),
+                        onClick = onCreatePlaylist
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Add,
+                    contentDescription = "New playlist",
+                    tint = OndaTheme.colors.textPrimary,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+
+            val settingsInteraction = remember { MutableInteractionSource() }
+            Box(
+                modifier = Modifier
+                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                    .size(48.dp)
+                    .libraryPressBounce(settingsInteraction, pressedScale = 0.90f)
+                    .smokedGlass(
+                        shape = CircleShape,
+                        elevation = GlassElevation.SUBTLE,
+                        accentTint = OndaTheme.colors.accentSoft
+                    )
+                    .clickable(
+                        interactionSource = settingsInteraction,
+                        indication = LibraryHighlightIndication(cornerRadius = 24.dp),
+                        onClick = onOpenSettings
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Settings,
+                    contentDescription = "Settings",
+                    tint = OndaTheme.colors.textPrimary,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+        }
+    }
+}
 
 @Composable
 internal fun LibraryHeader(
@@ -161,12 +361,16 @@ internal fun LibraryRecapCard(
     modifier: Modifier = Modifier
 ) {
     val hoursDisplay = remember(totalPlayDurationMs) { formatHoursListened(totalPlayDurationMs) }
+    val interactionSource = remember { MutableInteractionSource() }
     GlassSurface(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .press3D()
-            .clickable(onClick = onClick),
+            .libraryPressBounce(interactionSource, pressedScale = 0.97f)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = LibraryHighlightIndication(cornerRadius = GlassTokens.RadiusLg),
+                onClick = onClick
+            ),
         elevation = GlassElevation.HERO,
         shape = RoundedCornerShape(GlassTokens.RadiusLg),
         accentTint = OndaTheme.colors.accent
@@ -280,16 +484,22 @@ internal fun LibraryCategoryPills(
         items(LibraryTab.entries, key = { it.name }) { tab ->
             val selected = tab == selectedTab
             val tint = if (selected) OndaTheme.colors.accent else OndaTheme.colors.accentSecondary
+            val interactionSource = remember { MutableInteractionSource() }
             Box(
                 modifier = Modifier
                     .defaultMinSize(minHeight = 48.dp)
                     .heightIn(min = 48.dp)
+                    .libraryPressBounce(interactionSource, pressedScale = 0.94f)
                     .smokedGlass(
                         shape = RoundedCornerShape(GlassTokens.RadiusPill),
                         elevation = if (selected) GlassElevation.SHEET else GlassElevation.SUBTLE,
                         accentTint = tint
                     )
-                    .clickable { onSelectTab(tab) }
+                    .clickable(
+                        interactionSource = interactionSource,
+                        indication = LibraryHighlightIndication(cornerRadius = GlassTokens.RadiusPill),
+                        onClick = { onSelectTab(tab) }
+                    )
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -371,45 +581,40 @@ internal fun PlaylistRowCard(
     onOpen: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    coverPool: List<String?> = emptyList()
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
+    val interactionSource = remember { MutableInteractionSource() }
+    val stackCovers = remember(playlist.artworkUrl, coverPool) {
+        (listOfNotNull(playlist.artworkUrl) + coverPool.filterNotNull())
+            .distinct()
+            .take(2)
+    }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = 72.dp)
+            .libraryPressBounce(interactionSource, pressedScale = 0.97f)
             .smokedGlass(
                 shape = RoundedCornerShape(GlassTokens.RadiusMd),
                 elevation = GlassElevation.CARD,
                 accentTint = OndaTheme.colors.accentSoft
             )
-            .clickable(onClick = onOpen)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = LibraryHighlightIndication(cornerRadius = GlassTokens.RadiusMd),
+                onClick = onOpen
+            )
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .size(52.dp)
-                .clip(RoundedCornerShape(GlassTokens.RadiusSm))
-                .background(GlassTokens.IconBadgeSurface),
-            contentAlignment = Alignment.Center
-        ) {
-            if (!playlist.artworkUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = playlist.artworkUrl,
-                    contentDescription = playlist.name,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.matchParentSize()
-                )
-            } else {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.QueueMusic,
-                    contentDescription = null,
-                    tint = OndaTheme.colors.accent,
-                    modifier = Modifier.size(26.dp)
-                )
-            }
-        }
+        LibraryCoverStack(
+            covers = stackCovers,
+            tile = 46.dp,
+            showFan = playlist.trackCount > 1 || stackCovers.size > 1
+        )
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -493,24 +698,36 @@ internal fun LibraryTrackRow(
     onToggleLike: () -> Unit,
     onAddToPlaylist: () -> Unit,
     onDownloadClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isPlaying: Boolean = false
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
+    val interactionSource = remember { MutableInteractionSource() }
     val accent = if (isActive) OndaTheme.colors.accent else OndaTheme.colors.accentSecondary
     Row(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = 68.dp)
+            .libraryPressBounce(interactionSource, pressedScale = 0.98f)
             .smokedGlass(
                 shape = RoundedCornerShape(GlassTokens.RadiusMd),
                 elevation = if (isActive) GlassElevation.SHEET else GlassElevation.CARD,
                 accentTint = accent
             )
-            .clickable(onClick = onPlay)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = LibraryHighlightIndication(cornerRadius = GlassTokens.RadiusMd),
+                onClick = onPlay
+            )
             .padding(start = 10.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        TrackArtworkBox(artworkUrl = track.artworkUrl, title = track.title)
+        TrackArtworkBox(
+            artworkUrl = track.artworkUrl,
+            title = track.title,
+            isActive = isActive,
+            isPlaying = isPlaying
+        )
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -626,7 +843,9 @@ internal fun LibraryTrackRow(
 internal fun TrackArtworkBox(
     artworkUrl: String?,
     title: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isActive: Boolean = false,
+    isPlaying: Boolean = false
 ) {
     Box(
         modifier = modifier
@@ -649,6 +868,29 @@ internal fun TrackArtworkBox(
                 tint = OndaTheme.colors.accentSoft,
                 modifier = Modifier.size(22.dp)
             )
+        }
+        if (isActive) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(GlassTokens.AmoledBlack.copy(alpha = 0.48f)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (isPlaying) {
+                    LibraryPlayingIndicator(
+                        color = OndaTheme.colors.accent,
+                        isPlaying = true,
+                        modifier = Modifier.height(14.dp)
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Rounded.Pause,
+                        contentDescription = null,
+                        tint = OndaTheme.colors.accent,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
         }
     }
 }
@@ -696,9 +938,11 @@ internal fun DownloadRowCard(
     val title = track?.title ?: item.trackId
     val artist = track?.artist ?: "Saved track"
     val isActive = item.status == DownloadStatus.QUEUED || item.status == DownloadStatus.DOWNLOADING
+    val interactionSource = remember { MutableInteractionSource() }
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .libraryPressBounce(interactionSource, pressedScale = 0.98f)
             .smokedGlass(
                 shape = RoundedCornerShape(GlassTokens.RadiusMd),
                 elevation = GlassElevation.CARD,
@@ -708,7 +952,12 @@ internal fun DownloadRowCard(
                     else -> OndaTheme.colors.accent
                 }
             )
-            .clickable(enabled = item.status == DownloadStatus.COMPLETED && track != null, onClick = onPlay)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = LibraryHighlightIndication(cornerRadius = GlassTokens.RadiusMd),
+                enabled = item.status == DownloadStatus.COMPLETED && track != null,
+                onClick = onPlay
+            )
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {

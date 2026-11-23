@@ -10,6 +10,7 @@ import com.onda.music.core.database.SongDao
 import com.onda.music.core.database.toEntity
 import com.onda.music.core.database.toModel
 import com.onda.music.core.model.DownloadStatus
+import com.onda.music.core.model.PlaybackStatus
 import com.onda.music.core.model.Playlist
 import com.onda.music.core.model.Track
 import com.onda.music.core.playback.DownloadManager
@@ -127,7 +128,8 @@ class LibraryViewModel @Inject constructor(
         val totalPlayCount: Int,
         val totalPlayDurationMs: Long,
         val activeTrackId: String?,
-        val hasMiniPlayer: Boolean
+        val hasMiniPlayer: Boolean,
+        val isPlaying: Boolean
     )
 
     private val songsSliceFlow = combine(
@@ -182,7 +184,8 @@ class LibraryViewModel @Inject constructor(
             totalPlayCount = playCount,
             totalPlayDurationMs = playDurationMs,
             activeTrackId = playbackState.currentTrack?.id,
-            hasMiniPlayer = playbackState.currentTrack != null
+            hasMiniPlayer = playbackState.currentTrack != null,
+            isPlaying = playbackState.status == PlaybackStatus.PLAYING
         )
     }
 
@@ -213,7 +216,8 @@ class LibraryViewModel @Inject constructor(
             totalPlayCount = stats.totalPlayCount,
             totalPlayDurationMs = stats.totalPlayDurationMs,
             activeTrackId = stats.activeTrackId,
-            hasMiniPlayer = stats.hasMiniPlayer
+            hasMiniPlayer = stats.hasMiniPlayer,
+            isPlaying = stats.isPlaying
         )
     }.stateIn(
         scope = viewModelScope,

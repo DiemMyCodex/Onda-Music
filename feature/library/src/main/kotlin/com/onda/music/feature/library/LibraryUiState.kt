@@ -41,5 +41,6 @@ data class LibraryUiState(
     val totalPlayCount: Int = 0,
     val totalPlayDurationMs: Long = 0L,
     val activeTrackId: String? = null,
-    val hasMiniPlayer: Boolean = false
+    val hasMiniPlayer: Boolean = false,
+    val isPlaying: Boolean = false
 )

@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -47,6 +46,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,21 +61,21 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.input.pointer.util.addPointerInputChange
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.util.lerp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.onda.music.core.design.DockMetrics
 import com.onda.music.core.design.GlassTokens
-import com.onda.music.core.design.LikeBurstOverlay
 import com.onda.music.core.design.LocalOndaColors
 import com.onda.music.core.design.LocalOndaPalette
 import com.onda.music.core.design.MorphingCornerClipShape
 import com.onda.music.core.design.OndaTheme
-import com.onda.music.core.design.rememberLikeBurstState
 import com.onda.music.core.model.PlayerStyle
 import com.onda.music.feature.player.styles.BedsidePlayerStyle
 import com.onda.music.feature.player.styles.BedsideTilesPlayerStyle
@@ -88,7 +89,9 @@ import com.onda.music.feature.player.styles.TimelinePlayerStyle
 import com.onda.music.feature.player.styles.TurntablePlayerStyle
 import com.onda.music.feature.player.styles.VideoPlayerStyle
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.launch
 
 @Composable
 fun FullPlayerOverlay(
@@ -99,6 +102,7 @@ fun FullPlayerOverlay(
     modifier: Modifier = Modifier,
     viewModel: PlayerViewModel = hiltViewModel()
 ) {
+    val scope = rememberCoroutineScope()
     val clampedMorph = morphFraction.coerceIn(0f, 1f)
     if (clampedMorph <= 0.005f) return
 
@@ -112,31 +116,62 @@ fun FullPlayerOverlay(
     val liked by viewModel.currentTrackLiked.collectAsState()
     val downloadItem by viewModel.currentDownload.collectAsState()
     val activePlayer by viewModel.activePlayerFlow.collectAsState()
-    val likeBurstTrigger by viewModel.likeBurstTrigger.collectAsState()
+
+    val reducedMotion = OndaTheme.reducedMotion
+    val density = LocalDensity.current
 
     var showInlineLyrics by remember { mutableStateOf(false) }
     var showQueueSheet by remember { mutableStateOf(false) }
     var showSleepTimerSheet by remember { mutableStateOf(false) }
     var showStylePickerSheet by remember { mutableStateOf(false) }
+    var showPosterOverflowMenu by remember { mutableStateOf(false) }
 
     var containerHeightPx by remember { mutableFloatStateOf(1600f) }
-    var overlayOriginInWindow by remember { mutableStateOf(Offset.Zero) }
     var likeCenterInWindow by remember { mutableStateOf<Offset?>(null) }
-    val likeBurstState = rememberLikeBurstState()
+    val likeBurstState = remember { OndaLikeBurstState() }
 
-    LaunchedEffect(likeBurstTrigger) {
-        if (likeBurstTrigger > 0L) {
-            val relativeOrigin = likeCenterInWindow?.let { it - overlayOriginInWindow }
-            likeBurstState.trigger(
-                origin = relativeOrigin,
-                primaryColor = palette.primary,
-                secondaryColor = GlassTokens.ErrorCoral
+    LaunchedEffect(settings.playerStyle) {
+        likeBurstState.slotProvider = {
+            when (settings.playerStyle) {
+                PlayerStyle.POSTER -> OndaLikeSlot.POSTER
+                PlayerStyle.TIMELINE -> OndaLikeSlot.TIMELINE
+                PlayerStyle.LYRICS -> OndaLikeSlot.LYRICS_STAGE
+                PlayerStyle.BEDSIDE_TILES -> OndaLikeSlot.BEDSIDE_TILES
+                else -> OndaLikeSlot.PLAYER
+            }
+        }
+    }
+
+    val currentLiked by rememberUpdatedState(liked)
+    val currentReducedMotion by rememberUpdatedState(reducedMotion)
+
+    val onLikeFromButton = remember(likeBurstState, scope, viewModel) {
+        {
+            likeBurstState.likeFromButton(
+                slot = likeBurstState.slotProvider(),
+                currentlyLiked = currentLiked,
+                reducedMotion = currentReducedMotion,
+                scope = scope,
+                onToggleLike = viewModel::toggleLike
             )
         }
     }
 
-    val anySheetOpen = showQueueSheet || showSleepTimerSheet || showStylePickerSheet
+    val onLikeFromDoubleTap = remember(likeBurstState, scope, viewModel) {
+        { windowPosition: Offset ->
+            likeBurstState.likeFromDoubleTap(
+                windowPosition = windowPosition,
+                currentlyLiked = currentLiked,
+                reducedMotion = currentReducedMotion,
+                scope = scope,
+                onToggleLike = viewModel::toggleLike
+            )
+        }
+    }
+
+    val anySheetOpen = showQueueSheet || showSleepTimerSheet || showStylePickerSheet || showPosterOverflowMenu
     PredictiveBackHandler(enabled = clampedMorph > 0.05f && !anySheetOpen) { backEvents: Flow<BackEventCompat> ->
+        MorphGestureArbitrator.claim()
         try {
             backEvents.collect { event ->
                 val targetMorph = (1f - event.progress * 0.85f).coerceIn(0f, 1f)
@@ -167,7 +202,6 @@ fun FullPlayerOverlay(
     }
 
     val isPosterStyle = settings.playerStyle == PlayerStyle.POSTER
-    var showPosterOverflowMenu by remember { mutableStateOf(false) }
 
     val stageContext = remember(
         playbackState,
@@ -179,7 +213,10 @@ fun FullPlayerOverlay(
         isLyricsLoading,
         lyricsError,
         activePlayer,
-        showInlineLyrics
+        showInlineLyrics,
+        likeBurstState,
+        onLikeFromButton,
+        onLikeFromDoubleTap
     ) {
         PlayerStageContext(
             playbackState = playbackState,
@@ -211,9 +248,15 @@ fun FullPlayerOverlay(
             onAdjustLyricsOffset = viewModel::adjustLyricsOffset,
             onAttachSurfaceView = viewModel::attachVideoSurfaceView,
             onAttachTextureView = viewModel::attachVideoTextureView,
-            onOpenOverflowMenu = { showPosterOverflowMenu = true }
+            onOpenOverflowMenu = { showPosterOverflowMenu = true },
+            likeBurstState = likeBurstState,
+            onLikeFromButton = onLikeFromButton,
+            onLikeFromDoubleTap = onLikeFromDoubleTap
         )
     }
+
+    val collapseTravelOffsetPx = with(density) { 64.dp.toPx() }
+    val contentRevealAlpha = ((clampedMorph - 0.12f) / 0.56f).coerceIn(0f, 1f)
 
     CompositionLocalProvider(
         LocalOndaPalette provides palette,
@@ -223,224 +266,233 @@ fun FullPlayerOverlay(
             modifier = modifier
                 .fillMaxSize()
                 .onSizeChanged { containerHeightPx = it.height.coerceAtLeast(1).toFloat() }
-                .onGloballyPositioned { coords ->
-                    overlayOriginInWindow = coords.positionInWindow()
-                }
                 .graphicsLayer {
-                    translationY = (1f - clampedMorph) * containerHeightPx
-                    alpha = (clampedMorph * 2.2f).coerceIn(0f, 1f)
+                    val travelRange = (containerHeightPx - collapseTravelOffsetPx).coerceAtLeast(1f)
+                    translationY = (1f - clampedMorph) * travelRange
+                    alpha = (clampedMorph * 2.4f).coerceIn(0f, 1f)
                     shape = morphShape
                     clip = true
                 }
                 .background(Color(0xFF000000))
-                .then(
-                    if (isPosterStyle) {
-                        Modifier.verticalCollapseDrag(
-                            morphFraction = clampedMorph,
-                            containerHeightPx = containerHeightPx,
-                            onMorphFractionChange = onMorphFractionChange,
-                            onCollapse = onCollapse
-                        )
-                    } else {
-                        Modifier
-                    }
+                .verticalCollapseDrag(
+                    enabled = !anySheetOpen,
+                    morphFraction = clampedMorph,
+                    containerHeightPx = containerHeightPx,
+                    reducedMotion = reducedMotion,
+                    onMorphFractionChange = onMorphFractionChange,
+                    onCollapse = onCollapse
                 )
         ) {
-            if (isPosterStyle) {
-                Box(modifier = Modifier.fillMaxSize()) {
-                    PosterPlayerStyle(
-                        ctx = stageContext,
-                        modifier = Modifier.fillMaxSize()
-                    )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        if (!reducedMotion) {
+                            val backdropScale = lerp(1.06f, 1f, clampedMorph)
+                            scaleX = backdropScale
+                            scaleY = backdropScale
+                        }
+                        alpha = contentRevealAlpha
+                    }
+            ) {
+                if (isPosterStyle) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        PosterPlayerStyle(
+                            ctx = stageContext,
+                            modifier = Modifier.fillMaxSize()
+                        )
 
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .statusBarsPadding()
-                            .padding(top = 10.dp)
-                            .width(42.dp)
-                            .height(4.dp)
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(Color(0x38FFFFFF))
-                    )
-
-                    IconButton(
-                        onClick = {
-                            onMorphFractionChange(0f)
-                            onCollapse()
-                        },
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .statusBarsPadding()
-                            .padding(top = 6.dp, end = 12.dp)
-                            .defaultMinSize(
-                                minWidth = DockMetrics.MinTapTarget,
-                                minHeight = DockMetrics.MinTapTarget
-                            )
-                    ) {
                         Box(
                             modifier = Modifier
-                                .size(32.dp)
-                                .clip(CircleShape)
-                                .background(Color(0x24FFFFFF)),
-                            contentAlignment = Alignment.Center
+                                .align(Alignment.TopCenter)
+                                .statusBarsPadding()
+                                .padding(top = 10.dp)
+                                .width(42.dp)
+                                .height(4.dp)
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(Color(0x38FFFFFF))
+                        )
+
+                        IconButton(
+                            onClick = {
+                                MorphGestureArbitrator.claim()
+                                onMorphFractionChange(0f)
+                                onCollapse()
+                            },
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .statusBarsPadding()
+                                .padding(top = 6.dp, end = 12.dp)
+                                .defaultMinSize(
+                                    minWidth = DockMetrics.MinTapTarget,
+                                    minHeight = DockMetrics.MinTapTarget
+                                )
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(14.dp)
-                                    .drawWithCache {
-                                        val chevronPath = Path().apply {
-                                            moveTo(size.width * 0.18f, size.height * 0.34f)
-                                            lineTo(size.width * 0.50f, size.height * 0.68f)
-                                            lineTo(size.width * 0.82f, size.height * 0.34f)
-                                        }
-                                        val chevronStroke = Stroke(
-                                            width = 1.85.dp.toPx(),
-                                            cap = StrokeCap.Round,
-                                            join = StrokeJoin.Round
-                                        )
-                                        onDrawBehind {
-                                            drawPath(
-                                                path = chevronPath,
-                                                color = Color.White,
-                                                style = chevronStroke
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0x24FFFFFF)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(14.dp)
+                                        .drawWithCache {
+                                            val chevronPath = Path().apply {
+                                                moveTo(size.width * 0.18f, size.height * 0.34f)
+                                                lineTo(size.width * 0.50f, size.height * 0.68f)
+                                                lineTo(size.width * 0.82f, size.height * 0.34f)
+                                            }
+                                            val chevronStroke = Stroke(
+                                                width = 1.85.dp.toPx(),
+                                                cap = StrokeCap.Round,
+                                                join = StrokeJoin.Round
                                             )
+                                            onDrawBehind {
+                                                drawPath(
+                                                    path = chevronPath,
+                                                    color = Color.White,
+                                                    style = chevronStroke
+                                                )
+                                            }
                                         }
-                                    }
-                            )
+                                )
+                            }
                         }
-                    }
 
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .navigationBarsPadding()
-                            .padding(start = 20.dp, bottom = 72.dp)
-                    ) {
-                        DropdownMenu(
-                            expanded = showPosterOverflowMenu,
-                            onDismissRequest = { showPosterOverflowMenu = false },
-                            containerColor = Color(0xFF141414)
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .navigationBarsPadding()
+                                .padding(start = 20.dp, bottom = 72.dp)
                         ) {
-                            DropdownMenuItem(
-                                text = { Text("Player Style", color = Color.White) },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Style,
-                                        contentDescription = null,
-                                        tint = Color.White
-                                    )
-                                },
-                                colors = MenuDefaults.itemColors(textColor = Color.White),
-                                onClick = {
-                                    showPosterOverflowMenu = false
-                                    showStylePickerSheet = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Up Next Queue", color = Color.White) },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Rounded.QueueMusic,
-                                        contentDescription = null,
-                                        tint = Color.White
-                                    )
-                                },
-                                colors = MenuDefaults.itemColors(textColor = Color.White),
-                                onClick = {
-                                    showPosterOverflowMenu = false
-                                    showQueueSheet = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        text = if (playbackState.sleepTimerRemainingMs != null) {
-                                            "Sleep Timer (${formatDurationMs(playbackState.sleepTimerRemainingMs ?: 0L)})"
-                                        } else {
-                                            "Sleep Timer"
-                                        },
-                                        color = Color.White
-                                    )
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Bedtime,
-                                        contentDescription = null,
-                                        tint = Color.White
-                                    )
-                                },
-                                colors = MenuDefaults.itemColors(textColor = Color.White),
-                                onClick = {
-                                    showPosterOverflowMenu = false
-                                    showSleepTimerSheet = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Settings", color = Color.White) },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Settings,
-                                        contentDescription = null,
-                                        tint = Color.White
-                                    )
-                                },
-                                colors = MenuDefaults.itemColors(textColor = Color.White),
-                                onClick = {
-                                    showPosterOverflowMenu = false
-                                    onOpenSettings()
-                                }
-                            )
+                            DropdownMenu(
+                                expanded = showPosterOverflowMenu,
+                                onDismissRequest = { showPosterOverflowMenu = false },
+                                containerColor = Color(0xFF141414)
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Player Style", color = Color.White) },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Style,
+                                            contentDescription = null,
+                                            tint = Color.White
+                                        )
+                                    },
+                                    colors = MenuDefaults.itemColors(textColor = Color.White),
+                                    onClick = {
+                                        showPosterOverflowMenu = false
+                                        showStylePickerSheet = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Up Next Queue", color = Color.White) },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Rounded.QueueMusic,
+                                            contentDescription = null,
+                                            tint = Color.White
+                                        )
+                                    },
+                                    colors = MenuDefaults.itemColors(textColor = Color.White),
+                                    onClick = {
+                                        showPosterOverflowMenu = false
+                                        showQueueSheet = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = if (playbackState.sleepTimerRemainingMs != null) {
+                                                "Sleep Timer (${formatDurationMs(playbackState.sleepTimerRemainingMs ?: 0L)})"
+                                            } else {
+                                                "Sleep Timer"
+                                            },
+                                            color = Color.White
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Bedtime,
+                                            contentDescription = null,
+                                            tint = Color.White
+                                        )
+                                    },
+                                    colors = MenuDefaults.itemColors(textColor = Color.White),
+                                    onClick = {
+                                        showPosterOverflowMenu = false
+                                        showSleepTimerSheet = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Settings", color = Color.White) },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Settings,
+                                            contentDescription = null,
+                                            tint = Color.White
+                                        )
+                                    },
+                                    colors = MenuDefaults.itemColors(textColor = Color.White),
+                                    onClick = {
+                                        showPosterOverflowMenu = false
+                                        onOpenSettings()
+                                    }
+                                )
+                            }
                         }
                     }
-                }
-            } else {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .statusBarsPadding()
-                ) {
-                    FullPlayerTopHeader(
-                        activeStyle = settings.playerStyle,
-                        sleepTimerRemainingMs = playbackState.sleepTimerRemainingMs,
-                        morphFraction = clampedMorph,
-                        containerHeightPx = containerHeightPx,
-                        onMorphFractionChange = onMorphFractionChange,
-                        onCollapse = onCollapse,
-                        onOpenStylePicker = { showStylePickerSheet = true },
-                        onOpenQueue = { showQueueSheet = true },
-                        onOpenSleepTimer = { showSleepTimerSheet = true },
-                        onOpenSettings = onOpenSettings
-                    )
-
-                    Box(
+                } else {
+                    Column(
                         modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
+                            .fillMaxSize()
+                            .statusBarsPadding()
                     ) {
-                        AnimatedContent(
-                            targetState = settings.playerStyle,
-                            transitionSpec = { fadeIn() togetherWith fadeOut() },
-                            label = "PlayerStyleStage"
-                        ) { style ->
-                            when (style) {
-                                PlayerStyle.FLAGSHIP -> FlagshipPlayerStyle(ctx = stageContext)
-                                PlayerStyle.CLASSIC -> ClassicPlayerStyle(ctx = stageContext)
-                                PlayerStyle.POSTER -> PosterPlayerStyle(ctx = stageContext)
-                                PlayerStyle.TURNTABLE -> TurntablePlayerStyle(ctx = stageContext)
-                                PlayerStyle.VIDEO -> VideoPlayerStyle(ctx = stageContext)
-                                PlayerStyle.IPOD -> IpodPlayerStyle(ctx = stageContext)
-                                PlayerStyle.TIMELINE -> TimelinePlayerStyle(ctx = stageContext)
-                                PlayerStyle.LYRICS -> LyricsStagePlayerStyle(ctx = stageContext)
-                                PlayerStyle.BEDSIDE -> BedsidePlayerStyle(ctx = stageContext)
-                                PlayerStyle.BEDSIDE_TILES -> BedsideTilesPlayerStyle(ctx = stageContext)
+                        FullPlayerTopHeader(
+                            activeStyle = settings.playerStyle,
+                            sleepTimerRemainingMs = playbackState.sleepTimerRemainingMs,
+                            onCollapse = {
+                                MorphGestureArbitrator.claim()
+                                onMorphFractionChange(0f)
+                                onCollapse()
+                            },
+                            onOpenStylePicker = { showStylePickerSheet = true },
+                            onOpenQueue = { showQueueSheet = true },
+                            onOpenSleepTimer = { showSleepTimerSheet = true },
+                            onOpenSettings = onOpenSettings
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                        ) {
+                            AnimatedContent(
+                                targetState = settings.playerStyle,
+                                transitionSpec = { fadeIn() togetherWith fadeOut() },
+                                label = "PlayerStyleStage"
+                            ) { style ->
+                                when (style) {
+                                    PlayerStyle.FLAGSHIP -> FlagshipPlayerStyle(ctx = stageContext)
+                                    PlayerStyle.CLASSIC -> ClassicPlayerStyle(ctx = stageContext)
+                                    PlayerStyle.POSTER -> PosterPlayerStyle(ctx = stageContext)
+                                    PlayerStyle.TURNTABLE -> TurntablePlayerStyle(ctx = stageContext)
+                                    PlayerStyle.VIDEO -> VideoPlayerStyle(ctx = stageContext)
+                                    PlayerStyle.IPOD -> IpodPlayerStyle(ctx = stageContext)
+                                    PlayerStyle.TIMELINE -> TimelinePlayerStyle(ctx = stageContext)
+                                    PlayerStyle.LYRICS -> LyricsStagePlayerStyle(ctx = stageContext)
+                                    PlayerStyle.BEDSIDE -> BedsidePlayerStyle(ctx = stageContext)
+                                    PlayerStyle.BEDSIDE_TILES -> BedsideTilesPlayerStyle(ctx = stageContext)
+                                }
                             }
                         }
                     }
                 }
             }
 
-            LikeBurstOverlay(
+            OndaLikeBurstOverlay(
                 state = likeBurstState,
                 modifier = Modifier.fillMaxSize()
             )
@@ -477,47 +529,134 @@ fun FullPlayerOverlay(
     }
 }
 
+@Composable
 private fun Modifier.verticalCollapseDrag(
+    enabled: Boolean,
     morphFraction: Float,
     containerHeightPx: Float,
+    reducedMotion: Boolean,
     onMorphFractionChange: (Float) -> Unit,
     onCollapse: () -> Unit
-): Modifier = pointerInput(morphFraction, containerHeightPx) {
-    var dragAccumulator = 0f
-    detectVerticalDragGestures(
-        onDragStart = {
-            dragAccumulator = 0f
-        },
-        onVerticalDrag = { change, dragAmount ->
-            change.consume()
-            dragAccumulator = (dragAccumulator + dragAmount).coerceAtLeast(0f)
-            val nextMorph = (1f - (dragAccumulator / (containerHeightPx * 0.65f))).coerceIn(0f, 1f)
-            onMorphFractionChange(nextMorph)
-        },
-        onDragEnd = {
-            val current = (1f - (dragAccumulator / (containerHeightPx * 0.65f))).coerceIn(0f, 1f)
-            if (current < 0.72f) {
-                onMorphFractionChange(0f)
-                onCollapse()
-            } else {
-                onMorphFractionChange(1f)
+): Modifier {
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val releaseSpeedPx = with(density) { 300.dp.toPx() }
+    val closeTravelPx = with(density) { 36.dp.toPx() }
+    val flickSpeedPx = with(density) { 900.dp.toPx() }
+    val flickTravelPx = with(density) { 12.dp.toPx() }
+
+    val currentMorph by rememberUpdatedState(morphFraction)
+    val currentHeight by rememberUpdatedState(containerHeightPx)
+    val currentReducedMotion by rememberUpdatedState(reducedMotion)
+    val currentOnMorph by rememberUpdatedState(onMorphFractionChange)
+    val currentOnCollapse by rememberUpdatedState(onCollapse)
+    var settleJob by remember { mutableStateOf<Job?>(null) }
+
+    return this.pointerInput(enabled) {
+        if (!enabled) return@pointerInput
+        val velocityTracker = VelocityTracker()
+        var startMorph = 1f
+        var dragSumY = 0f
+        var lastMorph = 1f
+        var activeCollapse = false
+
+        detectVerticalDragGestures(
+            onDragStart = {
+                velocityTracker.resetTracking()
+                startMorph = currentMorph
+                lastMorph = startMorph
+                dragSumY = 0f
+                activeCollapse = false
+            },
+            onVerticalDrag = { change, dragAmount ->
+                velocityTracker.addPointerInputChange(change)
+                dragSumY += dragAmount
+                if (!activeCollapse && (dragSumY > 0f || startMorph < 0.995f)) {
+                    activeCollapse = true
+                    MorphGestureArbitrator.claim()
+                    settleJob?.cancel()
+                }
+                if (activeCollapse) {
+                    change.consume()
+                    val spanPx = (currentHeight * 0.65f).coerceAtLeast(1f)
+                    val nextMorph = (startMorph - dragSumY / spanPx).coerceIn(0.006f, 0.994f)
+                    lastMorph = nextMorph
+                    currentOnMorph(nextMorph)
+                }
+            },
+            onDragEnd = {
+                if (!activeCollapse) return@detectVerticalDragGestures
+                val vy = velocityTracker.calculateVelocity().y
+                velocityTracker.resetTracking()
+                val spanPx = (currentHeight * 0.65f).coerceAtLeast(1f)
+                val shouldCollapse = when {
+                    vy > flickSpeedPx && dragSumY > flickTravelPx -> true
+                    vy > releaseSpeedPx -> true
+                    vy < -releaseSpeedPx -> false
+                    else -> dragSumY > closeTravelPx || lastMorph < 0.72f
+                }
+                val target = if (shouldCollapse) 0f else 1f
+                val token = MorphGestureArbitrator.claim()
+                settleJob?.cancel()
+                settleJob = scope.launch {
+                    settleMorphFraction(
+                        token = token,
+                        startFraction = lastMorph,
+                        targetFraction = target,
+                        velocityFractionPerSec = -vy / spanPx,
+                        reducedMotion = currentReducedMotion,
+                        onStep = { currentOnMorph(it) },
+                        onComplete = {
+                            if (shouldCollapse) {
+                                currentOnMorph(0f)
+                                currentOnCollapse()
+                            } else {
+                                currentOnMorph(1f)
+                            }
+                        }
+                    )
+                }
+                activeCollapse = false
+                dragSumY = 0f
+            },
+            onDragCancel = {
+                if (!activeCollapse) return@detectVerticalDragGestures
+                val vy = velocityTracker.calculateVelocity().y
+                velocityTracker.resetTracking()
+                val spanPx = (currentHeight * 0.65f).coerceAtLeast(1f)
+                val shouldCollapse = dragSumY > closeTravelPx || lastMorph < 0.72f
+                val target = if (shouldCollapse) 0f else 1f
+                val token = MorphGestureArbitrator.claim()
+                settleJob?.cancel()
+                settleJob = scope.launch {
+                    settleMorphFraction(
+                        token = token,
+                        startFraction = lastMorph,
+                        targetFraction = target,
+                        velocityFractionPerSec = -vy / spanPx,
+                        reducedMotion = currentReducedMotion,
+                        onStep = { currentOnMorph(it) },
+                        onComplete = {
+                            if (shouldCollapse) {
+                                currentOnMorph(0f)
+                                currentOnCollapse()
+                            } else {
+                                currentOnMorph(1f)
+                            }
+                        }
+                    )
+                }
+                activeCollapse = false
+                dragSumY = 0f
             }
-            dragAccumulator = 0f
-        },
-        onDragCancel = {
-            onMorphFractionChange(1f)
-            dragAccumulator = 0f
-        }
-    )
+        )
+    }
 }
 
 @Composable
 private fun FullPlayerTopHeader(
     activeStyle: PlayerStyle,
     sleepTimerRemainingMs: Long?,
-    morphFraction: Float,
-    containerHeightPx: Float,
-    onMorphFractionChange: (Float) -> Unit,
     onCollapse: () -> Unit,
     onOpenStylePicker: () -> Unit,
     onOpenQueue: () -> Unit,
@@ -527,12 +666,6 @@ private fun FullPlayerTopHeader(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .verticalCollapseDrag(
-                morphFraction = morphFraction,
-                containerHeightPx = containerHeightPx,
-                onMorphFractionChange = onMorphFractionChange,
-                onCollapse = onCollapse
-            )
             .padding(horizontal = 10.dp, vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -551,10 +684,7 @@ private fun FullPlayerTopHeader(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             IconButton(
-                onClick = {
-                    onMorphFractionChange(0f)
-                    onCollapse()
-                },
+                onClick = onCollapse,
                 modifier = Modifier.defaultMinSize(
                     minWidth = DockMetrics.MinTapTarget,
                     minHeight = DockMetrics.MinTapTarget

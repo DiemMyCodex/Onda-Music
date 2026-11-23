@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -57,13 +58,16 @@ import androidx.compose.ui.unit.sp
 import com.onda.music.core.design.DockMetrics
 import com.onda.music.core.design.GlassTokens
 import com.onda.music.core.design.OdometerText
+import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.model.PlaybackStatus
 import com.onda.music.feature.player.LikeActionButton
 import com.onda.music.feature.player.LyricsPane
+import com.onda.music.feature.player.OndaLikeSlot
 import com.onda.music.feature.player.PlayerSeekSection
 import com.onda.music.feature.player.PlayerTransportControls
 import com.onda.music.feature.player.TrackArtworkImage
 import com.onda.music.feature.player.formatDurationMs
+import com.onda.music.feature.player.playerPressBounce
 import kotlinx.coroutines.delay
 import java.time.LocalDate
 import java.time.LocalTime
@@ -198,8 +202,10 @@ fun TimelinePlayerStyle(
                                 LikeActionButton(
                                     liked = ctx.liked,
                                     hapticsEnabled = ctx.settings.hapticsEnabled,
-                                    onToggleLike = ctx.onToggleLike,
-                                    onButtonPositioned = ctx.onLikePositioned
+                                    onToggleLike = ctx.onLikeFromButton ?: ctx.onToggleLike,
+                                    onButtonPositioned = ctx.onLikePositioned,
+                                    likeBurstState = ctx.likeBurstState,
+                                    likeSlot = OndaLikeSlot.TIMELINE
                                 )
                             } else {
                                 Text(
@@ -290,8 +296,10 @@ fun LyricsStagePlayerStyle(
             LikeActionButton(
                 liked = ctx.liked,
                 hapticsEnabled = ctx.settings.hapticsEnabled,
-                onToggleLike = ctx.onToggleLike,
-                onButtonPositioned = ctx.onLikePositioned
+                onToggleLike = ctx.onLikeFromButton ?: ctx.onToggleLike,
+                onButtonPositioned = ctx.onLikePositioned,
+                likeBurstState = ctx.likeBurstState,
+                likeSlot = OndaLikeSlot.LYRICS_STAGE
             )
             IconButton(
                 onClick = ctx.onTogglePlayPause,
@@ -380,6 +388,7 @@ fun BedsidePlayerStyle(
     ctx: PlayerStageContext,
     modifier: Modifier = Modifier
 ) {
+    val reducedMotion = OndaTheme.reducedMotion
     val state = ctx.playbackState
     val track = state.currentTrack
     val (clockText, dateText) = rememberClockStrings()
@@ -387,6 +396,7 @@ fun BedsidePlayerStyle(
 
     val durationMs = state.durationMs.coerceAtLeast(1L)
     val progress = (state.positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+    val playInteraction = remember { MutableInteractionSource() }
 
     Box(
         modifier = modifier
@@ -446,6 +456,7 @@ fun BedsidePlayerStyle(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier
+                            .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
                             .clickable(onClick = ctx.onOpenSleepTimer)
                             .padding(6.dp)
                     ) {
@@ -533,9 +544,20 @@ fun BedsidePlayerStyle(
                     Box(
                         modifier = Modifier
                             .size(56.dp)
+                            .playerPressBounce(
+                                interactionSource = playInteraction,
+                                pressedScale = 0.86f,
+                                releaseDampingRatio = 0.54f,
+                                releaseStiffness = 720f,
+                                reducedMotion = reducedMotion
+                            )
                             .clip(CircleShape)
                             .background(Color(0xFF141414))
-                            .clickable(onClick = ctx.onTogglePlayPause),
+                            .clickable(
+                                interactionSource = playInteraction,
+                                indication = null,
+                                onClick = ctx.onTogglePlayPause
+                            ),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -682,8 +704,10 @@ fun BedsideTilesPlayerStyle(
                     LikeActionButton(
                         liked = ctx.liked,
                         hapticsEnabled = ctx.settings.hapticsEnabled,
-                        onToggleLike = ctx.onToggleLike,
-                        onButtonPositioned = ctx.onLikePositioned
+                        onToggleLike = ctx.onLikeFromButton ?: ctx.onToggleLike,
+                        onButtonPositioned = ctx.onLikePositioned,
+                        likeBurstState = ctx.likeBurstState,
+                        likeSlot = OndaLikeSlot.BEDSIDE_TILES
                     )
                 }
 

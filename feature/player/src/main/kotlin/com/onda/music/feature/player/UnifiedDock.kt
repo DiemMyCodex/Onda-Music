@@ -1,8 +1,12 @@
 package com.onda.music.feature.player
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -13,6 +17,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,33 +44,50 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.input.pointer.util.addPointerInputChange
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.util.lerp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import com.onda.music.core.design.DockMetrics
 import com.onda.music.core.design.GlassTokens
 import com.onda.music.core.design.LocalOndaColors
 import com.onda.music.core.design.LocalOndaPalette
@@ -74,15 +96,68 @@ import com.onda.music.core.design.ondaBackdropBlur
 import com.onda.music.core.design.press3D
 import com.onda.music.core.model.PlaybackStatus
 import com.onda.music.core.model.Track
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 private enum class MiniDragAxis {
     NONE,
     HORIZONTAL,
     VERTICAL
+}
+
+private val NavHighlightLead = spring<Float>(dampingRatio = 0.82f, stiffness = 700f)
+private val NavHighlightTrail = spring<Float>(dampingRatio = 0.82f, stiffness = 320f)
+private val PillRiseSpring = spring<Float>(dampingRatio = 0.55f, stiffness = 420f)
+private val PillSettleSpring = spring<Float>(dampingRatio = 0.70f, stiffness = 300f)
+private val NavHighlightInset = 4.dp
+private val NavHighlightGap = 4.dp
+
+@Stable
+private class DockHighlightState(initialIndex: Int) {
+    val start = Animatable(initialIndex.coerceAtLeast(0).toFloat())
+    val end = Animatable(initialIndex.coerceAtLeast(0).toFloat())
+    val shown = Animatable(if (initialIndex >= 0) 1f else 0f)
+    val lift = Animatable(0f)
+
+    fun rect(rowSize: Size, tabCount: Int, density: Density): Rect? {
+        if (tabCount <= 0 || shown.value <= 0.001f) return null
+        val slot = rowSize.width / tabCount
+        val halfGap = with(density) { NavHighlightGap.toPx() } * 0.5f
+        val inset = with(density) { NavHighlightInset.toPx() }
+        return Rect(
+            left = start.value * slot + halfGap,
+            top = inset,
+            right = (end.value + 1f) * slot - halfGap,
+            bottom = (rowSize.height - inset).coerceAtLeast(inset + 1f)
+        )
+    }
+
+    suspend fun moveTo(target: Float, reducedMotion: Boolean) {
+        if (reducedMotion) {
+            start.snapTo(target)
+            end.snapTo(target)
+            return
+        }
+        coroutineScope {
+            val movingRight = target > (start.value + end.value) * 0.5f
+            launch {
+                start.animateTo(
+                    targetValue = target,
+                    animationSpec = if (movingRight) NavHighlightTrail else NavHighlightLead
+                )
+            }
+            end.animateTo(
+                targetValue = target,
+                animationSpec = if (movingRight) NavHighlightLead else NavHighlightTrail
+            )
+        }
+    }
 }
 
 @Composable
@@ -101,6 +176,7 @@ fun UnifiedDock(
     val playbackState by viewModel.playbackState.collectAsState()
     val settings by viewModel.userSettings.collectAsState()
     val palette by viewModel.artworkPalette.collectAsState()
+    val reducedMotion = OndaTheme.reducedMotion
     val currentColors = OndaTheme.colors
     val dockColors = remember(currentColors, palette) {
         currentColors.copy(
@@ -109,12 +185,19 @@ fun UnifiedDock(
         )
     }
 
+    val scope = rememberCoroutineScope()
+    var isVerticalDragging by remember { mutableStateOf(false) }
+    var isSettlingMorph by remember { mutableStateOf(false) }
     val clampedMorph = morphFraction.coerceIn(0f, 1f)
-    val dockAlpha = (1f - clampedMorph * 1.65f).coerceIn(0f, 1f)
+    val dockAlpha = (1f - clampedMorph * 1.75f).coerceIn(0f, 1f)
     val density = LocalDensity.current
-    val slideOffsetPx = with(density) { (clampedMorph * 52f).dp.toPx() }
 
-    if (dockAlpha <= 0.01f) return
+    if (dockAlpha <= 0.01f && !isVerticalDragging && !isSettlingMorph) return
+
+    val queue = playbackState.queue
+    val currentIndex = playbackState.currentIndex
+    val previousTrack = if (currentIndex > 0) queue.getOrNull(currentIndex - 1) else null
+    val nextTrack = if (currentIndex >= 0 && currentIndex < queue.lastIndex) queue.getOrNull(currentIndex + 1) else null
 
     CompositionLocalProvider(
         LocalOndaPalette provides palette,
@@ -127,7 +210,6 @@ fun UnifiedDock(
                 .padding(start = 12.dp, end = 12.dp, bottom = 8.dp)
                 .graphicsLayer {
                     alpha = dockAlpha
-                    translationY = slideOffsetPx
                 },
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -139,31 +221,55 @@ fun UnifiedDock(
                 playbackState.currentTrack?.let { track ->
                     val durationMs = playbackState.durationMs.coerceAtLeast(1L)
                     val progress = (playbackState.positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
-                    MiniPlayerBar(
-                        track = track,
-                        isPlaying = playbackState.status == PlaybackStatus.PLAYING,
-                        progress = progress,
-                        blurEnabled = settings.glassBlurEnabled,
-                        hapticsEnabled = settings.hapticsEnabled,
-                        morphFraction = clampedMorph,
-                        onMorphFractionChange = onMorphFractionChange,
-                        onExpandPlayer = onExpandPlayer,
-                        onTogglePlayPause = viewModel::togglePlayPause,
-                        onSkipNext = viewModel::skipNext,
-                        onSkipPrevious = viewModel::skipPrevious
-                    )
+                    Box(
+                        modifier = Modifier.graphicsLayer {
+                            translationY = -with(density) { 38.dp.toPx() } * clampedMorph
+                            if (!reducedMotion) {
+                                val s = lerp(1f, 1.03f, clampedMorph)
+                                scaleX = s
+                                scaleY = s
+                            }
+                        }
+                    ) {
+                        MiniPlayerBar(
+                            track = track,
+                            previousTrack = previousTrack,
+                            nextTrack = nextTrack,
+                            isPlaying = playbackState.status == PlaybackStatus.PLAYING,
+                            progress = progress,
+                            blurEnabled = settings.glassBlurEnabled,
+                            hapticsEnabled = settings.hapticsEnabled,
+                            morphFraction = clampedMorph,
+                            onMorphFractionChange = onMorphFractionChange,
+                            onExpandPlayer = onExpandPlayer,
+                            onTogglePlayPause = viewModel::togglePlayPause,
+                            onSkipNext = viewModel::skipNext,
+                            onSkipPrevious = viewModel::skipPrevious,
+                            settleScope = scope,
+                            onVerticalDraggingChange = { isVerticalDragging = it },
+                            onSettlingMorphChange = { isSettlingMorph = it }
+                        )
+                    }
                 }
             }
 
-            DockTabPill(
-                tabLabels = tabLabels,
-                tabIcons = tabIcons,
-                inactiveTabIcons = inactiveTabIcons,
-                selectedTabIndex = selectedTabIndex,
-                blurEnabled = settings.glassBlurEnabled,
-                hapticsEnabled = settings.hapticsEnabled,
-                onSelectTab = onSelectTab
-            )
+            Box(
+                modifier = Modifier.graphicsLayer {
+                    val tabFade = (1f - clampedMorph * 2.3f).coerceIn(0f, 1f)
+                    alpha = tabFade
+                    translationY = with(density) { 42.dp.toPx() } * clampedMorph
+                }
+            ) {
+                DockTabPill(
+                    tabLabels = tabLabels,
+                    tabIcons = tabIcons,
+                    inactiveTabIcons = inactiveTabIcons,
+                    selectedTabIndex = selectedTabIndex,
+                    blurEnabled = settings.glassBlurEnabled,
+                    hapticsEnabled = settings.hapticsEnabled,
+                    onSelectTab = onSelectTab
+                )
+            }
         }
     }
 }
@@ -171,6 +277,8 @@ fun UnifiedDock(
 @Composable
 private fun MiniPlayerBar(
     track: Track,
+    previousTrack: Track?,
+    nextTrack: Track?,
     isPlaying: Boolean,
     progress: Float,
     blurEnabled: Boolean,
@@ -180,104 +288,211 @@ private fun MiniPlayerBar(
     onExpandPlayer: () -> Unit,
     onTogglePlayPause: () -> Unit,
     onSkipNext: () -> Unit,
-    onSkipPrevious: () -> Unit
+    onSkipPrevious: () -> Unit,
+    settleScope: kotlinx.coroutines.CoroutineScope,
+    onVerticalDraggingChange: (Boolean) -> Unit,
+    onSettlingMorphChange: (Boolean) -> Unit
 ) {
-    val palette = OndaTheme.palette
     val haptics = LocalHapticFeedback.current
     val density = LocalDensity.current
+    val reducedMotion = OndaTheme.reducedMotion
     val scope = rememberCoroutineScope()
     val horizontalOffset = remember { Animatable(0f) }
-    val dragThresholdPx = with(density) { 58.dp.toPx() }
-    val expandDistancePx = with(density) { 360.dp.toPx() }
+    var pillWidthPx by remember { mutableFloatStateOf(1f) }
+    var contentAreaWidthPx by remember { mutableFloatStateOf(1f) }
+    var skipCommitGeneration by remember { mutableIntStateOf(0) }
+    var settleJob by remember { mutableStateOf<Job?>(null) }
+
+    val expandDistancePx = with(density) { 380.dp.toPx() }.coerceAtLeast(1f)
+    val releaseSpeedPx = with(density) { 300.dp.toPx() }
+    val openTravelPx = with(density) { 36.dp.toPx() }
+    val horizontalFlingPx = with(density) { 420.dp.toPx() }
     val shape = RoundedCornerShape(24.dp)
+
+    val currentMorph by rememberUpdatedState(morphFraction)
+    val currentOnMorph by rememberUpdatedState(onMorphFractionChange)
+    val currentOnExpand by rememberUpdatedState(onExpandPlayer)
+    val currentOnSkipNext by rememberUpdatedState(onSkipNext)
+    val currentOnSkipPrev by rememberUpdatedState(onSkipPrevious)
+    val currentPrevTrack by rememberUpdatedState(previousTrack)
+    val currentNextTrack by rememberUpdatedState(nextTrack)
+    val currentHaptics by rememberUpdatedState(hapticsEnabled)
+    val currentReducedMotion by rememberUpdatedState(reducedMotion)
+    val currentOnVerticalDragging by rememberUpdatedState(onVerticalDraggingChange)
+    val currentOnSettlingMorph by rememberUpdatedState(onSettlingMorphChange)
+
+    LaunchedEffect(track.id) {
+        skipCommitGeneration++
+        horizontalOffset.snapTo(0f)
+    }
+
+    val playInteraction = remember { MutableInteractionSource() }
+    val nextInteraction = remember { MutableInteractionSource() }
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(62.dp)
+            .onSizeChanged { pillWidthPx = it.width.toFloat().coerceAtLeast(1f) }
             .graphicsLayer {
-                translationX = horizontalOffset.value
+                translationX = horizontalOffset.value * 0.06f
             }
             .press3D(maxTiltDegrees = 4f, pressedScale = 0.985f)
             .clip(shape)
             .border(width = 0.5.dp, color = Color(0x26FFFFFF), shape = shape)
-            .pointerInput(track.id, morphFraction) {
+            .pointerInput(track.id) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
+                    if (currentMorph > 0.65f) return@awaitEachGesture
+                    val velocityTracker = VelocityTracker()
+                    velocityTracker.addPointerInputChange(down)
+
                     var axis = MiniDragAxis.NONE
                     var totalDx = 0f
                     var totalDy = 0f
-                    var startMorph = morphFraction
+                    var startMorph = currentMorph
+                    var lastMorph = startMorph
 
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        if (!change.pressed) {
-                            when (axis) {
-                                MiniDragAxis.NONE -> {
-                                    if (!change.isConsumed) {
-                                        onExpandPlayer()
+                    try {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            velocityTracker.addPointerInputChange(change)
+
+                            if (!change.pressed) {
+                                when (axis) {
+                                    MiniDragAxis.NONE -> {
+                                        if (!change.isConsumed) {
+                                            MorphGestureArbitrator.claim()
+                                            settleJob?.cancel()
+                                            currentOnExpand()
+                                        }
+                                    }
+                                    MiniDragAxis.HORIZONTAL -> {
+                                        val vx = velocityTracker.calculateVelocity().x
+                                        val span = contentAreaWidthPx.coerceAtLeast(1f)
+                                        val offsetNow = horizontalOffset.value
+                                        val forward = currentNextTrack != null &&
+                                            ((offsetNow < -span * 0.34f || vx < -horizontalFlingPx) && vx <= horizontalFlingPx)
+                                        val backward = !forward && currentPrevTrack != null &&
+                                            ((offsetNow > span * 0.34f || vx > horizontalFlingPx) && vx >= -horizontalFlingPx)
+
+                                        if (forward || backward) {
+                                            if (currentHaptics) {
+                                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            }
+                                            val targetOffset = if (forward) -span else span
+                                            val commitGen = ++skipCommitGeneration
+                                            scope.launch {
+                                                if (currentReducedMotion) {
+                                                    horizontalOffset.snapTo(targetOffset)
+                                                } else {
+                                                    horizontalOffset.animateTo(
+                                                        targetValue = targetOffset,
+                                                        animationSpec = spring(dampingRatio = 0.92f, stiffness = 520f),
+                                                        initialVelocity = vx
+                                                    )
+                                                }
+                                                if (forward) currentOnSkipNext() else currentOnSkipPrev()
+                                                delay(220L)
+                                                if (skipCommitGeneration == commitGen) {
+                                                    horizontalOffset.animateTo(0f, spring(dampingRatio = 0.85f, stiffness = 460f))
+                                                }
+                                            }
+                                        } else {
+                                            scope.launch {
+                                                if (currentReducedMotion) {
+                                                    horizontalOffset.snapTo(0f)
+                                                } else {
+                                                    horizontalOffset.animateTo(
+                                                        targetValue = 0f,
+                                                        animationSpec = spring(dampingRatio = 0.78f, stiffness = 460f),
+                                                        initialVelocity = vx
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                    MiniDragAxis.VERTICAL -> {
+                                        val vy = velocityTracker.calculateVelocity().y
+                                        val shouldExpand = when {
+                                            vy < -releaseSpeedPx -> true
+                                            vy > releaseSpeedPx -> false
+                                            else -> -totalDy > openTravelPx || lastMorph >= 0.35f
+                                        }
+                                        val target = if (shouldExpand) 1f else 0f
+                                        val token = MorphGestureArbitrator.claim()
+                                        currentOnSettlingMorph(true)
+                                        currentOnVerticalDragging(false)
+                                        settleJob?.cancel()
+                                        settleJob = settleScope.launch {
+                                            try {
+                                                settleMorphFraction(
+                                                    token = token,
+                                                    startFraction = lastMorph,
+                                                    targetFraction = target,
+                                                    velocityFractionPerSec = -vy / expandDistancePx,
+                                                    reducedMotion = currentReducedMotion,
+                                                    onStep = { currentOnMorph(it) },
+                                                    onComplete = { currentOnMorph(target) }
+                                                )
+                                            } finally {
+                                                currentOnSettlingMorph(false)
+                                            }
+                                        }
                                     }
                                 }
+                                break
+                            }
+
+                            val delta = change.positionChange()
+                            totalDx += delta.x
+                            totalDy += delta.y
+
+                            if (axis == MiniDragAxis.NONE) {
+                                val touchSlop = viewConfiguration.touchSlop
+                                if (abs(totalDx) > touchSlop || abs(totalDy) > touchSlop) {
+                                    axis = if (abs(totalDx) >= abs(totalDy)) {
+                                        MiniDragAxis.HORIZONTAL
+                                    } else if (totalDy < 0f || currentMorph > 0.01f) {
+                                        startMorph = currentMorph
+                                        lastMorph = startMorph
+                                        MorphGestureArbitrator.claim()
+                                        settleJob?.cancel()
+                                        currentOnVerticalDragging(true)
+                                        MiniDragAxis.VERTICAL
+                                    } else {
+                                        MiniDragAxis.NONE
+                                    }
+                                }
+                            }
+
+                            when (axis) {
                                 MiniDragAxis.HORIZONTAL -> {
-                                    if (totalDx <= -dragThresholdPx) {
-                                        if (hapticsEnabled) {
-                                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        }
-                                        onSkipNext()
-                                    } else if (totalDx >= dragThresholdPx) {
-                                        if (hapticsEnabled) {
-                                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        }
-                                        onSkipPrevious()
+                                    change.consume()
+                                    val span = contentAreaWidthPx.coerceAtLeast(1f)
+                                    val resisted = when {
+                                        totalDx < 0f && currentNextTrack == null ->
+                                            rubberBandOffset(totalDx, pillWidthPx * 0.14f)
+                                        totalDx > 0f && currentPrevTrack == null ->
+                                            rubberBandOffset(totalDx, pillWidthPx * 0.14f)
+                                        else -> totalDx.coerceIn(-span, span)
                                     }
                                     scope.launch {
-                                        horizontalOffset.animateTo(0f)
+                                        horizontalOffset.snapTo(resisted)
                                     }
                                 }
                                 MiniDragAxis.VERTICAL -> {
-                                    val draggedUpFraction = (startMorph + (-totalDy / expandDistancePx)).coerceIn(0f, 1f)
-                                    if (draggedUpFraction >= 0.24f) {
-                                        onMorphFractionChange(1f)
-                                        onExpandPlayer()
-                                    } else {
-                                        onMorphFractionChange(0f)
-                                    }
+                                    change.consume()
+                                    val nextMorph = (startMorph + (-totalDy / expandDistancePx)).coerceIn(0.006f, 0.994f)
+                                    lastMorph = nextMorph
+                                    currentOnMorph(nextMorph)
                                 }
-                            }
-                            break
-                        }
-
-                        val delta = change.positionChange()
-                        totalDx += delta.x
-                        totalDy += delta.y
-
-                        if (axis == MiniDragAxis.NONE) {
-                            val touchSlop = viewConfiguration.touchSlop
-                            if (abs(totalDx) > touchSlop || abs(totalDy) > touchSlop) {
-                                axis = if (abs(totalDx) >= abs(totalDy)) {
-                                    MiniDragAxis.HORIZONTAL
-                                } else {
-                                    startMorph = morphFraction
-                                    MiniDragAxis.VERTICAL
-                                }
+                                MiniDragAxis.NONE -> Unit
                             }
                         }
-
-                        when (axis) {
-                            MiniDragAxis.HORIZONTAL -> {
-                                change.consume()
-                                scope.launch {
-                                    horizontalOffset.snapTo(totalDx.coerceIn(-dragThresholdPx * 1.4f, dragThresholdPx * 1.4f))
-                                }
-                            }
-                            MiniDragAxis.VERTICAL -> {
-                                change.consume()
-                                val nextMorph = (startMorph + (-totalDy / expandDistancePx)).coerceIn(0f, 1f)
-                                onMorphFractionChange(nextMorph)
-                            }
-                            MiniDragAxis.NONE -> Unit
-                        }
+                    } finally {
+                        currentOnVerticalDragging(false)
                     }
                 }
             }
@@ -301,40 +516,61 @@ private fun MiniPlayerBar(
                 .padding(start = 10.dp, end = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            TrackArtworkImage(
-                artworkUrl = track.artworkUrl,
-                contentDescription = track.title,
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.size(44.dp)
-            )
-
-            Spacer(modifier = Modifier.width(10.dp))
-
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.Center
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .clipToBounds()
+                    .onSizeChanged { contentAreaWidthPx = it.width.toFloat().coerceAtLeast(1f) },
+                contentAlignment = Alignment.CenterStart
             ) {
-                Text(
-                    text = track.title,
-                    style = MaterialTheme.typography.titleSmall.copy(
-                        fontSize = 14.sp,
-                        lineHeight = 17.sp,
-                        fontWeight = FontWeight.SemiBold
-                    ),
-                    color = Color.White,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                if (previousTrack != null) {
+                    MiniTrackPeekContent(
+                        track = previousTrack,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                val offset = horizontalOffset.value
+                                if (offset <= 0.5f) {
+                                    alpha = 0f
+                                } else {
+                                    val w = contentAreaWidthPx.coerceAtLeast(1f)
+                                    translationX = -w + offset
+                                    alpha = (abs(offset) / (w * 0.72f)).coerceIn(0f, 1f)
+                                }
+                            }
+                    )
+                }
+
+                MiniTrackPeekContent(
+                    track = track,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            val offset = horizontalOffset.value
+                            val w = contentAreaWidthPx.coerceAtLeast(1f)
+                            translationX = offset
+                            alpha = (1f - (abs(offset) / w) * 0.85f).coerceIn(0f, 1f)
+                        }
                 )
-                Text(
-                    text = track.artist,
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        fontSize = 12.sp,
-                        lineHeight = 15.sp
-                    ),
-                    color = Color(0xFFA0A0A0),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+
+                if (nextTrack != null) {
+                    MiniTrackPeekContent(
+                        track = nextTrack,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                val offset = horizontalOffset.value
+                                if (offset >= -0.5f) {
+                                    alpha = 0f
+                                } else {
+                                    val w = contentAreaWidthPx.coerceAtLeast(1f)
+                                    translationX = w + offset
+                                    alpha = (abs(offset) / (w * 0.72f)).coerceIn(0f, 1f)
+                                }
+                            }
+                    )
+                }
             }
 
             IconButton(
@@ -342,7 +578,16 @@ private fun MiniPlayerBar(
                     if (hapticsEnabled) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     onTogglePlayPause()
                 },
-                modifier = Modifier.defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
+                interactionSource = playInteraction,
+                modifier = Modifier
+                    .defaultMinSize(minWidth = DockMetrics.MinTapTarget, minHeight = DockMetrics.MinTapTarget)
+                    .playerPressBounce(
+                        interactionSource = playInteraction,
+                        pressedScale = 0.86f,
+                        releaseDampingRatio = 0.54f,
+                        releaseStiffness = 720f,
+                        reducedMotion = reducedMotion
+                    )
             ) {
                 Icon(
                     imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
@@ -357,7 +602,16 @@ private fun MiniPlayerBar(
                     if (hapticsEnabled) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     onSkipNext()
                 },
-                modifier = Modifier.defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
+                interactionSource = nextInteraction,
+                modifier = Modifier
+                    .defaultMinSize(minWidth = DockMetrics.MinTapTarget, minHeight = DockMetrics.MinTapTarget)
+                    .playerPressBounce(
+                        interactionSource = nextInteraction,
+                        pressedScale = 0.86f,
+                        releaseDampingRatio = 0.54f,
+                        releaseStiffness = 720f,
+                        reducedMotion = reducedMotion
+                    )
             ) {
                 Icon(
                     imageVector = Icons.Rounded.SkipNext,
@@ -378,6 +632,53 @@ private fun MiniPlayerBar(
                 .height(6.dp)
                 .padding(horizontal = 14.dp)
         )
+    }
+}
+
+@Composable
+private fun MiniTrackPeekContent(
+    track: Track,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        TrackArtworkImage(
+            artworkUrl = track.artworkUrl,
+            contentDescription = track.title,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.size(44.dp)
+        )
+
+        Spacer(modifier = Modifier.width(10.dp))
+
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = track.title,
+                style = MaterialTheme.typography.titleSmall.copy(
+                    fontSize = 14.sp,
+                    lineHeight = 17.sp,
+                    fontWeight = FontWeight.SemiBold
+                ),
+                color = Color.White,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = track.artist,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontSize = 12.sp,
+                    lineHeight = 15.sp
+                ),
+                color = Color(0xFFA0A0A0),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
@@ -475,15 +776,41 @@ private fun DockTabPill(
     inactiveTabIcons: List<ImageVector> = tabIcons
 ) {
     val haptics = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    val reducedMotion = OndaTheme.reducedMotion
     val itemCount = minOf(tabLabels.size, tabIcons.size)
     if (itemCount == 0) return
+
+    val pillState = remember { DockHighlightState(selectedTabIndex) }
+    LaunchedEffect(selectedTabIndex, reducedMotion) {
+        if (selectedTabIndex < 0) {
+            if (reducedMotion) pillState.shown.snapTo(0f) else pillState.shown.animateTo(0f, tween(200))
+            return@LaunchedEffect
+        }
+        val target = selectedTabIndex.coerceIn(0, itemCount - 1).toFloat()
+        if (pillState.shown.value == 0f) {
+            pillState.start.snapTo(target)
+            pillState.end.snapTo(target)
+        }
+        if (reducedMotion) {
+            pillState.shown.snapTo(1f)
+        } else {
+            launch { pillState.shown.animateTo(1f, tween(200)) }
+        }
+        pillState.moveTo(target, reducedMotion)
+    }
+
+    val currentSelected by rememberUpdatedState(selectedTabIndex)
+    val currentOnSelectTab by rememberUpdatedState(onSelectTab)
+    val currentHaptics by rememberUpdatedState(hapticsEnabled)
+    val currentReducedMotion by rememberUpdatedState(reducedMotion)
 
     val pillShape = RoundedCornerShape(999.dp)
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(64.dp)
+            .height(DockMetrics.NavBarHeight)
             .clip(pillShape)
             .border(width = 0.5.dp, color = Color(0x22FFFFFF), shape = pillShape)
     ) {
@@ -503,46 +830,139 @@ private fun DockTabPill(
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 6.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                .padding(horizontal = 4.dp, vertical = 2.dp)
+                .drawBehind {
+                    val rect = pillState.rect(size, itemCount, density) ?: return@drawBehind
+                    val lift = if (currentReducedMotion) 0f else pillState.lift.value
+                    val grow = lift * 3.dp.toPx()
+                    val baseAlpha = 0.16f + 0.12f * lift
+                    drawRoundRect(
+                        color = Color.White.copy(alpha = baseAlpha),
+                        topLeft = Offset(rect.left - grow, rect.top - grow),
+                        size = Size(rect.width + grow * 2f, rect.height + grow * 2f),
+                        cornerRadius = CornerRadius(rect.height * 0.5f + grow),
+                        alpha = pillState.shown.value
+                    )
+                }
+                .pointerInput(pillState, itemCount) {
+                    coroutineScope {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                            val slot = size.width.toFloat() / itemCount.coerceAtLeast(1)
+                            fun tabAt(x: Float): Float = (x / slot - 0.5f).coerceIn(0f, (itemCount - 1).toFloat())
+
+                            if (!currentReducedMotion) {
+                                launch { pillState.lift.animateTo(1f, PillRiseSpring) }
+                            }
+                            launch { pillState.moveTo(tabAt(down.position.x), currentReducedMotion) }
+
+                            var dragging = false
+                            var travel = 0f
+                            var currentX = down.position.x
+                            var lastHoveredTab = tabAt(currentX).roundToInt()
+
+                            while (true) {
+                                val event = awaitPointerEvent(PointerEventPass.Initial)
+                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                if (!change.pressed) break
+                                travel += change.positionChange().x
+                                currentX = change.position.x
+                                if (!dragging && abs(travel) > viewConfiguration.touchSlop) {
+                                    dragging = true
+                                }
+                                if (dragging) {
+                                    change.consume()
+                                    val mapped = tabAt(currentX)
+                                    val hoveredTab = mapped.roundToInt()
+                                    if (hoveredTab != lastHoveredTab) {
+                                        lastHoveredTab = hoveredTab
+                                        if (currentHaptics) {
+                                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        }
+                                    }
+                                    launch { pillState.moveTo(mapped, currentReducedMotion) }
+                                }
+                            }
+
+                            if (!currentReducedMotion) {
+                                launch { pillState.lift.animateTo(0f, PillSettleSpring) }
+                            }
+                            val target = tabAt(currentX).roundToInt().coerceIn(0, itemCount - 1)
+                            launch { pillState.moveTo(target.toFloat(), currentReducedMotion) }
+                            if (dragging) {
+                                if (currentHaptics) {
+                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                }
+                                currentOnSelectTab(target)
+                            } else {
+                                launch {
+                                    delay(450L)
+                                    val lit = currentSelected
+                                    if (lit in 0 until itemCount && lit != target) {
+                                        pillState.moveTo(lit.toFloat(), currentReducedMotion)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+            verticalAlignment = Alignment.CenterVertically
         ) {
             for (index in 0 until itemCount) {
                 val selected = index == selectedTabIndex
                 val label = tabLabels[index]
-                val icon = if (selected) {
-                    tabIcons[index]
-                } else {
-                    inactiveTabIcons.getOrElse(index) { tabIcons[index] }
-                }
-                val iconTint by animateColorAsState(
-                    targetValue = if (selected) Color.White else Color(0xFF9E9E9E),
-                    label = "DockTabTint"
-                )
-                val indicatorColor by animateColorAsState(
-                    targetValue = if (selected) Color(0x26FFFFFF) else Color.Transparent,
-                    label = "DockTabIndicator"
+                val activeIcon = tabIcons[index]
+                val inactiveIcon = inactiveTabIcons.getOrElse(index) { activeIcon }
+                val interactionSource = remember { MutableInteractionSource() }
+                val litProgress = animateFloatAsState(
+                    targetValue = if (selected) 1f else 0f,
+                    animationSpec = if (reducedMotion) snap() else tween(200),
+                    label = "DockTabLit"
                 )
 
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
-                        .defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
-                        .clip(pillShape)
-                        .background(indicatorColor, pillShape)
-                        .clickable {
+                        .defaultMinSize(minWidth = DockMetrics.MinTapTarget, minHeight = DockMetrics.MinTapTarget)
+                        .playerPressBounce(
+                            interactionSource = interactionSource,
+                            pressedScale = 0.85f,
+                            reducedMotion = reducedMotion
+                        )
+                        .clickable(
+                            interactionSource = interactionSource,
+                            indication = null
+                        ) {
                             if (hapticsEnabled) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             onSelectTab(index)
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = label,
-                        tint = iconTint,
-                        modifier = Modifier.size(24.dp)
-                    )
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = inactiveIcon,
+                            contentDescription = label,
+                            tint = Color(0xFF9E9E9E),
+                            modifier = Modifier
+                                .size(24.dp)
+                                .graphicsLayer {
+                                    alpha = 1f - litProgress.value
+                                    compositingStrategy = CompositingStrategy.ModulateAlpha
+                                }
+                        )
+                        Icon(
+                            imageVector = activeIcon,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier
+                                .size(24.dp)
+                                .graphicsLayer {
+                                    alpha = litProgress.value
+                                    compositingStrategy = CompositingStrategy.ModulateAlpha
+                                }
+                        )
+                    }
                 }
             }
         }

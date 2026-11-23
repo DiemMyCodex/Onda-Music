@@ -1,11 +1,19 @@
 package com.onda.music.feature.player.styles
 
+import android.os.Build
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -44,25 +52,39 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RenderEffect
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.Player
@@ -76,18 +98,47 @@ import com.onda.music.core.design.OdometerText
 import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.model.PlaybackStatus
 import com.onda.music.feature.player.LyricsPane
+import com.onda.music.feature.player.OndaLikeSlot
 import com.onda.music.feature.player.PlayerSeekSection
 import com.onda.music.feature.player.PlayerTransportControls
 import com.onda.music.feature.player.TrackArtworkImage
 import com.onda.music.feature.player.TrackMetaHeader
 import com.onda.music.feature.player.formatDurationMs
+import com.onda.music.feature.player.playerPressBounce
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.sin
+
+private const val TURNTABLE_PIVOT_X = 0.87f
+private const val TURNTABLE_PIVOT_Y = 0.14f
+private const val TURNTABLE_REST_ANGLE = 105f
+private const val TURNTABLE_END_ANGLE = 141f
+private const val TURNTABLE_PARK_ANGLE = 92f
+
+private fun isOnTurntableArm(
+    point: Offset,
+    pivot: Offset,
+    angleDeg: Float,
+    armLengthPx: Float,
+    slopPx: Float
+): Boolean {
+    val rad = Math.toRadians(angleDeg.toDouble()).toFloat()
+    val dir = Offset(cos(rad), sin(rad))
+    val tip = pivot + dir * armLengthPx
+    if (hypot(point.x - tip.x, point.y - tip.y) <= slopPx * 1.35f) return true
+    val rel = point - pivot
+    val along = rel.x * dir.x + rel.y * dir.y
+    if (along < -16f || along > armLengthPx) return false
+    val perp = abs(rel.y * dir.x - rel.x * dir.y)
+    return perp <= slopPx
+}
 
 @Composable
 fun TurntablePlayerStyle(
@@ -95,6 +146,10 @@ fun TurntablePlayerStyle(
     modifier: Modifier = Modifier
 ) {
     val reducedMotion = OndaTheme.reducedMotion
+    val haptics = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
+
     val state = ctx.playbackState
     val track = state.currentTrack
     val isPlaying = state.status == PlaybackStatus.PLAYING
@@ -119,6 +174,60 @@ fun TurntablePlayerStyle(
             }
         }
     }
+
+    val held = remember { Animatable(0f) }
+    val peek = remember { Animatable(0f) }
+    val peekGrow = remember { Animatable(0f) }
+
+    LaunchedEffect(isPlaying, track?.id, reducedMotion) {
+        if (!isPlaying || track == null || reducedMotion) {
+            if (reducedMotion) {
+                peek.snapTo(0f)
+                peekGrow.snapTo(0f)
+            }
+            return@LaunchedEffect
+        }
+        if (peek.value < 0.05f) {
+            peekGrow.snapTo(0f)
+        }
+        launch { peek.animateTo(1f, tween(240)) }
+        peekGrow.animateTo(1f, tween(760, easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)))
+        delay(2_240L)
+        peek.animateTo(0f, tween(420))
+    }
+
+    val shadowBlurEffect: RenderEffect? = remember(density) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val blurPx = with(density) { 5.dp.toPx() }
+            android.graphics.RenderEffect.createBlurEffect(
+                blurPx,
+                blurPx,
+                android.graphics.Shader.TileMode.CLAMP
+            ).asComposeRenderEffect()
+        } else {
+            null
+        }
+    }
+
+    val measurer = rememberTextMeasurer(cacheSize = 16)
+    val arcLabelStyle = remember {
+        TextStyle(
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 11.sp,
+            color = Color.White
+        )
+    }
+
+    val tonearmAngleDeg = if (isPlaying || draggingTonearmProgress != null) {
+        lerp(TURNTABLE_REST_ANGLE, TURNTABLE_END_ANGLE, activeTonearmProgress)
+    } else {
+        TURNTABLE_PARK_ANGLE
+    }
+    val currentTonearmAngle by rememberUpdatedState(tonearmAngleDeg)
+    val currentDurationMs by rememberUpdatedState(state.durationMs)
+    val currentHaptics by rememberUpdatedState(ctx.settings.hapticsEnabled)
+    val currentReducedMotion by rememberUpdatedState(reducedMotion)
+    val currentOnSeekToFraction by rememberUpdatedState(ctx.onSeekToFraction)
 
     Column(
         modifier = modifier
@@ -196,66 +305,127 @@ fun TurntablePlayerStyle(
                     )
                 }
 
-                Canvas(
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .pointerInput(durationMs) {
-                            detectDragGestures(
-                                onDragStart = { pos ->
-                                    val pivot = Offset(size.width * 0.87f, size.height * 0.14f)
-                                    val rad = atan2(pos.y - pivot.y, pos.x - pivot.x)
-                                    val deg = Math.toDegrees(rad.toDouble()).toFloat()
-                                    val normalized = ((deg - 105f) / 36f).coerceIn(0f, 1f)
-                                    draggingTonearmProgress = normalized
-                                },
-                                onDrag = { change, _ ->
+                        .pointerInput(Unit) {
+                            val slopPx = with(density) { 28.dp.toPx() }
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                val pivot = Offset(size.width * TURNTABLE_PIVOT_X, size.height * TURNTABLE_PIVOT_Y)
+                                val armLength = size.minDimension * 0.56f
+                                if (!isOnTurntableArm(down.position, pivot, currentTonearmAngle, armLength, slopPx)) {
+                                    return@awaitEachGesture
+                                }
+                                val dur = currentDurationMs.coerceAtLeast(1L)
+                                down.consume()
+                                if (currentHaptics) {
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                }
+                                scope.launch {
+                                    if (currentReducedMotion) held.snapTo(1f) else held.animateTo(1f, tween(180))
+                                }
+
+                                val initialRad = atan2(down.position.y - pivot.y, down.position.x - pivot.x)
+                                val initialDeg = Math.toDegrees(initialRad.toDouble()).toFloat()
+                                val initialNorm = ((initialDeg - TURNTABLE_REST_ANGLE) / (TURNTABLE_END_ANGLE - TURNTABLE_REST_ANGLE)).coerceIn(0f, 1f)
+                                draggingTonearmProgress = initialNorm
+                                var lastTick = (dur * initialNorm).toLong() / 10_000L
+
+                                val finishedDrag = drag(down.id) { change ->
                                     change.consume()
-                                    val pivot = Offset(size.width * 0.87f, size.height * 0.14f)
                                     val rad = atan2(change.position.y - pivot.y, change.position.x - pivot.x)
                                     val deg = Math.toDegrees(rad.toDouble()).toFloat()
-                                    val normalized = ((deg - 105f) / 36f).coerceIn(0f, 1f)
+                                    val normalized = ((deg - TURNTABLE_REST_ANGLE) / (TURNTABLE_END_ANGLE - TURNTABLE_REST_ANGLE)).coerceIn(0f, 1f)
                                     draggingTonearmProgress = normalized
-                                },
-                                onDragEnd = {
-                                    draggingTonearmProgress?.let(ctx.onSeekToFraction)
-                                    draggingTonearmProgress = null
-                                },
-                                onDragCancel = {
-                                    draggingTonearmProgress = null
+                                    val ms = (dur * normalized).toLong()
+                                    val tick = ms / 10_000L
+                                    if (tick != lastTick) {
+                                        lastTick = tick
+                                        if (currentHaptics) {
+                                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        }
+                                    }
                                 }
-                            )
+
+                                if (finishedDrag) {
+                                    draggingTonearmProgress?.let(currentOnSeekToFraction)
+                                }
+                                draggingTonearmProgress = null
+                                scope.launch {
+                                    if (!currentReducedMotion) {
+                                        delay(450L)
+                                        held.animateTo(0f, tween(320))
+                                    } else {
+                                        held.snapTo(0f)
+                                    }
+                                }
+                            }
                         }
                 ) {
-                    val pivot = Offset(size.width * 0.87f, size.height * 0.14f)
-                    val armLength = size.minDimension * 0.56f
-                    val restAngle = 105f
-                    val endAngle = 141f
-                    val tonearmAngleDeg = if (isPlaying || draggingTonearmProgress != null) {
-                        lerp(restAngle, endAngle, activeTonearmProgress)
-                    } else {
-                        92f
-                    }
-
-                    drawCircle(
-                        color = Color(0xFF242424),
-                        radius = 18.dp.toPx(),
-                        center = pivot
+                    Spacer(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                val lift = held.value
+                                val shift = size.width * (0.012f + 0.024f * lift)
+                                translationX = shift * 0.55f
+                                translationY = shift * 1.1f
+                                alpha = (if (shadowBlurEffect != null) 0.72f else 0.36f) - 0.18f * lift
+                                renderEffect = shadowBlurEffect
+                            }
+                            .drawBehind {
+                                drawTurntableArmGeometry(
+                                    pivot = Offset(size.width * TURNTABLE_PIVOT_X, size.height * TURNTABLE_PIVOT_Y),
+                                    armLength = size.minDimension * 0.56f,
+                                    angleDeg = tonearmAngleDeg,
+                                    silhouette = true
+                                )
+                            }
                     )
 
-                    rotate(degrees = tonearmAngleDeg, pivot = pivot) {
-                        drawLine(
-                            color = Color.White.copy(alpha = 0.9f),
-                            start = Offset(pivot.x - 16.dp.toPx(), pivot.y),
-                            end = Offset(pivot.x + armLength, pivot.y),
-                            strokeWidth = 4.dp.toPx(),
-                            cap = StrokeCap.Round
-                        )
-                        drawCircle(
-                            color = Color.White,
-                            radius = 6.dp.toPx(),
-                            center = Offset(pivot.x + armLength, pivot.y)
-                        )
-                    }
+                    Spacer(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                if (!reducedMotion) {
+                                    val s = 1f + 0.016f * held.value
+                                    scaleX = s
+                                    scaleY = s
+                                    transformOrigin = TransformOrigin(TURNTABLE_PIVOT_X, TURNTABLE_PIVOT_Y)
+                                }
+                            }
+                            .drawBehind {
+                                drawTurntableArmGeometry(
+                                    pivot = Offset(size.width * TURNTABLE_PIVOT_X, size.height * TURNTABLE_PIVOT_Y),
+                                    armLength = size.minDimension * 0.56f,
+                                    angleDeg = tonearmAngleDeg,
+                                    silhouette = false
+                                )
+                            }
+                    )
+
+                    Spacer(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .drawBehind {
+                                val lift = maxOf(held.value, peek.value)
+                                if (lift > 0.001f) {
+                                    val grow = if (held.value >= peek.value) 1f else peekGrow.value
+                                    drawTurntableTimeArc(
+                                        pivot = Offset(size.width * TURNTABLE_PIVOT_X, size.height * TURNTABLE_PIVOT_Y),
+                                        arcRadius = size.minDimension * 0.58f,
+                                        progress = activeTonearmProgress,
+                                        alpha = lift,
+                                        grow = grow,
+                                        positionMs = (durationMs * activeTonearmProgress).toLong(),
+                                        durationMs = state.durationMs,
+                                        measurer = measurer,
+                                        labelStyle = arcLabelStyle
+                                    )
+                                }
+                            }
+                    )
                 }
             }
         }
@@ -272,10 +442,12 @@ fun TurntablePlayerStyle(
                 track = track,
                 liked = ctx.liked,
                 hapticsEnabled = ctx.settings.hapticsEnabled,
-                onToggleLike = ctx.onToggleLike,
+                onToggleLike = ctx.onLikeFromButton ?: ctx.onToggleLike,
                 onLikePositioned = ctx.onLikePositioned,
                 downloadItem = ctx.downloadItem,
-                onDownloadClick = ctx.onDownloadClick
+                onDownloadClick = ctx.onDownloadClick,
+                likeBurstState = ctx.likeBurstState,
+                likeSlot = OndaLikeSlot.PLAYER
             )
 
             Row(
@@ -310,6 +482,122 @@ fun TurntablePlayerStyle(
                 onToggleRepeat = ctx.onToggleRepeat
             )
         }
+    }
+}
+
+private fun DrawScope.drawTurntableArmGeometry(
+    pivot: Offset,
+    armLength: Float,
+    angleDeg: Float,
+    silhouette: Boolean
+) {
+    val pivotColor = if (silhouette) Color.Black else Color(0xFF242424)
+    val armColor = if (silhouette) Color.Black else Color.White.copy(alpha = 0.92f)
+    val headColor = if (silhouette) Color.Black else Color.White
+
+    drawCircle(
+        color = pivotColor,
+        radius = 18.dp.toPx(),
+        center = pivot
+    )
+
+    rotate(degrees = angleDeg, pivot = pivot) {
+        drawLine(
+            color = armColor,
+            start = Offset(pivot.x - 16.dp.toPx(), pivot.y),
+            end = Offset(pivot.x + armLength, pivot.y),
+            strokeWidth = 4.dp.toPx(),
+            cap = StrokeCap.Round
+        )
+        drawCircle(
+            color = headColor,
+            radius = 6.dp.toPx(),
+            center = Offset(pivot.x + armLength, pivot.y)
+        )
+    }
+}
+
+private fun DrawScope.drawTurntableTimeArc(
+    pivot: Offset,
+    arcRadius: Float,
+    progress: Float,
+    alpha: Float,
+    grow: Float,
+    positionMs: Long,
+    durationMs: Long,
+    measurer: TextMeasurer,
+    labelStyle: TextStyle
+) {
+    val totalSweep = TURNTABLE_END_ANGLE - TURNTABLE_REST_ANGLE
+    val reachSweep = (totalSweep * grow.coerceIn(0f, 1f)).coerceAtLeast(0.01f)
+    val activeSweep = (totalSweep * progress.coerceIn(0f, 1f)).coerceIn(0.01f, reachSweep)
+    val topLeft = pivot - Offset(arcRadius, arcRadius)
+    val arcSize = Size(arcRadius * 2f, arcRadius * 2f)
+    val stroke = 4.5.dp.toPx()
+
+    drawArc(
+        color = Color.White.copy(alpha = 0.28f * alpha),
+        startAngle = TURNTABLE_REST_ANGLE,
+        sweepAngle = reachSweep,
+        useCenter = false,
+        topLeft = topLeft,
+        size = arcSize,
+        style = Stroke(width = stroke, cap = StrokeCap.Round)
+    )
+    drawArc(
+        color = Color.White.copy(alpha = 0.95f * alpha),
+        startAngle = TURNTABLE_REST_ANGLE,
+        sweepAngle = activeSweep,
+        useCenter = false,
+        topLeft = topLeft,
+        size = arcSize,
+        style = Stroke(width = stroke, cap = StrokeCap.Round)
+    )
+
+    if (durationMs <= 0L) return
+
+    drawArcTimeLabel(
+        text = formatDurationMs(positionMs),
+        pivot = pivot,
+        angleDeg = TURNTABLE_REST_ANGLE - 5.5f,
+        radius = arcRadius,
+        alpha = alpha,
+        measurer = measurer,
+        style = labelStyle
+    )
+
+    val endLabelAlpha = alpha * ((grow - 0.7f) / 0.3f).coerceIn(0f, 1f)
+    if (endLabelAlpha > 0.01f) {
+        drawArcTimeLabel(
+            text = formatDurationMs(durationMs),
+            pivot = pivot,
+            angleDeg = TURNTABLE_END_ANGLE + 5.5f,
+            radius = arcRadius,
+            alpha = endLabelAlpha,
+            measurer = measurer,
+            style = labelStyle
+        )
+    }
+}
+
+private fun DrawScope.drawArcTimeLabel(
+    text: String,
+    pivot: Offset,
+    angleDeg: Float,
+    radius: Float,
+    alpha: Float,
+    measurer: TextMeasurer,
+    style: TextStyle
+) {
+    val layout = measurer.measure(text, style)
+    val rad = Math.toRadians(angleDeg.toDouble()).toFloat()
+    val center = pivot + Offset(cos(rad) * radius, sin(rad) * radius)
+    rotate(degrees = angleDeg - 90f, pivot = center) {
+        drawText(
+            textLayoutResult = layout,
+            topLeft = Offset(center.x - layout.size.width * 0.5f, center.y - layout.size.height * 0.5f),
+            alpha = alpha
+        )
     }
 }
 
@@ -394,7 +682,7 @@ fun VideoPlayerStyle(
                 )
             }
 
-            androidx.compose.animation.AnimatedVisibility(
+            AnimatedVisibility(
                 visible = !hasVideoFrames,
                 enter = fadeIn(),
                 exit = fadeOut(),
@@ -451,10 +739,12 @@ fun VideoPlayerStyle(
                 track = track,
                 liked = ctx.liked,
                 hapticsEnabled = ctx.settings.hapticsEnabled,
-                onToggleLike = ctx.onToggleLike,
+                onToggleLike = ctx.onLikeFromButton ?: ctx.onToggleLike,
                 onLikePositioned = ctx.onLikePositioned,
                 downloadItem = ctx.downloadItem,
-                onDownloadClick = ctx.onDownloadClick
+                onDownloadClick = ctx.onDownloadClick,
+                likeBurstState = ctx.likeBurstState,
+                likeSlot = OndaLikeSlot.PLAYER
             )
             PlayerSeekSection(
                 playbackState = state,
@@ -481,6 +771,7 @@ fun IpodPlayerStyle(
     modifier: Modifier = Modifier
 ) {
     val haptics = LocalHapticFeedback.current
+    val reducedMotion = OndaTheme.reducedMotion
     val state = ctx.playbackState
     val track = state.currentTrack
     val displayTracks = remember(state.queue, track) {
@@ -517,6 +808,8 @@ fun IpodPlayerStyle(
     val durationMs = state.durationMs.coerceAtLeast(1L)
     val baseProgress = (state.positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
     val shownProgress = wheelScrubFraction ?: baseProgress
+
+    val centerInteraction = remember { MutableInteractionSource() }
 
     Column(
         modifier = modifier
@@ -674,7 +967,7 @@ fun IpodPlayerStyle(
                     var lastAngleRad = 0f
                     var workingFraction = baseProgress
                     var accumulatedForHaptic = 0f
-                    detectDragGestures(
+                    androidx.compose.foundation.gestures.detectDragGestures(
                         onDragStart = { start ->
                             val cx = size.width * 0.5f
                             val cy = size.height * 0.5f
@@ -772,9 +1065,17 @@ fun IpodPlayerStyle(
             Box(
                 modifier = Modifier
                     .size(78.dp)
+                    .playerPressBounce(
+                        interactionSource = centerInteraction,
+                        pressedScale = 0.88f,
+                        reducedMotion = reducedMotion
+                    )
                     .clip(CircleShape)
                     .background(Color(0xFF242424))
-                    .clickable {
+                    .clickable(
+                        interactionSource = centerInteraction,
+                        indication = null
+                    ) {
                         if (ctx.settings.hapticsEnabled) {
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         }

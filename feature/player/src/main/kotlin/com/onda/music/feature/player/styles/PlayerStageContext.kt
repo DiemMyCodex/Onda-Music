@@ -9,6 +9,7 @@ import com.onda.music.core.database.OndaUserSettings
 import com.onda.music.core.model.DownloadItem
 import com.onda.music.core.model.LyricsDocument
 import com.onda.music.core.model.PlaybackState
+import com.onda.music.feature.player.OndaLikeBurstState
 
 @Immutable
 data class PlayerStageContext(
@@ -41,5 +42,8 @@ data class PlayerStageContext(
     val onAdjustLyricsOffset: (Long) -> Unit,
     val onAttachSurfaceView: (SurfaceView?) -> Unit,
     val onAttachTextureView: (TextureView?) -> Unit,
-    val onOpenOverflowMenu: () -> Unit = {}
+    val onOpenOverflowMenu: () -> Unit = {},
+    val likeBurstState: OndaLikeBurstState? = null,
+    val onLikeFromButton: (() -> Unit)? = null,
+    val onLikeFromDoubleTap: ((Offset) -> Unit)? = null
 )

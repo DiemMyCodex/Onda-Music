@@ -2,8 +2,11 @@ package com.onda.music.feature.player.styles
 
 import android.os.Build
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -13,6 +16,8 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -38,10 +43,12 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -52,13 +59,20 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
@@ -79,16 +93,23 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.util.lerp
 import com.onda.music.core.design.AppMotion
-import com.onda.music.core.design.GlassKit
 import com.onda.music.core.design.GlassTokens
 import com.onda.music.core.design.OndaArtworkPalette
 import com.onda.music.core.design.OndaTheme
@@ -98,13 +119,22 @@ import com.onda.music.core.model.PlaybackStatus
 import com.onda.music.feature.player.GlassPillButton
 import com.onda.music.feature.player.LyricsInterludeDots
 import com.onda.music.feature.player.LyricsPane
+import com.onda.music.feature.player.OndaLikeSlot
+import com.onda.music.feature.player.PlayerLineBlurCache
 import com.onda.music.feature.player.PlayerSeekSection
 import com.onda.music.feature.player.PlayerTransportControls
 import com.onda.music.feature.player.SongCarousel
 import com.onda.music.feature.player.TrackMetaHeader
 import com.onda.music.feature.player.findActiveLyricsLineIndex
+import com.onda.music.feature.player.formatDurationMs
+import com.onda.music.feature.player.ondaLikeTarget
+import com.onda.music.feature.player.rememberSongCarouselPagerState
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.abs
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 
@@ -115,6 +145,19 @@ fun FlagshipPlayerStyle(
 ) {
     val state = ctx.playbackState
     val track = state.currentTrack
+    val isPlaying = state.status == PlaybackStatus.PLAYING
+    val pagerState = rememberSongCarouselPagerState(
+        queue = state.queue,
+        currentIndex = state.currentIndex,
+        currentTrack = track
+    )
+    val carouselTracks = remember(state.queue, track) {
+        when {
+            state.queue.isNotEmpty() -> state.queue
+            track != null -> listOf(track)
+            else -> emptyList()
+        }
+    }
 
     Column(
         modifier = modifier
@@ -147,7 +190,7 @@ fun FlagshipPlayerStyle(
                             lyrics = ctx.lyrics,
                             positionMs = state.positionMs,
                             lyricsOffsetMs = ctx.lyricsOffsetMs,
-                            isPlaying = state.status == PlaybackStatus.PLAYING,
+                            isPlaying = isPlaying,
                             isLoading = ctx.isLyricsLoading,
                             errorMessage = ctx.lyricsError,
                             lyricsMotionEnabled = ctx.settings.lyricsMotionEnabled,
@@ -167,6 +210,9 @@ fun FlagshipPlayerStyle(
                         contentPadding = PaddingValues(horizontal = 16.dp),
                         pageSpacing = 14.dp,
                         enablePress3D = true,
+                        isPlaying = isPlaying,
+                        pagerState = pagerState,
+                        onArtworkDoubleTap = ctx.onLikeFromDoubleTap,
                         modifier = Modifier
                             .widthIn(max = 360.dp)
                             .fillMaxWidth()
@@ -190,10 +236,14 @@ fun FlagshipPlayerStyle(
                 track = track,
                 liked = ctx.liked,
                 hapticsEnabled = ctx.settings.hapticsEnabled,
-                onToggleLike = ctx.onToggleLike,
+                onToggleLike = ctx.onLikeFromButton ?: ctx.onToggleLike,
                 onLikePositioned = ctx.onLikePositioned,
                 downloadItem = ctx.downloadItem,
-                onDownloadClick = ctx.onDownloadClick
+                onDownloadClick = ctx.onDownloadClick,
+                queue = carouselTracks,
+                pagerState = if (ctx.showInlineLyrics) null else pagerState,
+                likeBurstState = ctx.likeBurstState,
+                likeSlot = OndaLikeSlot.PLAYER
             )
 
             PlayerSeekSection(
@@ -253,6 +303,19 @@ fun ClassicPlayerStyle(
 ) {
     val state = ctx.playbackState
     val track = state.currentTrack
+    val isPlaying = state.status == PlaybackStatus.PLAYING
+    val pagerState = rememberSongCarouselPagerState(
+        queue = state.queue,
+        currentIndex = state.currentIndex,
+        currentTrack = track
+    )
+    val carouselTracks = remember(state.queue, track) {
+        when {
+            state.queue.isNotEmpty() -> state.queue
+            track != null -> listOf(track)
+            else -> emptyList()
+        }
+    }
 
     Column(
         modifier = modifier
@@ -273,7 +336,7 @@ fun ClassicPlayerStyle(
                     lyrics = ctx.lyrics,
                     positionMs = state.positionMs,
                     lyricsOffsetMs = ctx.lyricsOffsetMs,
-                    isPlaying = state.status == PlaybackStatus.PLAYING,
+                    isPlaying = isPlaying,
                     isLoading = ctx.isLyricsLoading,
                     errorMessage = ctx.lyricsError,
                     lyricsMotionEnabled = ctx.settings.lyricsMotionEnabled,
@@ -293,6 +356,9 @@ fun ClassicPlayerStyle(
                     contentPadding = PaddingValues(horizontal = 8.dp),
                     pageSpacing = 12.dp,
                     enablePress3D = false,
+                    isPlaying = isPlaying,
+                    pagerState = pagerState,
+                    onArtworkDoubleTap = ctx.onLikeFromDoubleTap,
                     modifier = Modifier
                         .widthIn(max = 336.dp)
                         .fillMaxWidth()
@@ -311,10 +377,14 @@ fun ClassicPlayerStyle(
                 track = track,
                 liked = ctx.liked,
                 hapticsEnabled = ctx.settings.hapticsEnabled,
-                onToggleLike = ctx.onToggleLike,
+                onToggleLike = ctx.onLikeFromButton ?: ctx.onToggleLike,
                 onLikePositioned = ctx.onLikePositioned,
                 downloadItem = ctx.downloadItem,
-                onDownloadClick = ctx.onDownloadClick
+                onDownloadClick = ctx.onDownloadClick,
+                queue = carouselTracks,
+                pagerState = if (ctx.showInlineLyrics) null else pagerState,
+                likeBurstState = ctx.likeBurstState,
+                likeSlot = OndaLikeSlot.PLAYER
             )
 
             PlayerSeekSection(
@@ -441,20 +511,153 @@ private fun extractPosterAtmosphericColors(palette: OndaArtworkPalette): PosterA
     )
 }
 
+internal data class PosterArcHit(
+    val fraction: Float,
+    val distancePx: Float,
+    val tangent: Offset
+)
+
+internal fun evaluatePosterArcPoint(t: Float, w: Float, h: Float): Offset {
+    val u = 1f - t
+    val p0 = Offset(0f, h * 0.964f)
+    val p1 = Offset(w * 0.34f, h * 0.995f)
+    val p2 = Offset(w * 0.72f, h * 0.880f)
+    val p3 = Offset(w, h * 0.643f)
+    val uu = u * u
+    val tt = t * t
+    return Offset(
+        x = uu * u * p0.x + 3f * uu * t * p1.x + 3f * u * tt * p2.x + tt * t * p3.x,
+        y = uu * u * p0.y + 3f * uu * t * p1.y + 3f * u * tt * p2.y + tt * t * p3.y
+    )
+}
+
+internal fun evaluatePosterArcTangent(t: Float, w: Float, h: Float): Offset {
+    val u = 1f - t
+    val p0 = Offset(0f, h * 0.964f)
+    val p1 = Offset(w * 0.34f, h * 0.995f)
+    val p2 = Offset(w * 0.72f, h * 0.880f)
+    val p3 = Offset(w, h * 0.643f)
+    val dx = 3f * u * u * (p1.x - p0.x) + 6f * u * t * (p2.x - p1.x) + 3f * t * t * (p3.x - p2.x)
+    val dy = 3f * u * u * (p1.y - p0.y) + 6f * u * t * (p2.y - p1.y) + 3f * t * t * (p3.y - p2.y)
+    val len = hypot(dx, dy).coerceAtLeast(1f)
+    return Offset(dx / len, dy / len)
+}
+
+internal fun closestPosterArcHit(touch: Offset, w: Float, h: Float): PosterArcHit {
+    var bestT = 0f
+    var bestDist = Float.MAX_VALUE
+    val steps = 36
+    for (i in 0..steps) {
+        val t = i.toFloat() / steps
+        val pt = evaluatePosterArcPoint(t, w, h)
+        val dist = hypot(touch.x - pt.x, touch.y - pt.y)
+        if (dist < bestDist) {
+            bestDist = dist
+            bestT = t
+        }
+    }
+    val stepHalf = 1f / steps
+    val low = (bestT - stepHalf).coerceAtLeast(0f)
+    val high = (bestT + stepHalf).coerceAtMost(1f)
+    for (i in 0..8) {
+        val t = lerp(low, high, i / 8f)
+        val pt = evaluatePosterArcPoint(t, w, h)
+        val dist = hypot(touch.x - pt.x, touch.y - pt.y)
+        if (dist < bestDist) {
+            bestDist = dist
+            bestT = t
+        }
+    }
+    return PosterArcHit(
+        fraction = bestT.coerceIn(0f, 1f),
+        distancePx = bestDist,
+        tangent = evaluatePosterArcTangent(bestT, w, h)
+    )
+}
+
+private val PosterExpandSpring = spring<Float>(dampingRatio = 0.7f, stiffness = 340f)
+private val PosterCollapseSpring = spring<Float>(dampingRatio = 0.9f, stiffness = 170f)
+
+@Stable
+private class PosterArcRingState(private val scope: CoroutineScope) {
+    val expand = Animatable(0f)
+    var scrubMs by mutableLongStateOf(-1L)
+    var held by mutableStateOf(false)
+    private var job: Job? = null
+
+    fun peek(forMs: Long, reducedMotion: Boolean) {
+        if (reducedMotion) return
+        job?.cancel()
+        job = scope.launch {
+            expand.animateTo(1f, PosterExpandSpring)
+            delay(forMs)
+            if (!held) {
+                expand.animateTo(0f, PosterCollapseSpring)
+            }
+        }
+    }
+
+    fun grab(reducedMotion: Boolean) {
+        job?.cancel()
+        held = true
+        job = scope.launch {
+            if (reducedMotion) expand.snapTo(1f) else expand.animateTo(1f, PosterExpandSpring)
+        }
+    }
+
+    fun letGo(afterMs: Long, reducedMotion: Boolean) {
+        held = false
+        job?.cancel()
+        job = scope.launch {
+            if (!reducedMotion) {
+                delay(afterMs)
+                if (!held) expand.animateTo(0f, PosterCollapseSpring)
+            } else {
+                expand.snapTo(0f)
+            }
+        }
+    }
+}
+
 @Composable
 fun PosterPlayerStyle(
     ctx: PlayerStageContext,
     modifier: Modifier = Modifier
 ) {
     val palette = OndaTheme.palette
+    val reducedMotion = OndaTheme.reducedMotion
     val state = ctx.playbackState
     val track = state.currentTrack
     val haptics = LocalHapticFeedback.current
     val isPlaying = state.status == PlaybackStatus.PLAYING
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+
+    val pagerState = rememberSongCarouselPagerState(
+        queue = state.queue,
+        currentIndex = state.currentIndex,
+        currentTrack = track
+    )
+    val carouselTracks = remember(state.queue, track) {
+        when {
+            state.queue.isNotEmpty() -> state.queue
+            track != null -> listOf(track)
+            else -> emptyList()
+        }
+    }
+
+    val ringState = remember(scope) { PosterArcRingState(scope) }
+    LaunchedEffect(isPlaying, track?.id, reducedMotion) {
+        if (isPlaying && track != null && !reducedMotion && !ringState.held) {
+            ringState.peek(3_000L, reducedMotion = false)
+        }
+    }
 
     val durationMs = state.durationMs.coerceAtLeast(0L)
     val positionMs = state.positionMs.coerceIn(0L, durationMs.coerceAtLeast(1L))
-    val playbackFraction = if (durationMs > 0L) {
+    val playbackFraction = if (ringState.scrubMs >= 0L && durationMs > 0L) {
+        (ringState.scrubMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+    } else if (durationMs > 0L) {
         (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
     } else {
         0f
@@ -479,6 +682,21 @@ fun PosterPlayerStyle(
             close()
         }
     }
+
+    val measurer = rememberTextMeasurer(cacheSize = 16)
+    val arcTimeStyle = remember {
+        TextStyle(
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 11.sp,
+            color = Color.White
+        )
+    }
+
+    val currentArtworkHeightPx by rememberUpdatedState(with(density) { (maxHeight * 0.56f).toPx() })
+    val currentDurationMs by rememberUpdatedState(durationMs)
+    val currentOnSeekToFraction by rememberUpdatedState(ctx.onSeekToFraction)
+    val currentHaptics by rememberUpdatedState(ctx.settings.hapticsEnabled)
+    val currentReducedMotion by rememberUpdatedState(reducedMotion)
 
     BoxWithConstraints(
         modifier = modifier
@@ -532,6 +750,12 @@ fun PosterPlayerStyle(
             }
     ) {
         val artworkHeight = maxHeight * 0.56f
+        val artworkHeightPx = with(density) { artworkHeight.toPx() }
+        val activePlaybackScale by animateFloatAsState(
+            targetValue = if (isPlaying && !reducedMotion) 1.03f else 1f,
+            animationSpec = if (reducedMotion) snap() else tween(400),
+            label = "PosterBleedScale"
+        )
 
         Box(
             modifier = Modifier
@@ -556,9 +780,6 @@ fun PosterPlayerStyle(
                     val arcLength = pathMeasure.length
                     val shadowOuterStroke = Stroke(width = 20.dp.toPx(), cap = StrokeCap.Round)
                     val shadowMidStroke = Stroke(width = 10.dp.toPx(), cap = StrokeCap.Round)
-                    val trackStroke = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round)
-                    val glowOuterStroke = Stroke(width = 7.5.dp.toPx(), cap = StrokeCap.Round)
-                    val glowInnerStroke = Stroke(width = 4.5.dp.toPx(), cap = StrokeCap.Round)
 
                     onDrawWithContent {
                         drawPath(
@@ -574,35 +795,67 @@ fun PosterPlayerStyle(
 
                         drawContent()
 
+                        val expand = ringState.expand.value.coerceIn(0f, 1.3f)
+                        val strokeWidthPx = lerp(2.5f, 6.5f, expand.coerceIn(0f, 1f)).dp.toPx()
+                        val trackStroke = Stroke(width = strokeWidthPx, cap = StrokeCap.Round)
+                        val glowOuterStroke = Stroke(width = strokeWidthPx * 2.8f, cap = StrokeCap.Round)
+                        val glowInnerStroke = Stroke(width = strokeWidthPx * 1.7f, cap = StrokeCap.Round)
+
                         drawPath(
                             path = fullArcPath,
-                            color = Color(0x2EFFFFFF),
+                            color = Color.White.copy(alpha = lerp(0.18f, 0.36f, expand.coerceIn(0f, 1f))),
                             style = trackStroke
                         )
 
                         val clampedProgress = playbackFraction.coerceIn(0f, 1f)
                         if (clampedProgress > 0.001f && arcLength > 0f) {
+                            val stopDistance = arcLength * clampedProgress
                             progressArcPath.reset()
                             pathMeasure.getSegment(
                                 startDistance = 0f,
-                                stopDistance = arcLength * clampedProgress,
+                                stopDistance = stopDistance,
                                 destination = progressArcPath,
                                 startWithMoveTo = true
                             )
                             drawPath(
                                 path = progressArcPath,
-                                color = Color(0x1FFFFFFF),
+                                color = Color.White.copy(alpha = lerp(0.12f, 0.24f, expand.coerceIn(0f, 1f))),
                                 style = glowOuterStroke
                             )
                             drawPath(
                                 path = progressArcPath,
-                                color = Color(0x38FFFFFF),
+                                color = Color.White.copy(alpha = lerp(0.22f, 0.42f, expand.coerceIn(0f, 1f))),
                                 style = glowInnerStroke
                             )
                             drawPath(
                                 path = progressArcPath,
-                                color = Color(0xB3FFFFFF),
+                                color = Color.White.copy(alpha = lerp(0.70f, 0.96f, expand.coerceIn(0f, 1f))),
                                 style = trackStroke
+                            )
+                            if (expand > 0.05f) {
+                                val tip = pathMeasure.getPosition(stopDistance)
+                                drawCircle(
+                                    color = Color.White.copy(alpha = expand.coerceIn(0f, 1f)),
+                                    radius = lerp(3f, 5.5f, expand.coerceIn(0f, 1f)).dp.toPx(),
+                                    center = tip
+                                )
+                            }
+                        }
+
+                        val labelAlpha = ((expand - 0.25f) / 0.75f).coerceIn(0f, 1f)
+                        if (labelAlpha > 0.01f && durationMs > 0L) {
+                            val displayedMs = if (ringState.scrubMs >= 0L) ringState.scrubMs else positionMs
+                            val startLayout = measurer.measure(formatDurationMs(displayedMs), arcTimeStyle)
+                            val endLayout = measurer.measure(formatDurationMs(durationMs), arcTimeStyle)
+                            drawText(
+                                textLayoutResult = startLayout,
+                                topLeft = Offset(16.dp.toPx(), (h * 0.964f + 12.dp.toPx()).coerceAtMost(h - startLayout.size.height)),
+                                alpha = labelAlpha
+                            )
+                            drawText(
+                                textLayoutResult = endLayout,
+                                topLeft = Offset(w - endLayout.size.width - 16.dp.toPx(), h * 0.643f + 12.dp.toPx()),
+                                alpha = labelAlpha
                             )
                         }
                     }
@@ -612,6 +865,10 @@ fun PosterPlayerStyle(
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(curvedArcShape)
+                    .graphicsLayer {
+                        scaleX = activePlaybackScale
+                        scaleY = activePlaybackScale
+                    }
             ) {
                 SongCarousel(
                     queue = state.queue,
@@ -622,6 +879,12 @@ fun PosterPlayerStyle(
                     contentPadding = PaddingValues(0.dp),
                     pageSpacing = 0.dp,
                     enablePress3D = false,
+                    isPlaying = isPlaying,
+                    parallaxFactor = 0.3f,
+                    enablePauseScale = false,
+                    pauseSaturation = 0.80f,
+                    pagerState = pagerState,
+                    onArtworkDoubleTap = ctx.onLikeFromDoubleTap,
                     onArtworkLongClick = {
                         if (ctx.settings.hapticsEnabled) {
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -632,6 +895,96 @@ fun PosterPlayerStyle(
                 )
             }
         }
+
+        Spacer(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .height(artworkHeight + 36.dp)
+                .pointerInput(Unit) {
+                    val slop = viewConfiguration.touchSlop
+                    val hitMarginPx = with(density) { 36.dp.toPx() }
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                        val w = size.width.toFloat()
+                        val h = currentArtworkHeightPx
+                        val duration = currentDurationMs
+                        if (duration <= 0L || w <= 0f || h <= 0f) return@awaitEachGesture
+                        val initialHit = closestPosterArcHit(down.position, w, h)
+                        if (initialHit.distancePx > hitMarginPx) return@awaitEachGesture
+
+                        ringState.grab(currentReducedMotion)
+                        var travel = Offset.Zero
+                        var scrubbing = false
+                        var lastFraction = initialHit.fraction
+                        var lastTick = -1L
+
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) break
+                            val delta = change.positionChange()
+                            if (!scrubbing) {
+                                travel += delta
+                                if (travel.getDistance() < slop) continue
+                                val moveLen = travel.getDistance().coerceAtLeast(1f)
+                                val hitNow = closestPosterArcHit(change.position, w, h)
+                                val along = abs((travel.x * hitNow.tangent.x + travel.y * hitNow.tangent.y) / moveLen)
+                                if (along < 0.45f) {
+                                    ringState.letGo(250L, currentReducedMotion)
+                                    return@awaitEachGesture
+                                }
+                                scrubbing = true
+                                if (currentHaptics) {
+                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                }
+                            }
+                            change.consume()
+                            val hit = closestPosterArcHit(change.position, w, h)
+                            lastFraction = hit.fraction
+                            val ms = (duration * hit.fraction).toLong()
+                            ringState.scrubMs = ms
+                            val tick = ms / 10_000L
+                            if (tick != lastTick) {
+                                if (lastTick >= 0L && currentHaptics) {
+                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                }
+                                lastTick = tick
+                            }
+                        }
+
+                        if (scrubbing) {
+                            currentOnSeekToFraction(lastFraction)
+                        }
+                        ringState.letGo(1_400L, currentReducedMotion)
+                        scope.launch {
+                            delay(420L)
+                            if (!ringState.held) {
+                                ringState.scrubMs = -1L
+                            }
+                        }
+                    }
+                }
+        )
+
+        val hasLyrics = !ctx.lyrics?.lines.isNullOrEmpty()
+        val lyricsFound = remember { Animatable(if (hasLyrics) 1f else 0f) }
+        LaunchedEffect(hasLyrics, reducedMotion) {
+            val target = if (hasLyrics) 1f else 0f
+            if (reducedMotion) {
+                lyricsFound.snapTo(target)
+            } else {
+                lyricsFound.animateTo(
+                    targetValue = target,
+                    animationSpec = tween(durationMillis = 680, easing = CubicBezierEasing(0.3f, 0f, 0.1f, 1f))
+                )
+            }
+        }
+        val titleOverlayVisible by remember { derivedStateOf { lyricsFound.value < 0.999f } }
+
+        val columnCoords = remember { arrayOfNulls<LayoutCoordinates>(1) }
+        val bigTitleCoords = remember { arrayOfNulls<LayoutCoordinates>(1) }
+        val smallTitleCoords = remember { arrayOfNulls<LayoutCoordinates>(1) }
 
         Row(
             modifier = Modifier
@@ -645,69 +998,112 @@ fun PosterPlayerStyle(
                 modifier = Modifier
                     .weight(0.76f)
                     .fillMaxHeight()
-                    .padding(start = 20.dp, end = 10.dp),
+                    .padding(start = 20.dp, end = 10.dp)
+                    .onPlaced { columnCoords[0] = it },
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .padding(top = artworkHeight * 0.14f, bottom = 22.dp),
+                        .padding(top = artworkHeight * 0.14f, bottom = 22.dp)
+                        .graphicsLayer {
+                            if (!reducedMotion) {
+                                translationY = ringState.expand.value * 12.dp.toPx()
+                            }
+                        },
                     contentAlignment = Alignment.CenterStart
                 ) {
-                    PosterKineticLyrics(
-                        lyrics = ctx.lyrics,
-                        positionMs = state.positionMs,
-                        durationMs = state.durationMs,
-                        lyricsOffsetMs = ctx.lyricsOffsetMs,
-                        isPlaying = isPlaying,
-                        isLoading = ctx.isLyricsLoading,
-                        expanded = ctx.showInlineLyrics,
-                        lyricsMotionEnabled = ctx.settings.lyricsMotionEnabled,
-                        hapticsEnabled = ctx.settings.hapticsEnabled,
-                        onToggleExpanded = ctx.onToggleInlineLyrics,
-                        onSeekToMs = ctx.onSeekToMs,
-                        onRefreshLyrics = ctx.onRefreshLyrics,
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    if (hasLyrics || ctx.isLyricsLoading) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    alpha = if (ctx.isLyricsLoading && !hasLyrics) {
+                                        1f
+                                    } else {
+                                        ((lyricsFound.value - 0.25f) / 0.75f).coerceIn(0f, 1f)
+                                    }
+                                }
+                        ) {
+                            PosterKineticLyrics(
+                                lyrics = ctx.lyrics,
+                                positionMs = state.positionMs,
+                                durationMs = state.durationMs,
+                                lyricsOffsetMs = ctx.lyricsOffsetMs,
+                                isPlaying = isPlaying,
+                                isLoading = ctx.isLyricsLoading,
+                                expanded = ctx.showInlineLyrics,
+                                lyricsMotionEnabled = ctx.settings.lyricsMotionEnabled,
+                                hapticsEnabled = ctx.settings.hapticsEnabled,
+                                onToggleExpanded = ctx.onToggleInlineLyrics,
+                                onSeekToMs = ctx.onSeekToMs,
+                                onRefreshLyrics = ctx.onRefreshLyrics,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
+
+                    if (titleOverlayVisible && !ctx.isLyricsLoading) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onPlaced { bigTitleCoords[0] = it }
+                                .graphicsLayer {
+                                    val f = lyricsFound.value
+                                    val col = columnCoords[0]
+                                    val from = bigTitleCoords[0]
+                                    val to = smallTitleCoords[0]
+                                    if (f > 0.001f && col != null && from != null && to != null &&
+                                        col.isAttached && from.isAttached && to.isAttached
+                                    ) {
+                                        val a = col.localPositionOf(from, Offset.Zero)
+                                        val b = col.localPositionOf(to, Offset.Zero)
+                                        translationX = (b.x - a.x) * f
+                                        translationY = (b.y - a.y) * f
+                                    }
+                                    val scale = 1f + (18f / 28f - 1f) * f
+                                    scaleX = scale
+                                    scaleY = scale
+                                    transformOrigin = TransformOrigin(0f, 0f)
+                                    alpha = 1f - ((f - 0.6f) / 0.35f).coerceIn(0f, 1f)
+                                }
+                        ) {
+                            Text(
+                                text = track?.title ?: "Nothing playing",
+                                style = MaterialTheme.typography.headlineMedium.copy(
+                                    fontSize = 28.sp,
+                                    lineHeight = 34.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = (-0.4).sp
+                                ),
+                                color = Color.White,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
                 }
 
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .defaultMinSize(minHeight = 48.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .clickable {
-                            if (ctx.settings.hapticsEnabled) {
-                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            }
-                            ctx.onOpenOverflowMenu()
+                PosterMetadataBlock(
+                    track = track,
+                    queue = carouselTracks,
+                    pagerState = pagerState,
+                    smallTitleAlpha = {
+                        when {
+                            ctx.isLyricsLoading && !hasLyrics -> 1f
+                            hasLyrics -> ((lyricsFound.value - 0.6f) / 0.4f).coerceIn(0f, 1f)
+                            else -> 0f
                         }
-                        .padding(top = 8.dp, bottom = 2.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    Text(
-                        text = track?.artist ?: "Unknown artist",
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium
-                        ),
-                        color = Color(0xB3FFFFFF),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = track?.title ?: "Nothing playing",
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontSize = 18.sp,
-                            lineHeight = 22.sp,
-                            fontWeight = FontWeight.Bold
-                        ),
-                        color = Color.White,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+                    },
+                    onSmallTitlePlaced = { smallTitleCoords[0] = it },
+                    onClick = {
+                        if (ctx.settings.hapticsEnabled) {
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
+                        ctx.onOpenOverflowMenu()
+                    }
+                )
             }
 
             val rewindIcon = rememberPosterRewindIcon()
@@ -720,23 +1116,16 @@ fun PosterPlayerStyle(
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 PosterGlassActionPill(
-                    icon = Icons.Rounded.Favorite,
+                    icon = if (ctx.liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                    iconTint = if (ctx.liked) Color(0xFFFF2D55) else Color.White,
                     contentDescription = if (ctx.liked) "Remove from liked" else "Like track",
                     onClick = {
                         if (ctx.settings.hapticsEnabled) {
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         }
-                        ctx.onToggleLike()
+                        (ctx.onLikeFromButton ?: ctx.onToggleLike).invoke()
                     },
-                    modifier = Modifier.onGloballyPositioned { coords ->
-                        val pos = coords.positionInWindow()
-                        ctx.onLikePositioned(
-                            Offset(
-                                x = pos.x + coords.size.width * 0.5f,
-                                y = pos.y + coords.size.height * 0.5f
-                            )
-                        )
-                    }
+                    modifier = Modifier.ondaLikeTarget(ctx.likeBurstState, OndaLikeSlot.POSTER)
                 )
 
                 PosterGlassActionPill(
@@ -771,6 +1160,124 @@ fun PosterPlayerStyle(
                         ctx.onSkipNext()
                     }
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PosterMetadataBlock(
+    track: com.onda.music.core.model.Track?,
+    queue: List<com.onda.music.core.model.Track>,
+    pagerState: PagerState,
+    smallTitleAlpha: () -> Float,
+    onSmallTitlePlaced: (LayoutCoordinates) -> Unit,
+    onClick: () -> Unit
+) {
+    val reducedMotion = OndaTheme.reducedMotion
+    val visibleSlots by remember(pagerState, queue) {
+        derivedStateOf {
+            if (queue.isEmpty()) {
+                emptyList()
+            } else {
+                val base = pagerState.currentPage.coerceIn(0, queue.lastIndex)
+                val offset = pagerState.currentPageOffsetFraction
+                buildList {
+                    add(base)
+                    if (offset > 0.005f && base + 1 in queue.indices) {
+                        add(base + 1)
+                    } else if (offset < -0.005f && base - 1 in queue.indices) {
+                        add(base - 1)
+                    }
+                }
+            }
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = 48.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .clipToBounds()
+            .clickable(onClick = onClick)
+            .padding(top = 8.dp, bottom = 2.dp)
+    ) {
+        if (visibleSlots.isEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = track?.artist ?: "Unknown artist",
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    ),
+                    color = Color(0xB3FFFFFF),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = track?.title ?: "Nothing playing",
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = 18.sp,
+                        lineHeight = 22.sp,
+                        fontWeight = FontWeight.Bold
+                    ),
+                    color = Color.White,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .onPlaced(onSmallTitlePlaced)
+                        .graphicsLayer { alpha = smallTitleAlpha() }
+                )
+            }
+        } else {
+            for (slotPage in visibleSlots) {
+                val slotTrack = queue.getOrNull(slotPage) ?: continue
+                key("${slotTrack.id}_$slotPage") {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .graphicsLayer {
+                                val rel = (slotPage - pagerState.currentPage) - pagerState.currentPageOffsetFraction
+                                if (!reducedMotion) {
+                                    translationX = rel * size.width * 0.75f
+                                }
+                                alpha = (1f - abs(rel) * 1.5f).coerceIn(0f, 1f)
+                            },
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Text(
+                            text = slotTrack.artist,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium
+                            ),
+                            color = Color(0xB3FFFFFF),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = slotTrack.title,
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontSize = 18.sp,
+                                lineHeight = 22.sp,
+                                fontWeight = FontWeight.Bold
+                            ),
+                            color = Color.White,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .then(
+                                    if (slotPage == pagerState.currentPage) {
+                                        Modifier.onPlaced(onSmallTitlePlaced)
+                                    } else {
+                                        Modifier
+                                    }
+                                )
+                                .graphicsLayer { alpha = smallTitleAlpha() }
+                        )
+                    }
+                }
             }
         }
     }
@@ -853,13 +1360,15 @@ private fun PosterGlassActionPill(
     icon: ImageVector,
     contentDescription: String,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    iconTint: Color = Color.White
 ) {
+    val reducedMotion = OndaTheme.reducedMotion
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.94f else 1f,
-        animationSpec = AppMotion.SnappySpring,
+        targetValue = if (isPressed && !reducedMotion) 0.90f else 1f,
+        animationSpec = if (reducedMotion) snap() else spring(dampingRatio = 0.54f, stiffness = 720f),
         label = "PosterPillScale"
     )
     val pillShape = RoundedCornerShape(999.dp)
@@ -888,7 +1397,7 @@ private fun PosterGlassActionPill(
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
-            tint = Color.White,
+            tint = iconTint,
             modifier = Modifier.size(23.dp)
         )
     }
@@ -961,10 +1470,11 @@ private fun PosterKineticLyrics(
 
     LaunchedEffect(activeIndex, userDetachedScroll, isSynced, expanded) {
         if (expanded && isSynced && activeIndex >= 0 && !userDetachedScroll) {
-            listState.animateScrollToItem(
-                index = activeIndex,
-                scrollOffset = -32
-            )
+            if (reducedMotion) {
+                listState.scrollToItem(index = activeIndex, scrollOffset = -32)
+            } else {
+                listState.animateScrollToItem(index = activeIndex, scrollOffset = -32)
+            }
         }
     }
 
@@ -1084,12 +1594,15 @@ private fun PosterKineticLyrics(
                     key = { index, line -> "${index}_${line.startTimeMs}" }
                 ) { index, line ->
                     val isActive = isSynced && index == activeIndex
+                    val distance = if (activeIndex >= 0) abs(index - activeIndex).coerceAtMost(8) else 0
                     PosterLyricRow(
                         line = line,
                         isActive = isActive,
                         isSynced = isSynced,
                         hasWordTiming = hasWordTiming,
                         effectivePositionMs = effectivePositionMs,
+                        distanceFromActive = distance,
+                        isUserScrolling = userDetachedScroll,
                         isPlaying = isPlaying,
                         motionActive = motionActive,
                         onClick = {
@@ -1144,7 +1657,8 @@ private fun PosterSpotlightStanza(
                 isPlaying = isPlaying,
                 motionActive = motionActive,
                 progress = interludeProgress,
-                accentColor = Color.White
+                accentColor = Color.White,
+                visible = true
             )
         }
         return
@@ -1220,36 +1734,42 @@ private fun PosterSpotlightStanza(
             val distanceAhead = (index - activeWordIndex).coerceAtLeast(0)
 
             val wordScale by animateFloatAsState(
-                targetValue = if (isLeadActiveWord && motionActive) 1.12f else 1f,
-                animationSpec = AppMotion.SnappySpring,
+                targetValue = if (isLeadActiveWord && motionActive) 1.10f else 1f,
+                animationSpec = if (motionActive) AppMotion.SnappySpring else snap(),
                 label = "SpotlightWordScale"
+            )
+            val wordLiftDp by animateFloatAsState(
+                targetValue = when {
+                    !motionActive -> 0f
+                    isLeadActiveWord -> -1.5f
+                    isSpokenOrCurrent -> 0f
+                    else -> 2f
+                },
+                animationSpec = if (motionActive) spring(dampingRatio = 0.85f, stiffness = 360f) else snap(),
+                label = "SpotlightWordLift"
             )
             val wordAlpha by animateFloatAsState(
                 targetValue = when {
                     isSpokenOrCurrent -> 1f
-                    distanceAhead == 1 -> 0.54f
-                    else -> 0.45f
+                    distanceAhead == 1 -> 0.56f
+                    else -> 0.38f
                 },
-                animationSpec = tween(durationMillis = 180),
+                animationSpec = if (motionActive) tween(durationMillis = 180) else snap(),
                 label = "SpotlightWordAlpha"
             )
 
             Text(
                 text = slice.text,
                 style = spotlightStyle,
-                color = if (isSpokenOrCurrent) Color.White else Color(0x73FFFFFF),
+                color = Color.White,
                 modifier = Modifier
                     .padding(end = if (isLeadActiveWord && motionActive) 3.dp else 0.dp)
                     .graphicsLayer {
                         transformOrigin = TransformOrigin(0f, 0.55f)
                         scaleX = wordScale
                         scaleY = wordScale
-                        alpha = if (isSpokenOrCurrent) 1f else (wordAlpha / 0.45f).coerceIn(0.75f, 1f)
-                        if (!isSpokenOrCurrent && motionActive && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                            renderEffect = GlassKit.createBlurRenderEffect(1.1.dp.toPx())
-                        } else {
-                            renderEffect = null
-                        }
+                        translationY = wordLiftDp.dp.toPx()
+                        alpha = wordAlpha
                     }
             )
         }
@@ -1264,10 +1784,31 @@ private fun PosterLyricRow(
     isSynced: Boolean,
     hasWordTiming: Boolean,
     effectivePositionMs: Long,
+    distanceFromActive: Int,
+    isUserScrolling: Boolean,
     isPlaying: Boolean,
     motionActive: Boolean,
     onClick: () -> Unit
 ) {
+    if (line.isInterlude) {
+        val interludeDuration = (line.endTimeMs - line.startTimeMs).coerceAtLeast(1L)
+        val interludeProgress = ((effectivePositionMs - line.startTimeMs).toFloat() / interludeDuration).coerceIn(0f, 1f)
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            LyricsInterludeDots(
+                isActive = isActive,
+                isPlaying = isPlaying,
+                motionActive = motionActive,
+                progress = interludeProgress,
+                accentColor = Color.White,
+                visible = isActive
+            )
+        }
+        return
+    }
+
     val activeScale by animateFloatAsState(
         targetValue = if (isActive && motionActive) 1.03f else 1f,
         animationSpec = AppMotion.adaptiveSpring(
@@ -1276,6 +1817,17 @@ private fun PosterLyricRow(
             reducedMotion = !motionActive
         ),
         label = "PosterLyricScale"
+    )
+
+    val targetLineBlurPx = when {
+        !motionActive || !isSynced || isActive || isUserScrolling || Build.VERSION.SDK_INT < Build.VERSION_CODES.S -> 0f
+        distanceFromActive == 1 -> 3.5f
+        else -> 7f
+    }
+    val lineBlurPx by animateFloatAsState(
+        targetValue = targetLineBlurPx,
+        animationSpec = if (!motionActive) snap() else tween(durationMillis = 320),
+        label = "PosterLineBlur"
     )
 
     val textStyle = MaterialTheme.typography.headlineMedium.copy(
@@ -1293,21 +1845,12 @@ private fun PosterLyricRow(
             .graphicsLayer {
                 scaleX = activeScale
                 scaleY = activeScale
+                renderEffect = if (motionActive) PlayerLineBlurCache.forRadiusPx(lineBlurPx) else null
             }
             .padding(vertical = 2.dp),
         contentAlignment = Alignment.CenterStart
     ) {
-        if (line.isInterlude) {
-            val interludeDuration = (line.endTimeMs - line.startTimeMs).coerceAtLeast(1L)
-            val interludeProgress = ((effectivePositionMs - line.startTimeMs).toFloat() / interludeDuration).coerceIn(0f, 1f)
-            LyricsInterludeDots(
-                isActive = isActive,
-                isPlaying = isPlaying,
-                motionActive = motionActive,
-                progress = interludeProgress,
-                accentColor = Color.White
-            )
-        } else if (hasWordTiming && line.words.isNotEmpty() && isActive) {
+        if (hasWordTiming && line.words.isNotEmpty() && isActive) {
             FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(7.dp, Alignment.Start),
@@ -1318,7 +1861,7 @@ private fun PosterLyricRow(
                     val isCurrent = reached && effectivePositionMs <= word.endTimeMs
                     val wordScale by animateFloatAsState(
                         targetValue = if (isCurrent && motionActive) 1.12f else 1f,
-                        animationSpec = AppMotion.SnappySpring,
+                        animationSpec = if (motionActive) AppMotion.SnappySpring else snap(),
                         label = "PosterWordScale"
                     )
                     Text(

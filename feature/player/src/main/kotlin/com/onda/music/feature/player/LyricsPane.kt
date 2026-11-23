@@ -1,10 +1,15 @@
 package com.onda.music.feature.player
 
+import android.os.Build
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
@@ -42,12 +47,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,6 +69,8 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -74,10 +84,13 @@ import com.onda.music.core.model.LyricsDocument
 import com.onda.music.core.model.LyricsLine
 import com.onda.music.core.model.LyricsWord
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.exp
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 fun findActiveLyricsLineIndex(
@@ -96,6 +109,84 @@ fun findActiveLyricsLineIndex(
         }
     }
     return active
+}
+
+@Stable
+private class OndaLyricsStagger(rowCount: Int) {
+    private val lags = FloatArray(rowCount)
+    private val velocities = FloatArray(rowCount)
+    private val version = mutableIntStateOf(0)
+    private val moving = mutableStateOf(false)
+
+    var anchorRow: Int = -1
+
+    fun lagOf(row: Int): Float {
+        version.intValue
+        return if (row in lags.indices) lags[row] else 0f
+    }
+
+    fun holdBack(row: Int, deltaPx: Float) {
+        if (row !in lags.indices) return
+        lags[row] += deltaPx
+        version.intValue++
+        moving.value = true
+    }
+
+    fun clear() {
+        lags.fill(0f)
+        velocities.fill(0f)
+        moving.value = false
+        version.intValue++
+    }
+
+    suspend fun run() {
+        while (true) {
+            snapshotFlow { moving.value }.first { it }
+            var lastNanos = 0L
+            var stillActive: Boolean
+            do {
+                stillActive = withFrameNanos { now ->
+                    val dt = if (lastNanos == 0L) {
+                        0.016f
+                    } else {
+                        ((now - lastNanos) / 1_000_000_000f).coerceIn(0f, 0.064f)
+                    }
+                    lastNanos = now
+                    step(dt).also { version.intValue++ }
+                }
+            } while (stillActive || lags.any { it != 0f })
+            moving.value = false
+        }
+    }
+
+    private fun step(dt: Float): Boolean {
+        var anyActive = false
+        for (row in lags.indices) {
+            val lag = lags[row]
+            val v = velocities[row]
+            if (lag == 0f && v == 0f) continue
+            val distance = abs(row - anchorRow).coerceIn(1, STAGGER_MAX_ROWS)
+            val omega = 1000f / (STAGGER_LAG_PER_ROW_MS * distance)
+            val e = exp(-omega * dt)
+            val tmp = (v + omega * lag) * dt
+            val nextLag = (lag + tmp) * e
+            val nextV = (v - omega * tmp) * e
+            if (abs(nextLag) < 0.3f && abs(nextV) < 4f) {
+                lags[row] = 0f
+                velocities[row] = 0f
+            } else {
+                lags[row] = nextLag
+                velocities[row] = nextV
+                anyActive = true
+            }
+        }
+        return anyActive
+    }
+
+    private companion object {
+        const val STAGGER_LAG_PER_ROW_MS = 55f
+        const val STAGGER_MAX_ROWS = 9
+    }
 }
 
 @Composable
@@ -119,6 +210,7 @@ fun LyricsPane(
     val reducedMotion = OndaTheme.reducedMotion
     val motionActive = lyricsMotionEnabled && !reducedMotion
     val haptics = LocalHapticFeedback.current
+    val density = LocalDensity.current
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
@@ -130,6 +222,15 @@ fun LyricsPane(
         findActiveLyricsLineIndex(lines, effectivePositionMs, isSynced)
     }
 
+    val stagger = remember(lines.size) { OndaLyricsStagger(lines.size) }
+    LaunchedEffect(stagger, motionActive) {
+        if (!motionActive) {
+            stagger.clear()
+            return@LaunchedEffect
+        }
+        stagger.run()
+    }
+
     var userDetachedScroll by remember { mutableStateOf(false) }
 
     LaunchedEffect(listState.isScrollInProgress) {
@@ -138,12 +239,47 @@ fun LyricsPane(
         }
     }
 
-    LaunchedEffect(activeIndex, userDetachedScroll, isSynced) {
-        if (isSynced && activeIndex >= 0 && !userDetachedScroll) {
-            listState.animateScrollToItem(
-                index = activeIndex,
-                scrollOffset = -140
-            )
+    val restingOffsetPx = with(density) { 140.dp.toPx() }
+    LaunchedEffect(activeIndex, userDetachedScroll, isSynced, motionActive, lines.size) {
+        if (!isSynced || activeIndex !in lines.indices || userDetachedScroll) return@LaunchedEffect
+
+        val layoutInfo = listState.layoutInfo
+        val visible = layoutInfo.visibleItemsInfo.firstOrNull { it.index == activeIndex }
+        if (visible != null && motionActive) {
+            val currentTop = visible.offset - layoutInfo.viewportStartOffset
+            val collapsingAbove = layoutInfo.visibleItemsInfo
+                .filter { info ->
+                    info.index < activeIndex && lines.getOrNull(info.index)?.isInterlude == true
+                }
+                .sumOf { it.size }
+            val distance = (currentTop - restingOffsetPx - collapsingAbove).toFloat()
+            stagger.anchorRow = activeIndex
+            if (abs(distance) > 1f) {
+                listState.scroll {
+                    var previous = 0f
+                    animate(
+                        initialValue = 0f,
+                        targetValue = distance,
+                        animationSpec = tween(durationMillis = 520, easing = FastOutSlowInEasing)
+                    ) { value, _ ->
+                        val consumed = scrollBy(value - previous)
+                        previous += consumed
+                        if (consumed != 0f) {
+                            for (item in listState.layoutInfo.visibleItemsInfo) {
+                                if ((consumed > 0f && item.index > activeIndex) ||
+                                    (consumed < 0f && item.index < activeIndex)
+                                ) {
+                                    stagger.holdBack(item.index, consumed)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else if (reducedMotion) {
+            listState.scrollToItem(index = activeIndex, scrollOffset = -restingOffsetPx.roundToInt())
+        } else {
+            listState.animateScrollToItem(index = activeIndex, scrollOffset = -restingOffsetPx.roundToInt())
         }
     }
 
@@ -306,6 +442,7 @@ fun LyricsPane(
                             val distance = if (activeIndex >= 0) abs(index - activeIndex).coerceAtMost(8) else 0
 
                             LyricsLineRow(
+                                rowIndex = index,
                                 line = line,
                                 isActive = isActive,
                                 isPast = isPast,
@@ -313,8 +450,10 @@ fun LyricsPane(
                                 hasWordTiming = hasWordTiming,
                                 effectivePositionMs = effectivePositionMs,
                                 distanceFromActive = distance,
+                                isUserScrolling = userDetachedScroll,
                                 isPlaying = isPlaying,
                                 motionActive = motionActive,
+                                stagger = stagger,
                                 fontScale = lyricsFontScale,
                                 centered = centered,
                                 onClick = {
@@ -348,7 +487,7 @@ fun LyricsPane(
                     userDetachedScroll = false
                     scope.launch {
                         if (activeIndex >= 0) {
-                            listState.animateScrollToItem(activeIndex, -140)
+                            listState.animateScrollToItem(activeIndex, -restingOffsetPx.roundToInt())
                         }
                     }
                 },
@@ -367,6 +506,7 @@ fun LyricsPane(
 
 @Composable
 private fun LyricsLineRow(
+    rowIndex: Int,
     line: LyricsLine,
     isActive: Boolean,
     isPast: Boolean,
@@ -374,35 +514,35 @@ private fun LyricsLineRow(
     hasWordTiming: Boolean,
     effectivePositionMs: Long,
     distanceFromActive: Int,
+    isUserScrolling: Boolean,
     isPlaying: Boolean,
     motionActive: Boolean,
+    stagger: OndaLyricsStagger,
     fontScale: Float,
     centered: Boolean,
     onClick: () -> Unit
 ) {
-    val staggerTranslationY = remember { Animatable(0f) }
-
-    LaunchedEffect(isActive, distanceFromActive, motionActive) {
-        if (!motionActive) {
-            staggerTranslationY.snapTo(0f)
-            return@LaunchedEffect
-        }
-        val delayMs = distanceFromActive * AppMotion.LyricsStaggerDelayMs
-        if (delayMs > 0L) {
-            delay(delayMs)
-        }
-        val targetOffset = when {
-            isActive -> 0f
-            isPast -> -4f
-            else -> 4f
-        }
-        staggerTranslationY.animateTo(
-            targetValue = targetOffset,
-            animationSpec = spring(
-                dampingRatio = Spring.DampingRatioNoBouncy,
-                stiffness = Spring.StiffnessMediumLow
+    if (line.isInterlude) {
+        val interludeDuration = (line.endTimeMs - line.startTimeMs).coerceAtLeast(1L)
+        val interludeProgress = ((effectivePositionMs - line.startTimeMs).toFloat() / interludeDuration).coerceIn(0f, 1f)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer {
+                    translationY = if (motionActive) stagger.lagOf(rowIndex) else 0f
+                },
+            contentAlignment = if (centered) Alignment.Center else Alignment.CenterStart
+        ) {
+            LyricsInterludeDots(
+                isActive = isActive,
+                isPlaying = isPlaying,
+                motionActive = motionActive,
+                progress = interludeProgress,
+                accentColor = Color.White,
+                visible = isActive
             )
-        )
+        }
+        return
     }
 
     val targetScale = when {
@@ -418,6 +558,17 @@ private fun LyricsLineRow(
             reducedMotion = !motionActive
         ),
         label = "LyricRowScale"
+    )
+
+    val targetBlurPx = when {
+        !motionActive || !isSynced || isActive || isUserScrolling || Build.VERSION.SDK_INT < Build.VERSION_CODES.S -> 0f
+        distanceFromActive == 1 -> 3.5f
+        else -> 7f
+    }
+    val animatedBlurPx by animateFloatAsState(
+        targetValue = targetBlurPx,
+        animationSpec = if (!motionActive) snap() else tween(durationMillis = 320),
+        label = "LyricRowBlur"
     )
 
     val textColor = when {
@@ -439,7 +590,8 @@ private fun LyricsLineRow(
             .graphicsLayer {
                 scaleX = animatedScale
                 scaleY = animatedScale
-                translationY = staggerTranslationY.value
+                translationY = if (motionActive) stagger.lagOf(rowIndex) else 0f
+                renderEffect = if (motionActive) PlayerLineBlurCache.forRadiusPx(animatedBlurPx) else null
             }
             .then(
                 if (isActive) {
@@ -455,17 +607,7 @@ private fun LyricsLineRow(
         horizontalAlignment = alignment,
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        if (line.isInterlude) {
-            val interludeDuration = (line.endTimeMs - line.startTimeMs).coerceAtLeast(1L)
-            val interludeProgress = ((effectivePositionMs - line.startTimeMs).toFloat() / interludeDuration).coerceIn(0f, 1f)
-            LyricsInterludeDots(
-                isActive = isActive,
-                isPlaying = isPlaying,
-                motionActive = motionActive,
-                progress = interludeProgress,
-                accentColor = Color.White
-            )
-        } else if (hasWordTiming && line.words.isNotEmpty() && isActive) {
+        if (hasWordTiming && line.words.isNotEmpty() && isActive) {
             WordSweepLine(
                 words = line.words,
                 effectivePositionMs = effectivePositionMs,
@@ -526,6 +668,7 @@ private fun WordSweepLine(
     activeColor: Color,
     baseColor: Color
 ) {
+    val reducedMotion = OndaTheme.reducedMotion
     val style = MaterialTheme.typography.headlineMedium.copy(
         fontSize = (22f * fontScale).sp,
         lineHeight = (30f * fontScale).sp,
@@ -542,8 +685,8 @@ private fun WordSweepLine(
             val progress = ((effectivePositionMs - word.startTimeMs).toFloat() / duration.toFloat()).coerceIn(0f, 1f)
             val isLit = progress > 0f && progress < 1f
             val liftScale by animateFloatAsState(
-                targetValue = if (isLit) 1.06f else 1f,
-                animationSpec = AppMotion.SnappySpring,
+                targetValue = if (isLit && !reducedMotion) 1.06f else 1f,
+                animationSpec = if (reducedMotion) snap() else AppMotion.SnappySpring,
                 label = "WordLift"
             )
 
@@ -582,56 +725,132 @@ fun LyricsInterludeDots(
     motionActive: Boolean,
     progress: Float,
     accentColor: Color,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    visible: Boolean = isActive
 ) {
-    var phase by remember { mutableFloatStateOf(0f) }
+    val reducedMotion = OndaTheme.reducedMotion
+    val animateMotion = motionActive && !reducedMotion
+    val density = LocalDensity.current
+    val fullHeightPx = with(density) { 40.dp.roundToPx() }
 
-    LaunchedEffect(isActive, isPlaying, motionActive) {
-        if (!isActive || !isPlaying || !motionActive) return@LaunchedEffect
+    val heightFraction = remember { Animatable(if (visible) 1f else 0f) }
+    val pops = remember { Array(3) { Animatable(if (visible) 1f else 0f) } }
+
+    LaunchedEffect(visible, animateMotion) {
+        if (visible) {
+            if (!animateMotion) {
+                heightFraction.snapTo(1f)
+                pops.forEach { it.snapTo(1f) }
+            } else {
+                launch {
+                    heightFraction.animateTo(
+                        targetValue = 1f,
+                        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessLow)
+                    )
+                }
+                pops.forEachIndexed { index, pop ->
+                    launch {
+                        delay(index * 70L)
+                        pop.animateTo(1f, spring(dampingRatio = 0.55f, stiffness = 260f))
+                    }
+                }
+            }
+        } else {
+            if (!animateMotion) {
+                heightFraction.snapTo(0f)
+                pops.forEach { it.snapTo(0f) }
+            } else {
+                launch {
+                    heightFraction.animateTo(
+                        targetValue = 0f,
+                        animationSpec = tween(durationMillis = 460, easing = FastOutSlowInEasing)
+                    )
+                }
+                pops.forEach { pop ->
+                    launch {
+                        pop.animateTo(0f, tween(durationMillis = 220, easing = FastOutSlowInEasing))
+                    }
+                }
+            }
+        }
+    }
+
+    var phase by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(isActive, isPlaying, animateMotion, visible) {
+        if (!visible || !isActive || !isPlaying || !animateMotion) return@LaunchedEffect
         var lastNanos = 0L
         while (true) {
             withFrameNanos { frameNanos ->
                 if (lastNanos != 0L) {
                     val dt = (frameNanos - lastNanos).coerceIn(0L, 50_000_000L) / 1_000_000_000f
-                    phase = (phase + dt * 4.2f) % (2f * PI.toFloat())
+                    phase = (phase + dt * 3.8f) % (2f * PI.toFloat())
                 }
                 lastNanos = frameNanos
             }
         }
     }
 
+    val clampedProgress = progress.coerceIn(0f, 1f)
+    val finale = smoothStep((clampedProgress - 0.88f) / 0.12f)
+
     Canvas(
         modifier = modifier
-            .height(26.dp)
-            .width(72.dp)
-    ) {
-        val spacing = size.width / 4f
-        val baseRadius = 5.dp.toPx()
-        for (i in 0 until 3) {
-            val dotThreshold = (i + 1) / 3f
-            val dotEnergy = if (isActive) {
-                ((progress - i * 0.25f) / 0.45f).coerceIn(0.25f, 1f)
-            } else {
-                0.25f
+            .layout { measurable, constraints ->
+                val placeable = measurable.measure(
+                    constraints.copy(minHeight = fullHeightPx, maxHeight = fullHeightPx)
+                )
+                val shownHeight = (fullHeightPx * heightFraction.value.coerceIn(0f, 1f)).roundToInt()
+                layout(placeable.width, shownHeight) {
+                    placeable.place(0, (shownHeight - fullHeightPx) / 2)
+                }
             }
-            val bobOffset = if (isActive && motionActive && isPlaying) {
-                sin(phase - i * 0.85f) * 4.5.dp.toPx()
+            .height(40.dp)
+            .width(84.dp)
+            .graphicsLayer {
+                alpha = heightFraction.value.coerceIn(0f, 1f)
+            }
+    ) {
+        val shown = heightFraction.value.coerceIn(0f, 1f)
+        if (shown <= 0.005f) return@Canvas
+
+        val spacing = size.width / 4f
+        val baseRadius = 5.5.dp.toPx()
+        for (i in 0 until 3) {
+            val sliceStart = i.toFloat() / 3f
+            val sequentialFill = if (isActive) {
+                smoothStep((clampedProgress - sliceStart) * 3f / 0.55f)
             } else {
                 0f
             }
-            val radius = baseRadius * (0.85f + dotEnergy * 0.35f)
+            val combinedEnergy = maxOf(sequentialFill, finale)
+            val pop = pops[i].value.coerceAtLeast(0f)
+            val bobOffset = if (isActive && animateMotion && isPlaying) {
+                sin(phase - i * 0.9f) * 2.5.dp.toPx()
+            } else {
+                0f
+            }
+            val radius = baseRadius * (0.86f + combinedEnergy * 0.24f) * pop
             val cx = spacing * (i + 1)
             val cy = size.height * 0.5f + bobOffset
-            val color = if (isActive && progress >= dotThreshold * 0.7f) {
-                accentColor
-            } else {
-                GlassTokens.TextSecondary.copy(alpha = 0.45f + dotEnergy * 0.4f)
+            val dotAlpha = (0.30f + 0.70f * combinedEnergy) * pop.coerceIn(0f, 1f)
+
+            if (combinedEnergy > 0.2f && isActive) {
+                drawCircle(
+                    color = accentColor.copy(alpha = 0.22f * combinedEnergy * pop.coerceIn(0f, 1f)),
+                    radius = radius * 1.65f,
+                    center = Offset(cx, cy)
+                )
             }
             drawCircle(
-                color = color,
+                color = accentColor.copy(alpha = dotAlpha),
                 radius = radius,
                 center = Offset(cx, cy)
             )
         }
     }
+}
+
+private fun smoothStep(t: Float): Float {
+    val x = t.coerceIn(0f, 1f)
+    return x * x * (3f - 2f * x)
 }

@@ -51,6 +51,9 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
+private const val USER_AGENT_WEB =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0"
+
 enum class YtClientKind(
     val clientName: String,
     val clientVersion: String,
@@ -1198,8 +1201,6 @@ class YtMusicClient @Inject constructor(
             ?.str("url")
 
     companion object {
-        private const val USER_AGENT_WEB =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0"
         private const val DEFAULT_STREAM_LIFE_MS = 5 * 60_000L
         private val CODEC_REGEX = Regex("""codecs="([^"]+)"""")
     }

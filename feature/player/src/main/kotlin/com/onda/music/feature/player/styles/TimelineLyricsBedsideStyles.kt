@@ -942,16 +942,21 @@ fun BedsidePlayerStyle(
                         .clickable(onClick = ctx.onOpenSleepTimer)
                         .padding(horizontal = 10.dp)
                 ) {
+                    val timerActive = state.sleepTimerRemainingMs != null || state.sleepTimerEndOfTrack
                     Icon(
                         imageVector = Icons.Rounded.Bedtime,
                         contentDescription = "Sleep timer",
-                        tint = if (state.sleepTimerRemainingMs != null) restClockColor else Color(0xFF8A8A8A),
+                        tint = if (timerActive) restClockColor else Color(0xFF8A8A8A),
                         modifier = Modifier.size(16.dp)
                     )
                     Text(
-                        text = state.sleepTimerRemainingMs?.let { "Sleep ${formatDurationMs(it)}" } ?: "Timer",
+                        text = when {
+                            state.sleepTimerEndOfTrack -> "End of track"
+                            state.sleepTimerRemainingMs != null -> "Sleep ${formatDurationMs(state.sleepTimerRemainingMs)}"
+                            else -> "Timer"
+                        },
                         style = MaterialTheme.typography.labelMedium,
-                        color = if (state.sleepTimerRemainingMs != null) restClockColor else Color(0xFF8A8A8A)
+                        color = if (timerActive) restClockColor else Color(0xFF8A8A8A)
                     )
                 }
             }
@@ -1431,16 +1436,21 @@ fun BedsideTilesPlayerStyle(
                                 .clickable(onClick = ctx.onOpenSleepTimer)
                                 .padding(horizontal = 6.dp)
                         ) {
+                            val timerActive = state.sleepTimerRemainingMs != null || state.sleepTimerEndOfTrack
                             Icon(
                                 imageVector = Icons.Rounded.Bedtime,
                                 contentDescription = "Sleep timer",
-                                tint = if (state.sleepTimerRemainingMs != null) Color.White else Color(0xFF8A8A8A),
+                                tint = if (timerActive) Color.White else Color(0xFF8A8A8A),
                                 modifier = Modifier.size(18.dp)
                             )
                             Text(
-                                text = state.sleepTimerRemainingMs?.let(::formatDurationMs) ?: "Timer",
+                                text = when {
+                                    state.sleepTimerEndOfTrack -> "EOT"
+                                    state.sleepTimerRemainingMs != null -> formatDurationMs(state.sleepTimerRemainingMs)
+                                    else -> "Timer"
+                                },
                                 style = MaterialTheme.typography.labelMedium,
-                                color = if (state.sleepTimerRemainingMs != null) Color.White else Color(0xFF8A8A8A)
+                                color = if (timerActive) Color.White else Color(0xFF8A8A8A)
                             )
                         }
                     }

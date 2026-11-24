@@ -3,6 +3,9 @@ package com.onda.music.core.database
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.onda.music.core.model.Album
 import com.onda.music.core.model.Artist
+import com.onda.music.core.model.AudioOutputDevice
+import com.onda.music.core.model.AudioOutputEqProfile
+import com.onda.music.core.model.AudioOutputKind
 import com.onda.music.core.model.DownloadItem
 import com.onda.music.core.model.DownloadStatus
 import com.onda.music.core.model.EqConfig
@@ -229,6 +232,26 @@ class DatabaseMappersAndPrefsTest {
 
         preferences.setYtCookie("")
         assertNull(preferences.currentSettings().ytCookie)
+
+        preferences.setSmartOutputProfilesEnabled(false)
+        preferences.setResumeOnHeadsetConnect(true)
+        preferences.setSkipSilenceEnabled(true)
+        preferences.setKeepPlayingOnTaskRemoved(false)
+        preferences.setKeepScreenOn(true)
+
+        val updatedFlags = preferences.currentSettings()
+        assertFalse(updatedFlags.smartOutputProfilesEnabled)
+        assertTrue(updatedFlags.resumeOnHeadsetConnect)
+        assertTrue(updatedFlags.skipSilenceEnabled)
+        assertFalse(updatedFlags.keepPlayingOnTaskRemoved)
+        assertTrue(updatedFlags.keepScreenOn)
+
+        val btDevice = AudioOutputDevice("bt:xm5", "Sony XM5", AudioOutputKind.BLUETOOTH)
+        val btProfile = AudioOutputEqProfile.fromEqConfig(btDevice, eq, updatedAtMs = 5_000L)
+        preferences.saveAudioOutputProfile(btProfile)
+        assertEquals(btProfile, preferences.currentAudioOutputProfiles()[btDevice.key])
+        preferences.clearAudioOutputProfiles()
+        assertTrue(preferences.currentAudioOutputProfiles().isEmpty())
 
         preferences.resetToDefaults()
         assertEquals(OndaUserSettings(), preferences.currentSettings())

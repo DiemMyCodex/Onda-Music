@@ -13,7 +13,10 @@ import androidx.media3.session.SessionToken
 import com.onda.music.core.database.OndaPreferences
 import com.onda.music.core.database.SongDao
 import com.onda.music.core.database.toEntity
+import com.onda.music.core.model.AudioOutputDevice
+import com.onda.music.core.model.AudioOutputEqProfile
 import com.onda.music.core.model.EqConfig
+import com.onda.music.core.model.OutputProfileSwitchEvent
 import com.onda.music.core.model.PlaybackState
 import com.onda.music.core.model.RepeatMode
 import com.onda.music.core.model.Track
@@ -25,6 +28,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.isActive
@@ -39,6 +43,7 @@ class PlaybackController @Inject constructor(
     private val sessionStore: PlaybackSessionStore,
     private val streamResolver: StreamResolver,
     private val audioEffectsEngine: AudioEffectsEngine,
+    private val audioOutputProfileManager: AudioOutputProfileManager,
     private val ondaPreferences: OndaPreferences,
     private val songDao: SongDao
 ) {
@@ -51,6 +56,9 @@ class PlaybackController @Inject constructor(
     val playbackState: StateFlow<PlaybackState> = sessionStore.playbackState
     val activePlayerFlow: StateFlow<Player?> = sessionStore.activePlayer
     val eqConfig: StateFlow<EqConfig> = audioEffectsEngine.eqConfig
+    val activeOutputDevice: StateFlow<AudioOutputDevice> = audioOutputProfileManager.activeOutputDevice
+    val savedOutputProfiles: StateFlow<Map<String, AudioOutputEqProfile>> = audioOutputProfileManager.savedProfiles
+    val outputProfileSwitchEvents: SharedFlow<OutputProfileSwitchEvent> = audioOutputProfileManager.profileSwitchEvents
 
     fun getActivePlayer(): Player? {
         return sessionStore.activePlayer.value ?: mediaController
@@ -260,25 +268,36 @@ class PlaybackController @Inject constructor(
         sessionStore.updateState {
             it.copy(
                 sleepTimerRemainingMs = durationMs,
-                sleepTimerEndOfTrack = false
+                sleepTimerEndOfTrack = false,
+                sleepTimerFading = durationMs <= SleepTimerFadeCurve.FADE_DURATION_MS
             )
         }
         sleepTimerJob = scope.launch {
             while (isActive) {
                 val remaining = (deadlineMs - System.currentTimeMillis()).coerceAtLeast(0L)
-                sessionStore.updateState { it.copy(sleepTimerRemainingMs = remaining) }
+                val fading = remaining in 1L..SleepTimerFadeCurve.FADE_DURATION_MS
+                sessionStore.updateState {
+                    it.copy(
+                        sleepTimerRemainingMs = remaining,
+                        sleepTimerFading = fading
+                    )
+                }
                 if (remaining == 0L) {
                     sleepTimerDeadlineMs = 0L
-                    getActivePlayer()?.pause()
+                    val player = getActivePlayer()
+                    player?.pause()
+                    player?.volume = 1.0f
                     sessionStore.updateState {
                         it.copy(
                             sleepTimerRemainingMs = null,
-                            sleepTimerEndOfTrack = false
+                            sleepTimerEndOfTrack = false,
+                            sleepTimerFading = false
                         )
                     }
                     break
                 }
-                delay(1_000L)
+                val tickDelay = if (remaining <= SleepTimerFadeCurve.FADE_DURATION_MS + 1_000L) 200L else 1_000L
+                delay(tickDelay)
             }
         }
     }
@@ -290,7 +309,8 @@ class PlaybackController @Inject constructor(
         sessionStore.updateState {
             it.copy(
                 sleepTimerRemainingMs = null,
-                sleepTimerEndOfTrack = true
+                sleepTimerEndOfTrack = true,
+                sleepTimerFading = false
             )
         }
     }
@@ -315,16 +335,19 @@ class PlaybackController @Inject constructor(
         sleepTimerJob?.cancel()
         sleepTimerJob = null
         sleepTimerDeadlineMs = 0L
+        getActivePlayer()?.volume = 1.0f
         sessionStore.updateState {
             it.copy(
                 sleepTimerRemainingMs = null,
-                sleepTimerEndOfTrack = false
+                sleepTimerEndOfTrack = false,
+                sleepTimerFading = false
             )
         }
     }
 
     fun updateEqConfig(config: EqConfig) {
         audioEffectsEngine.applyEqConfig(config)
+        audioOutputProfileManager.recordUserEqChange(config)
         scope.launch(Dispatchers.IO) {
             ondaPreferences.setEqConfig(config)
         }

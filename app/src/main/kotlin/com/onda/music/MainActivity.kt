@@ -1,9 +1,16 @@
 package com.onda.music
 
 import android.Manifest
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.ObjectAnimator
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.view.View
+import android.view.WindowManager
+import android.view.animation.PathInterpolator
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
@@ -16,6 +23,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -49,19 +57,26 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
 import com.onda.music.core.database.OndaPreferences
 import com.onda.music.core.database.OndaUserSettings
 import com.onda.music.core.design.AppMotion
 import com.onda.music.core.design.LocalOndaBackdropState
+import com.onda.music.core.design.LocalOndaLaunchChoreography
 import com.onda.music.core.design.LocalOndaToastState
+import com.onda.music.core.design.OndaLaunchSplashOverlay
 import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.design.OndaTopToastHost
 import com.onda.music.core.design.homeRecede
 import com.onda.music.core.design.ondaBlurSource
+import com.onda.music.core.design.ondaLaunchRise
 import com.onda.music.core.design.rememberOndaBackdropState
+import com.onda.music.core.design.rememberOndaLaunchChoreographyState
 import com.onda.music.core.design.rememberOndaToastState
+import com.onda.music.core.playback.PlaybackController
 import com.onda.music.feature.home.DiscoverRoute
 import com.onda.music.feature.home.HomeRoute
 import com.onda.music.feature.library.LibraryRoute
@@ -79,8 +94,24 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var ondaPreferences: OndaPreferences
 
+    @Inject
+    lateinit var playbackController: PlaybackController
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
+        splashScreen.setOnExitAnimationListener { provider ->
+            val fadeOut = ObjectAnimator.ofFloat(provider.view, View.ALPHA, 1f, 0f)
+            fadeOut.duration = 110L
+            fadeOut.interpolator = PathInterpolator(0.4f, 0f, 1f, 1f)
+            fadeOut.addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    provider.remove()
+                }
+            })
+            fadeOut.start()
+        }
+        val playLaunchIntro = savedInstanceState == null && intent?.action == Intent.ACTION_MAIN
         WindowCompat.setDecorFitsSystemWindows(window, false)
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
@@ -88,9 +119,20 @@ class MainActivity : ComponentActivity() {
         )
         setContent {
             val userSettings by ondaPreferences.settings.collectAsState(initial = OndaUserSettings())
+            LaunchedEffect(userSettings.keepScreenOn) {
+                if (userSettings.keepScreenOn) {
+                    window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                } else {
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                }
+            }
             OndaTheme {
                 RuntimePermissionRequester()
-                OndaRootShell(languageCode = userSettings.languageCode)
+                OndaRootShell(
+                    languageCode = userSettings.languageCode,
+                    playLaunchIntro = playLaunchIntro,
+                    playbackController = playbackController
+                )
             }
         }
     }
@@ -125,7 +167,11 @@ private fun RuntimePermissionRequester() {
 }
 
 @Composable
-private fun OndaRootShell(languageCode: String) {
+private fun OndaRootShell(
+    languageCode: String,
+    playLaunchIntro: Boolean,
+    playbackController: PlaybackController
+) {
     var selectedTabIndex by rememberSaveable { mutableIntStateOf(0) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
     val morphAnimatable = remember { Animatable(0f) }
@@ -133,6 +179,29 @@ private fun OndaRootShell(languageCode: String) {
     val reducedMotion = OndaTheme.reducedMotion
     val toastState = rememberOndaToastState()
     val rootBackdropState = rememberOndaBackdropState()
+    val launchState = rememberOndaLaunchChoreographyState(playOnStart = playLaunchIntro)
+
+    LaunchedEffect(playbackController, languageCode) {
+        playbackController.outputProfileSwitchEvents.collect { event ->
+            val isVi = languageCode.startsWith("vi", ignoreCase = true)
+            val eqSummary = if (event.eqEnabled) {
+                event.presetLabel
+            } else if (event.normalizeLoudness) {
+                if (isVi) "Cân bằng âm lượng" else "Normalized"
+            } else {
+                if (isVi) "Phẳng (Flat)" else "Flat"
+            }
+            toastState.show(
+                title = event.device.displayName,
+                subtitle = if (isVi) {
+                    "Đã áp dụng cấu hình: $eqSummary"
+                } else {
+                    "Applied audio profile: $eqSummary"
+                },
+                durationMs = 2_400L
+            )
+        }
+    }
 
     val tabLabels = remember(languageCode) {
         if (languageCode.startsWith("vi", ignoreCase = true)) {
@@ -189,7 +258,8 @@ private fun OndaRootShell(languageCode: String) {
 
     CompositionLocalProvider(
         LocalOndaToastState provides toastState,
-        LocalOndaBackdropState provides rootBackdropState
+        LocalOndaBackdropState provides rootBackdropState,
+        LocalOndaLaunchChoreography provides launchState
     ) {
         Box(
             modifier = Modifier
@@ -247,8 +317,20 @@ private fun OndaRootShell(languageCode: String) {
 
                     AnimatedVisibility(
                         visible = showSettings,
-                        enter = fadeIn() + slideInHorizontally { it / 4 },
-                        exit = fadeOut() + slideOutHorizontally { it / 4 }
+                        enter = if (reducedMotion) {
+                            fadeIn(tween(120))
+                        } else {
+                            fadeIn(tween(180)) + slideInHorizontally(
+                                animationSpec = spring(dampingRatio = 0.88f, stiffness = 460f)
+                            ) { it / 4 }
+                        },
+                        exit = if (reducedMotion) {
+                            fadeOut(tween(100))
+                        } else {
+                            fadeOut(tween(150)) + slideOutHorizontally(
+                                animationSpec = tween(200, easing = FastOutSlowInEasing)
+                            ) { it / 4 }
+                        }
                     ) {
                         SettingsRoute(
                             onBack = { showSettings = false },
@@ -269,7 +351,9 @@ private fun OndaRootShell(languageCode: String) {
                 morphFraction = morphAnimatable.value,
                 onMorphFractionChange = onMorphFractionChange,
                 onExpandPlayer = { onMorphFractionChange(1f) },
-                modifier = Modifier.align(Alignment.BottomCenter),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .ondaLaunchRise(order = 3, distance = 40.dp),
                 inactiveTabIcons = inactiveTabIcons
             )
 
@@ -278,6 +362,12 @@ private fun OndaRootShell(languageCode: String) {
                 onMorphFractionChange = onMorphFractionChange,
                 onCollapse = { onMorphFractionChange(0f) },
                 onOpenSettings = openSettingsFromAny,
+                modifier = Modifier.fillMaxSize()
+            )
+
+            OndaLaunchSplashOverlay(
+                state = launchState,
+                reducedMotion = reducedMotion,
                 modifier = Modifier.fillMaxSize()
             )
 

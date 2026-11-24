@@ -1404,6 +1404,7 @@ fun OndaLyricsOffsetSheet(
 fun OndaSleepTimerSheet(
     remainingMs: Long?,
     endOfTrack: Boolean,
+    isFading: Boolean = false,
     onSelectDurationMs: (Long) -> Unit,
     onSelectEndOfTrack: () -> Unit,
     onAdjustDurationMs: (Long) -> Unit,
@@ -1451,12 +1452,13 @@ fun OndaSleepTimerSheet(
                 ) {
                     Text(
                         text = when {
+                            isFading -> "FADING OUT"
                             endOfTrack -> "ACTIVE MODE"
                             hasCountdown -> "REMAINING"
                             else -> "TIMER STANDBY"
                         },
                         style = monoTelemetryStyle(10f, FontWeight.SemiBold),
-                        color = SheetMutedText
+                        color = if (isFading) Color.White else SheetMutedText
                     )
 
                     if (endOfTrack) {
@@ -1478,6 +1480,16 @@ fun OndaSleepTimerSheet(
                             color = SheetMutedText
                         )
                     }
+
+                    Text(
+                        text = if (isFading) {
+                            "Gently lowering volume before pause"
+                        } else {
+                            "15s acoustic fade-out before pause"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isFading) Color.White else SheetMutedText
+                    )
 
                     if (hasCountdown) {
                         Row(

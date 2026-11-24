@@ -44,6 +44,7 @@ import com.onda.music.core.design.DockMetrics
 import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.design.homeRecede
 import com.onda.music.core.design.ondaBlurSource
+import com.onda.music.core.design.ondaLaunchRise
 import com.onda.music.core.design.rememberOndaBackdropState
 import com.onda.music.core.model.Album
 import com.onda.music.core.model.MoodCategory
@@ -245,26 +246,30 @@ internal fun HomeScreen(
         ) {
             if (heroCards.isNotEmpty()) {
                 item(key = "hero_card") {
-                    HomeHeroCarousel(
-                        cards = heroCards,
-                        strings = strings,
-                        activeTrackId = uiState.activeTrackId,
-                        isPlaying = uiState.isPlaying,
-                        heroScrollProgress = { heroScrollProgress },
-                        blurEnabled = uiState.glassBlurEnabled,
-                        detailVisible = detailVisible,
-                        onPlayTrack = onPlayTrack,
-                        onPlayHero = onPlayHero,
-                        onOpenAlbum = { album, bounds ->
-                            launchOrigin = CardLaunchOrigin(bounds = bounds, cornerRadius = 22.dp)
-                            onOpenAlbum(album)
-                        },
-                        onToggleLike = onToggleLike
-                    )
+                    Box(modifier = Modifier.ondaLaunchRise(order = 1, distance = 44.dp)) {
+                        HomeHeroCarousel(
+                            cards = heroCards,
+                            strings = strings,
+                            activeTrackId = uiState.activeTrackId,
+                            isPlaying = uiState.isPlaying,
+                            heroScrollProgress = { heroScrollProgress },
+                            blurEnabled = uiState.glassBlurEnabled,
+                            detailVisible = detailVisible,
+                            onPlayTrack = onPlayTrack,
+                            onPlayHero = onPlayHero,
+                            onOpenAlbum = { album, bounds ->
+                                launchOrigin = CardLaunchOrigin(bounds = bounds, cornerRadius = 22.dp)
+                                onOpenAlbum(album)
+                            },
+                            onToggleLike = onToggleLike
+                        )
+                    }
                 }
             } else if (uiState.isLoading) {
                 item(key = "hero_skeleton") {
-                    HomeHeroSkeleton()
+                    Box(modifier = Modifier.ondaLaunchRise(order = 1, distance = 44.dp)) {
+                        HomeHeroSkeleton()
+                    }
                 }
             } else {
                 item(key = "top_bar_clearance") {
@@ -289,13 +294,19 @@ internal fun HomeScreen(
 
             if (uiState.isLoading && heroCards.isEmpty()) {
                 items(2, key = { "home_shelf_skeleton_$it" }) {
-                    HomeShelfSkeleton()
+                    Box(modifier = Modifier.ondaLaunchRise(order = 2, distance = 48.dp)) {
+                        HomeShelfSkeleton()
+                    }
                 }
             }
 
             if (quickJumpTracks.isNotEmpty()) {
                 item(key = "quick_jump_grid") {
-                    Box(modifier = Modifier.homeRevealOnAppear("quick_jump_grid", revealSeen, cascade = true)) {
+                    Box(
+                        modifier = Modifier
+                            .ondaLaunchRise(order = 2, distance = 48.dp)
+                            .homeRevealOnAppear("quick_jump_grid", revealSeen, cascade = true)
+                    ) {
                         QuickJumpGrid(
                             tracks = quickJumpTracks,
                             strings = strings,
@@ -542,6 +553,7 @@ internal fun HomeScreen(
             title = homeTitle,
             modifier = Modifier
                 .align(Alignment.TopCenter)
+                .ondaLaunchRise(order = 0, distance = 16.dp)
                 .homeRecede(fraction = detailFraction, reducedMotion = reducedMotion)
         )
 

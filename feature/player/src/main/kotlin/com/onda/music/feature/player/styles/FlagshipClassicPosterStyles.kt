@@ -52,6 +52,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -116,6 +117,7 @@ import com.onda.music.core.design.AppMotion
 import com.onda.music.core.design.GlassTokens
 import com.onda.music.core.design.OndaArtworkPalette
 import com.onda.music.core.design.OndaTheme
+import com.onda.music.core.design.RoundedHighlight
 import com.onda.music.core.model.LyricsDocument
 import com.onda.music.core.model.LyricsLine
 import com.onda.music.core.model.PlaybackStatus
@@ -132,6 +134,7 @@ import com.onda.music.feature.player.TrackMetaHeader
 import com.onda.music.feature.player.findActiveLyricsLineIndex
 import com.onda.music.feature.player.formatDurationMs
 import com.onda.music.feature.player.ondaLikeTarget
+import com.onda.music.feature.player.playerPressBounce
 import com.onda.music.feature.player.queue.OndaBottomDeck
 import com.onda.music.feature.player.rememberSongCarouselPagerState
 import kotlinx.coroutines.CoroutineScope
@@ -1640,65 +1643,101 @@ private fun PosterKineticLyrics(
         }
 
         else -> {
-            LazyColumn(
-                state = listState,
-                modifier = modifier
-                    .graphicsLayer {
-                        compositingStrategy = CompositingStrategy.Offscreen
-                    }
-                    .drawWithContent {
-                        drawContent()
-                        drawRect(
-                            brush = Brush.verticalGradient(
-                                colorStops = arrayOf(
-                                    0.00f to Color.Transparent,
-                                    0.10f to Color.Black,
-                                    0.86f to Color.Black,
-                                    1.00f to Color.Transparent
-                                )
-                            ),
-                            blendMode = BlendMode.DstIn
-                        )
-                    },
-                contentPadding = PaddingValues(top = 8.dp, bottom = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                itemsIndexed(
-                    items = lines,
-                    key = { index, line -> "${index}_${line.startTimeMs}" }
-                ) { index, line ->
-                    val isActive = isSynced && index == activeIndex
-                    val distance = if (activeIndex >= 0) abs(index - activeIndex).coerceAtMost(8) else 0
-                    PosterLyricRow(
-                        line = line,
-                        isActive = isActive,
-                        isSynced = isSynced,
-                        hasWordTiming = hasWordTiming,
-                        effectivePositionMs = effectivePositionMs,
-                        distanceFromActive = distance,
-                        isUserScrolling = userDetachedScroll,
-                        isPlaying = isPlaying,
-                        motionActive = motionActive,
-                        onClick = {
-                            if (hapticsEnabled) {
-                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            }
-                            if (isSynced) {
-                                userDetachedScroll = false
-                                onSeekToMs((line.startTimeMs - lyricsOffsetMs).coerceAtLeast(0L))
-                            }
-                            onToggleExpanded()
-                        },
-                        onLongClick = if (onLongPressLine != null) {
-                            {
-                                if (hapticsEnabled) {
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                }
-                                onLongPressLine(index)
-                            }
-                        } else {
-                            null
+            Box(modifier = modifier) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            compositingStrategy = CompositingStrategy.Offscreen
                         }
+                        .drawWithContent {
+                            drawContent()
+                            drawRect(
+                                brush = Brush.verticalGradient(
+                                    colorStops = arrayOf(
+                                        0.00f to Color.Transparent,
+                                        0.10f to Color.Black,
+                                        0.86f to Color.Black,
+                                        1.00f to Color.Transparent
+                                    )
+                                ),
+                                blendMode = BlendMode.DstIn
+                            )
+                        },
+                    contentPadding = PaddingValues(top = 12.dp, bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    itemsIndexed(
+                        items = lines,
+                        key = { index, line -> "${index}_${line.startTimeMs}" }
+                    ) { index, line ->
+                        val isActive = isSynced && index == activeIndex
+                        val distance = if (activeIndex >= 0) abs(index - activeIndex).coerceAtMost(8) else 0
+                        PosterLyricRow(
+                            line = line,
+                            isActive = isActive,
+                            isSynced = isSynced,
+                            hasWordTiming = hasWordTiming,
+                            effectivePositionMs = effectivePositionMs,
+                            distanceFromActive = distance,
+                            isUserScrolling = userDetachedScroll,
+                            isPlaying = isPlaying,
+                            motionActive = motionActive,
+                            onClick = {
+                                if (hapticsEnabled) {
+                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                }
+                                if (isSynced) {
+                                    if (isActive) {
+                                        onToggleExpanded()
+                                    } else {
+                                        userDetachedScroll = false
+                                        onSeekToMs((line.startTimeMs - lyricsOffsetMs).coerceAtLeast(0L))
+                                    }
+                                } else {
+                                    onToggleExpanded()
+                                }
+                            },
+                            onLongClick = if (onLongPressLine != null) {
+                                {
+                                    if (hapticsEnabled) {
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    }
+                                    onLongPressLine(index)
+                                }
+                            } else {
+                                null
+                            }
+                        )
+                    }
+                }
+
+                val collapseInteraction = remember { MutableInteractionSource() }
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 4.dp)
+                        .size(36.dp)
+                        .playerPressBounce(
+                            interactionSource = collapseInteraction,
+                            pressedScale = 0.90f,
+                            reducedMotion = !motionActive
+                        )
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(Color(0x28FFFFFF))
+                        .clickable(
+                            interactionSource = collapseInteraction,
+                            indication = RoundedHighlight(cornerRadius = 18.dp),
+                            onClick = onToggleExpanded
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.KeyboardArrowDown,
+                        contentDescription = "Collapse lyrics",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
@@ -1920,19 +1959,32 @@ private fun PosterLyricRow(
         lineHeight = 36.sp,
         fontWeight = FontWeight.ExtraBold
     )
+    val rowInteraction = remember { MutableInteractionSource() }
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = 48.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .playerPressBounce(
+                interactionSource = rowInteraction,
+                pressedScale = 0.985f,
+                releaseDampingRatio = 0.54f,
+                releaseStiffness = 720f,
+                reducedMotion = !motionActive
+            )
+            .clip(RoundedCornerShape(10.dp))
+            .combinedClickable(
+                interactionSource = rowInteraction,
+                indication = RoundedHighlight(cornerRadius = 10.dp),
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
             .graphicsLayer {
                 scaleX = activeScale
                 scaleY = activeScale
                 renderEffect = if (motionActive) PlayerLineBlurCache.forRadiusPx(lineBlurPx) else null
             }
-            .padding(vertical = 2.dp),
+            .padding(horizontal = 4.dp, vertical = 2.dp),
         contentAlignment = Alignment.CenterStart
     ) {
         if (hasWordTiming && line.words.isNotEmpty() && isActive) {

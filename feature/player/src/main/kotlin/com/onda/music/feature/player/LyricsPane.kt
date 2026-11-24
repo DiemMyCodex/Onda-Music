@@ -17,6 +17,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -82,6 +83,7 @@ import com.onda.music.core.design.AppMotion
 import com.onda.music.core.design.DockMetrics
 import com.onda.music.core.design.GlassTokens
 import com.onda.music.core.design.OndaTheme
+import com.onda.music.core.design.RoundedHighlight
 import com.onda.music.core.model.LyricsDocument
 import com.onda.music.core.model.LyricsLine
 import com.onda.music.core.model.LyricsWord
@@ -595,13 +597,23 @@ private fun LyricsLineRow(
 
     val alignment = if (centered) Alignment.CenterHorizontally else Alignment.Start
     val textAlign = if (centered) TextAlign.Center else TextAlign.Start
+    val rowInteraction = remember { MutableInteractionSource() }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
+            .playerPressBounce(
+                interactionSource = rowInteraction,
+                pressedScale = 0.985f,
+                releaseDampingRatio = 0.54f,
+                releaseStiffness = 720f,
+                reducedMotion = !motionActive
+            )
             .clip(RoundedCornerShape(GlassTokens.RadiusSm))
             .combinedClickable(
+                interactionSource = rowInteraction,
+                indication = RoundedHighlight(cornerRadius = GlassTokens.RadiusSm),
                 enabled = isSynced || onLongClick != null,
                 onClick = {
                     if (isSynced) {

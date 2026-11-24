@@ -12,6 +12,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
@@ -44,12 +46,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Archive
+import androidx.compose.material.icons.rounded.Bedtime
+import androidx.compose.material.icons.rounded.Bluetooth
 import androidx.compose.material.icons.rounded.BlurOn
+import androidx.compose.material.icons.rounded.BrightnessHigh
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Equalizer
+import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Gradient
 import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.Headphones
 import androidx.compose.material.icons.rounded.HighQuality
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Language
@@ -57,6 +64,7 @@ import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.TextFields
@@ -135,6 +143,14 @@ fun SettingsRoute(
         onEqBandGainChange = viewModel::updateEqBandGain,
         onNormalizeChange = viewModel::setNormalizeLoudness,
         onGaplessChange = viewModel::setGaplessEnabled,
+        onSmartOutputProfilesChange = viewModel::setSmartOutputProfilesEnabled,
+        onSleepTimerSelectMs = viewModel::startSleepTimer,
+        onSleepTimerEndOfTrack = viewModel::startSleepTimerEndOfTrack,
+        onSleepTimerCancel = viewModel::cancelSleepTimer,
+        onSkipSilenceChange = viewModel::setSkipSilenceEnabled,
+        onResumeHeadsetChange = viewModel::setResumeOnHeadsetConnect,
+        onKeepPlayingChange = viewModel::setKeepPlayingOnTaskRemoved,
+        onKeepScreenOnChange = viewModel::setKeepScreenOn,
         onPlayerStyleChange = viewModel::setPlayerStyle,
         onGlassBlurChange = viewModel::setGlassBlurEnabled,
         onDynamicMeshChange = viewModel::setDynamicMeshEnabled,
@@ -178,6 +194,14 @@ fun SettingsScreen(
     onEqBandGainChange: (Int, Float) -> Unit,
     onNormalizeChange: (Boolean) -> Unit,
     onGaplessChange: (Boolean) -> Unit,
+    onSmartOutputProfilesChange: (Boolean) -> Unit,
+    onSleepTimerSelectMs: (Long) -> Unit,
+    onSleepTimerEndOfTrack: () -> Unit,
+    onSleepTimerCancel: () -> Unit,
+    onSkipSilenceChange: (Boolean) -> Unit,
+    onResumeHeadsetChange: (Boolean) -> Unit,
+    onKeepPlayingChange: (Boolean) -> Unit,
+    onKeepScreenOnChange: (Boolean) -> Unit,
     onPlayerStyleChange: (PlayerStyle) -> Unit,
     onGlassBlurChange: (Boolean) -> Unit,
     onDynamicMeshChange: (Boolean) -> Unit,
@@ -271,6 +295,14 @@ fun SettingsScreen(
             onOpenEq = { showEqSheet = true },
             onNormalizeChange = onNormalizeChange,
             onGaplessChange = onGaplessChange,
+            onSmartOutputProfilesChange = onSmartOutputProfilesChange,
+            onSleepTimerSelectMs = onSleepTimerSelectMs,
+            onSleepTimerEndOfTrack = onSleepTimerEndOfTrack,
+            onSleepTimerCancel = onSleepTimerCancel,
+            onSkipSilenceChange = onSkipSilenceChange,
+            onResumeHeadsetChange = onResumeHeadsetChange,
+            onKeepPlayingChange = onKeepPlayingChange,
+            onKeepScreenOnChange = onKeepScreenOnChange,
             onOpenPlayerStyle = { showPlayerStyleSheet = true },
             onGlassBlurChange = onGlassBlurChange,
             onDynamicMeshChange = onDynamicMeshChange,
@@ -311,11 +343,22 @@ fun SettingsScreen(
                 if (reducedMotion) {
                     fadeIn(tween(80)) togetherWith fadeOut(tween(80))
                 } else if (targetState != null && initialState == null) {
-                    (slideInHorizontally { it / 5 } + fadeIn()) togetherWith
-                        (slideOutHorizontally { -it / 6 } + fadeOut())
+                    (slideInHorizontally(
+                        animationSpec = spring(dampingRatio = 0.88f, stiffness = 460f)
+                    ) { it / 5 } + fadeIn(tween(190))) togetherWith
+                        (slideOutHorizontally(tween(220)) { -it / 6 } +
+                            scaleOut(tween(220), targetScale = 0.96f) +
+                            fadeOut(tween(160)))
                 } else {
-                    (slideInHorizontally { -it / 5 } + fadeIn()) togetherWith
-                        (slideOutHorizontally { it / 6 } + fadeOut())
+                    (slideInHorizontally(
+                        animationSpec = spring(dampingRatio = 0.88f, stiffness = 460f)
+                    ) { -it / 6 } +
+                        scaleIn(
+                            animationSpec = spring(dampingRatio = 0.88f, stiffness = 460f),
+                            initialScale = 0.96f
+                        ) +
+                        fadeIn(tween(190))) togetherWith
+                        (slideOutHorizontally(tween(220)) { it / 5 } + fadeOut(tween(160)))
                 }
             },
             label = "SettingsHubTransition",
@@ -442,9 +485,21 @@ fun SettingsScreen(
 
                                 SettingsGroup.entries.forEachIndexed { index, group ->
                                     item(key = "category_${group.id}") {
+                                        val categoryBadge = if (group == SettingsGroup.AUDIO_EQ) {
+                                            when {
+                                                uiState.sleepTimerEndOfTrack -> strings.sleepTimerEndOfTrackLabel
+                                                uiState.sleepTimerRemainingMs != null && uiState.sleepTimerRemainingMs > 0L -> {
+                                                    formatSettingsDurationMs(uiState.sleepTimerRemainingMs)
+                                                }
+                                                else -> uiState.activeOutputDevice.displayName
+                                            }
+                                        } else {
+                                            null
+                                        }
                                         SettingsCategoryPill(
                                             icon = categoryIconFor(group),
                                             title = groupTitleFor(group, strings),
+                                            trailingBadge = categoryBadge,
                                             onClick = { activeGroup = group },
                                             modifier = Modifier
                                                 .padding(horizontal = 16.dp)
@@ -606,7 +661,8 @@ fun SettingsScreen(
                         SettingsDetailTopBar(
                             title = groupTitleFor(currentGroup, strings),
                             backLabel = strings.backLabel,
-                            onBack = { activeGroup = null }
+                            onBack = { activeGroup = null },
+                            scrollOffsetPx = { detailScrollState.value.toFloat() }
                         )
 
                         Column(
@@ -765,15 +821,21 @@ private fun categoryIconFor(group: SettingsGroup): ImageVector = when (group) {
 
 private fun entryIconFor(id: SettingsEntryId): ImageVector = when (id) {
     SettingsEntryId.EQUALIZER_EDITOR -> Icons.Rounded.Equalizer
+    SettingsEntryId.SMART_OUTPUT_PROFILES -> Icons.Rounded.Headphones
     SettingsEntryId.LOUDNESS_NORMALIZE -> Icons.Rounded.VolumeUp
     SettingsEntryId.GAPLESS_PLAYBACK -> Icons.Rounded.GraphicEq
     SettingsEntryId.CROSSFADE_DURATION -> Icons.Rounded.Tune
+    SettingsEntryId.SLEEP_TIMER -> Icons.Rounded.Bedtime
+    SettingsEntryId.SKIP_SILENCE -> Icons.Rounded.FastForward
+    SettingsEntryId.RESUME_ON_HEADSET -> Icons.Rounded.Bluetooth
+    SettingsEntryId.KEEP_PLAYING_ON_SWIPE -> Icons.Rounded.PlayCircle
     SettingsEntryId.PLAYER_STYLE_PICKER -> Icons.Rounded.Palette
     SettingsEntryId.GLASS_BLUR -> Icons.Rounded.BlurOn
     SettingsEntryId.DYNAMIC_MESH -> Icons.Rounded.Gradient
     SettingsEntryId.LYRICS_MOTION -> Icons.Rounded.MusicNote
     SettingsEntryId.LYRICS_FONT_SCALE -> Icons.Rounded.TextFields
     SettingsEntryId.HAPTIC_FEEDBACK -> Icons.Rounded.Vibration
+    SettingsEntryId.KEEP_SCREEN_ON -> Icons.Rounded.BrightnessHigh
     SettingsEntryId.PROFILE_CARD -> Icons.Rounded.Person
     SettingsEntryId.LANGUAGE_TOGGLE -> Icons.Rounded.Translate
     SettingsEntryId.MONOCHROME_FLAC -> Icons.Rounded.HighQuality
@@ -796,6 +858,14 @@ private fun SettingsEntryRow(
     onOpenEq: () -> Unit,
     onNormalizeChange: (Boolean) -> Unit,
     onGaplessChange: (Boolean) -> Unit,
+    onSmartOutputProfilesChange: (Boolean) -> Unit,
+    onSleepTimerSelectMs: (Long) -> Unit,
+    onSleepTimerEndOfTrack: () -> Unit,
+    onSleepTimerCancel: () -> Unit,
+    onSkipSilenceChange: (Boolean) -> Unit,
+    onResumeHeadsetChange: (Boolean) -> Unit,
+    onKeepPlayingChange: (Boolean) -> Unit,
+    onKeepScreenOnChange: (Boolean) -> Unit,
     onOpenPlayerStyle: () -> Unit,
     onGlassBlurChange: (Boolean) -> Unit,
     onDynamicMeshChange: (Boolean) -> Unit,
@@ -819,6 +889,7 @@ private fun SettingsEntryRow(
     onOpenReset: () -> Unit
 ) {
     val settings = uiState.settings
+    val haptics = settings.hapticsEnabled
     when (entry.id) {
         SettingsEntryId.EQUALIZER_EDITOR -> {
             val presetLabel = EqConfig.builtInPresets.firstOrNull {
@@ -833,13 +904,30 @@ private fun SettingsEntryRow(
                 onClick = onOpenEq
             )
         }
+        SettingsEntryId.SMART_OUTPUT_PROFILES -> {
+            val deviceSubtitle = String.format(
+                Locale.US,
+                strings.smartOutputActiveFormat,
+                uiState.activeOutputDevice.displayName,
+                uiState.savedOutputProfileCount
+            )
+            SettingsToggleRow(
+                icon = Icons.Rounded.Headphones,
+                title = entry.title,
+                subtitle = deviceSubtitle,
+                checked = settings.smartOutputProfilesEnabled,
+                onCheckedChange = onSmartOutputProfilesChange,
+                hapticsEnabled = haptics
+            )
+        }
         SettingsEntryId.LOUDNESS_NORMALIZE -> {
             SettingsToggleRow(
                 icon = Icons.Rounded.VolumeUp,
                 title = entry.title,
                 subtitle = entry.subtitle,
                 checked = settings.eqConfig.normalizeLoudness,
-                onCheckedChange = onNormalizeChange
+                onCheckedChange = onNormalizeChange,
+                hapticsEnabled = haptics
             )
         }
         SettingsEntryId.GAPLESS_PLAYBACK -> {
@@ -848,7 +936,8 @@ private fun SettingsEntryRow(
                 title = entry.title,
                 subtitle = entry.subtitle,
                 checked = settings.eqConfig.gaplessEnabled,
-                onCheckedChange = onGaplessChange
+                onCheckedChange = onGaplessChange,
+                hapticsEnabled = haptics
             )
         }
         SettingsEntryId.CROSSFADE_DURATION -> {
@@ -863,6 +952,126 @@ private fun SettingsEntryRow(
                 },
                 badgeAccent = settings.eqConfig.crossfadeSeconds > 0,
                 onClick = onOpenEq
+            )
+        }
+        SettingsEntryId.SLEEP_TIMER -> {
+            val remainingMs = uiState.sleepTimerRemainingMs
+            val hasCountdown = remainingMs != null && remainingMs > 0L
+            val isActive = hasCountdown || uiState.sleepTimerEndOfTrack
+            val statusBadge = when {
+                uiState.sleepTimerFading -> strings.sleepTimerFadingLabel
+                uiState.sleepTimerEndOfTrack -> strings.sleepTimerEndOfTrackLabel
+                hasCountdown -> formatSettingsDurationMs(remainingMs ?: 0L)
+                else -> strings.offLabel
+            }
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(SettingsOledColors.IconBadge),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Bedtime,
+                            contentDescription = null,
+                            tint = SettingsOledColors.TextPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = entry.title,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = SettingsOledColors.TextPrimary
+                        )
+                        Text(
+                            text = strings.sleepTimerFadeNote,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = SettingsOledColors.TextSecondary
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = statusBadge,
+                        style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
+                        color = if (isActive) SettingsOledColors.TextPrimary else SettingsOledColors.TextSecondary,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(SettingsOledColors.IconBadge)
+                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(15, 30, 45, 60).forEach { minutes ->
+                        val durationMs = minutes * 60_000L
+                        val selected = hasCountdown && remainingMs != null &&
+                            remainingMs in (durationMs - 59_000L)..durationMs
+                        SettingsPillButton(
+                            text = "${minutes}m",
+                            selected = selected,
+                            onClick = { onSleepTimerSelectMs(durationMs) }
+                        )
+                    }
+                    SettingsPillButton(
+                        text = strings.sleepTimerEndOfTrackLabel,
+                        selected = uiState.sleepTimerEndOfTrack,
+                        onClick = onSleepTimerEndOfTrack
+                    )
+                    if (isActive) {
+                        SettingsPillButton(
+                            text = strings.cancelLabel,
+                            selected = false,
+                            onClick = onSleepTimerCancel
+                        )
+                    }
+                }
+            }
+        }
+        SettingsEntryId.SKIP_SILENCE -> {
+            SettingsToggleRow(
+                icon = Icons.Rounded.FastForward,
+                title = entry.title,
+                subtitle = entry.subtitle,
+                checked = settings.skipSilenceEnabled,
+                onCheckedChange = onSkipSilenceChange,
+                hapticsEnabled = haptics
+            )
+        }
+        SettingsEntryId.RESUME_ON_HEADSET -> {
+            SettingsToggleRow(
+                icon = Icons.Rounded.Bluetooth,
+                title = entry.title,
+                subtitle = entry.subtitle,
+                checked = settings.resumeOnHeadsetConnect,
+                onCheckedChange = onResumeHeadsetChange,
+                hapticsEnabled = haptics
+            )
+        }
+        SettingsEntryId.KEEP_PLAYING_ON_SWIPE -> {
+            SettingsToggleRow(
+                icon = Icons.Rounded.PlayCircle,
+                title = entry.title,
+                subtitle = entry.subtitle,
+                checked = settings.keepPlayingOnTaskRemoved,
+                onCheckedChange = onKeepPlayingChange,
+                hapticsEnabled = haptics
             )
         }
         SettingsEntryId.PLAYER_STYLE_PICKER -> {
@@ -881,7 +1090,8 @@ private fun SettingsEntryRow(
                 title = entry.title,
                 subtitle = entry.subtitle,
                 checked = settings.glassBlurEnabled,
-                onCheckedChange = onGlassBlurChange
+                onCheckedChange = onGlassBlurChange,
+                hapticsEnabled = haptics
             )
         }
         SettingsEntryId.DYNAMIC_MESH -> {
@@ -890,7 +1100,8 @@ private fun SettingsEntryRow(
                 title = entry.title,
                 subtitle = entry.subtitle,
                 checked = settings.dynamicMeshEnabled,
-                onCheckedChange = onDynamicMeshChange
+                onCheckedChange = onDynamicMeshChange,
+                hapticsEnabled = haptics
             )
         }
         SettingsEntryId.LYRICS_MOTION -> {
@@ -899,7 +1110,8 @@ private fun SettingsEntryRow(
                 title = entry.title,
                 subtitle = entry.subtitle,
                 checked = settings.lyricsMotionEnabled,
-                onCheckedChange = onLyricsMotionChange
+                onCheckedChange = onLyricsMotionChange,
+                hapticsEnabled = haptics
             )
         }
         SettingsEntryId.LYRICS_FONT_SCALE -> {
@@ -968,7 +1180,18 @@ private fun SettingsEntryRow(
                 title = entry.title,
                 subtitle = entry.subtitle,
                 checked = settings.hapticsEnabled,
-                onCheckedChange = onHapticsChange
+                onCheckedChange = onHapticsChange,
+                hapticsEnabled = haptics
+            )
+        }
+        SettingsEntryId.KEEP_SCREEN_ON -> {
+            SettingsToggleRow(
+                icon = Icons.Rounded.BrightnessHigh,
+                title = entry.title,
+                subtitle = entry.subtitle,
+                checked = settings.keepScreenOn,
+                onCheckedChange = onKeepScreenOnChange,
+                hapticsEnabled = haptics
             )
         }
         SettingsEntryId.PROFILE_CARD -> {
@@ -1043,7 +1266,8 @@ private fun SettingsEntryRow(
                 title = entry.title,
                 subtitle = entry.subtitle,
                 checked = settings.monochromeEnabled,
-                onCheckedChange = onMonochromeChange
+                onCheckedChange = onMonochromeChange,
+                hapticsEnabled = haptics
             )
         }
         SettingsEntryId.YT_COOKIE -> {

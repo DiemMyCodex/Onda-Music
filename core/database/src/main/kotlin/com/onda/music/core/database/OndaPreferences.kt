@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import com.onda.music.core.model.AudioOutputEqProfile
 import com.onda.music.core.model.EqConfig
 import com.onda.music.core.model.PlayerStudioConfig
 import com.onda.music.core.model.PlayerStyle
@@ -44,7 +45,12 @@ data class OndaUserSettings(
     val avatarPath: String? = null,
     val playbackSpeed: Float = 1.0f,
     val playbackPitch: Float = 1.0f,
-    val studioConfig: PlayerStudioConfig = PlayerStudioConfig()
+    val studioConfig: PlayerStudioConfig = PlayerStudioConfig(),
+    val smartOutputProfilesEnabled: Boolean = true,
+    val resumeOnHeadsetConnect: Boolean = false,
+    val skipSilenceEnabled: Boolean = false,
+    val keepPlayingOnTaskRemoved: Boolean = true,
+    val keepScreenOn: Boolean = false
 )
 
 @Serializable
@@ -81,6 +87,12 @@ class OndaPreferences @Inject constructor(
         val playbackSpeed = floatPreferencesKey("playback_speed")
         val playbackPitch = floatPreferencesKey("playback_pitch")
         val studioConfigJson = stringPreferencesKey("studio_config_json")
+        val smartOutputProfilesEnabled = booleanPreferencesKey("smart_output_profiles_enabled")
+        val audioOutputProfilesJson = stringPreferencesKey("audio_output_profiles_json")
+        val resumeOnHeadsetConnect = booleanPreferencesKey("resume_on_headset_connect")
+        val skipSilenceEnabled = booleanPreferencesKey("skip_silence_enabled")
+        val keepPlayingOnTaskRemoved = booleanPreferencesKey("keep_playing_on_task_removed")
+        val keepScreenOn = booleanPreferencesKey("keep_screen_on")
     }
 
     private val safePreferences: Flow<Preferences> = dataStore.data.catch { exception ->
@@ -92,6 +104,10 @@ class OndaPreferences @Inject constructor(
     }
 
     val settings: Flow<OndaUserSettings> = safePreferences.map(::mapSettings)
+
+    val audioOutputProfiles: Flow<Map<String, AudioOutputEqProfile>> = safePreferences.map { prefs ->
+        decodeAudioOutputProfiles(prefs[Keys.audioOutputProfilesJson])
+    }
 
     val playbackCheckpoint: Flow<PlaybackCheckpoint> = safePreferences.map { prefs ->
         val raw = prefs[Keys.playbackCheckpointJson]
@@ -211,6 +227,42 @@ class OndaPreferences @Inject constructor(
         dataStore.edit { it[Keys.studioConfigJson] = databaseJson.encodeToString(config.sanitized()) }
     }
 
+    suspend fun setSmartOutputProfilesEnabled(enabled: Boolean) {
+        dataStore.edit { it[Keys.smartOutputProfilesEnabled] = enabled }
+    }
+
+    suspend fun setResumeOnHeadsetConnect(enabled: Boolean) {
+        dataStore.edit { it[Keys.resumeOnHeadsetConnect] = enabled }
+    }
+
+    suspend fun setSkipSilenceEnabled(enabled: Boolean) {
+        dataStore.edit { it[Keys.skipSilenceEnabled] = enabled }
+    }
+
+    suspend fun setKeepPlayingOnTaskRemoved(enabled: Boolean) {
+        dataStore.edit { it[Keys.keepPlayingOnTaskRemoved] = enabled }
+    }
+
+    suspend fun setKeepScreenOn(enabled: Boolean) {
+        dataStore.edit { it[Keys.keepScreenOn] = enabled }
+    }
+
+    suspend fun currentAudioOutputProfiles(): Map<String, AudioOutputEqProfile> {
+        return audioOutputProfiles.first()
+    }
+
+    suspend fun saveAudioOutputProfile(profile: AudioOutputEqProfile) {
+        dataStore.edit { prefs ->
+            val current = decodeAudioOutputProfiles(prefs[Keys.audioOutputProfilesJson]).toMutableMap()
+            current[profile.deviceKey] = profile
+            prefs[Keys.audioOutputProfilesJson] = databaseJson.encodeToString(current)
+        }
+    }
+
+    suspend fun clearAudioOutputProfiles() {
+        dataStore.edit { it.remove(Keys.audioOutputProfilesJson) }
+    }
+
     suspend fun savePlaybackCheckpoint(checkpoint: PlaybackCheckpoint) {
         dataStore.edit { it[Keys.playbackCheckpointJson] = databaseJson.encodeToString(checkpoint) }
     }
@@ -252,7 +304,12 @@ class OndaPreferences @Inject constructor(
             avatarPath = prefs[Keys.avatarPath],
             playbackSpeed = clampPlaybackFactor(prefs[Keys.playbackSpeed] ?: 1.0f),
             playbackPitch = clampPlaybackFactor(prefs[Keys.playbackPitch] ?: 1.0f),
-            studioConfig = decodeStudioConfig(prefs[Keys.studioConfigJson])
+            studioConfig = decodeStudioConfig(prefs[Keys.studioConfigJson]),
+            smartOutputProfilesEnabled = prefs[Keys.smartOutputProfilesEnabled] ?: true,
+            resumeOnHeadsetConnect = prefs[Keys.resumeOnHeadsetConnect] ?: false,
+            skipSilenceEnabled = prefs[Keys.skipSilenceEnabled] ?: false,
+            keepPlayingOnTaskRemoved = prefs[Keys.keepPlayingOnTaskRemoved] ?: true,
+            keepScreenOn = prefs[Keys.keepScreenOn] ?: false
         )
     }
 
@@ -293,6 +350,18 @@ class OndaPreferences @Inject constructor(
         prefs[Keys.playbackSpeed] = clampPlaybackFactor(settings.playbackSpeed)
         prefs[Keys.playbackPitch] = clampPlaybackFactor(settings.playbackPitch)
         prefs[Keys.studioConfigJson] = databaseJson.encodeToString(settings.studioConfig.sanitized())
+        prefs[Keys.smartOutputProfilesEnabled] = settings.smartOutputProfilesEnabled
+        prefs[Keys.resumeOnHeadsetConnect] = settings.resumeOnHeadsetConnect
+        prefs[Keys.skipSilenceEnabled] = settings.skipSilenceEnabled
+        prefs[Keys.keepPlayingOnTaskRemoved] = settings.keepPlayingOnTaskRemoved
+        prefs[Keys.keepScreenOn] = settings.keepScreenOn
+    }
+
+    private fun decodeAudioOutputProfiles(raw: String?): Map<String, AudioOutputEqProfile> {
+        if (raw.isNullOrBlank()) return emptyMap()
+        return runCatching {
+            databaseJson.decodeFromString<Map<String, AudioOutputEqProfile>>(raw)
+        }.getOrDefault(emptyMap())
     }
 
     private fun clampPlaybackFactor(value: Float): Float {

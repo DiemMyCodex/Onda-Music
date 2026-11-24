@@ -8,13 +8,25 @@ import org.junit.Test
 class SettingsStateTest {
 
     @Test
-    fun `empty query returns all 21 settings entries across 5 groups`() {
+    fun `empty query returns all settings entries across 5 groups`() {
         val strings = settingsStringsFor("en")
         val entries = buildSettingsSearchEntries(strings)
         val filtered = filterSettingsEntries(entries, "   ")
 
         assertEquals(entries.size, filtered.size)
         assertEquals(5, filtered.map { it.group }.toSet().size)
+    }
+
+    @Test
+    fun `search matches new playback and output entries across groups`() {
+        val strings = settingsStringsFor("en")
+        val entries = buildSettingsSearchEntries(strings)
+
+        assertEquals(SettingsEntryId.SMART_OUTPUT_PROFILES, filterSettingsEntries(entries, "output profile").first().id)
+        assertEquals(SettingsEntryId.SLEEP_TIMER, filterSettingsEntries(entries, "sleep timer").first().id)
+        assertEquals(SettingsEntryId.SKIP_SILENCE, filterSettingsEntries(entries, "skip silence").first().id)
+        assertEquals(SettingsEntryId.RESUME_ON_HEADSET, filterSettingsEntries(entries, "bluetooth").first().id)
+        assertEquals(SettingsEntryId.KEEP_SCREEN_ON, filterSettingsEntries(entries, "keep screen").first().id)
     }
 
     @Test

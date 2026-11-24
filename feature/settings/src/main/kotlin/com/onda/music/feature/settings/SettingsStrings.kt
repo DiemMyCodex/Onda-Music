@@ -115,7 +115,23 @@ data class SettingsStrings(
     val linkImportEmptyError: String,
     val linkImportedSummary: String,
     val settingsResetMsg: String,
-    val backupCompletedMsg: String
+    val backupCompletedMsg: String,
+    val smartOutputTitle: String,
+    val smartOutputSubtitle: String,
+    val smartOutputActiveFormat: String,
+    val sleepTimerTitle: String,
+    val sleepTimerSubtitle: String,
+    val sleepTimerFadeNote: String,
+    val sleepTimerEndOfTrackLabel: String,
+    val sleepTimerFadingLabel: String,
+    val skipSilenceTitle: String,
+    val skipSilenceSubtitle: String,
+    val resumeHeadsetTitle: String,
+    val resumeHeadsetSubtitle: String,
+    val keepPlayingTitle: String,
+    val keepPlayingSubtitle: String,
+    val keepScreenOnTitle: String,
+    val keepScreenOnSubtitle: String
 )
 
 fun settingsStringsFor(languageCode: String): SettingsStrings {
@@ -232,7 +248,23 @@ fun settingsStringsFor(languageCode: String): SettingsStrings {
             linkImportEmptyError = "Hãy dán một liên kết Spotify, Apple Music, Deezer hoặc YouTube.",
             linkImportedSummary = "Đã nhập %d bài hát từ %s",
             settingsResetMsg = "Đã đặt lại cài đặt mặc định",
-            backupCompletedMsg = "Hoàn tất xử lý gói sao lưu"
+            backupCompletedMsg = "Hoàn tất xử lý gói sao lưu",
+            smartOutputTitle = "Nhớ cấu hình EQ theo thiết bị",
+            smartOutputSubtitle = "Tự động lưu và nạp EQ, Preamp theo loa, tai nghe dây hoặc Bluetooth",
+            smartOutputActiveFormat = "Đang dùng: %s · %d cấu hình đã lưu",
+            sleepTimerTitle = "Hẹn giờ ngủ (giảm âm 15s)",
+            sleepTimerSubtitle = "Tự giảm dần âm lượng 15 giây cuối trước khi tạm dừng",
+            sleepTimerFadeNote = "Giảm âm lượng mượt 15 giây cuối trước khi dừng phát",
+            sleepTimerEndOfTrackLabel = "Hết bài hiện tại",
+            sleepTimerFadingLabel = "Đang giảm âm",
+            skipSilenceTitle = "Bỏ qua khoảng lặng",
+            skipSilenceSubtitle = "Tự lướt qua đoạn im lặng kéo dài trong audio",
+            resumeHeadsetTitle = "Tự phát khi gắn tai nghe / Bluetooth",
+            resumeHeadsetSubtitle = "Tiếp tục phát hàng chờ khi kết nối thiết bị âm thanh ngoài",
+            keepPlayingTitle = "Tiếp tục phát khi vuốt tắt app",
+            keepPlayingSubtitle = "Giữ dịch vụ phát nhạc chạy nền khi đóng khỏi đa nhiệm",
+            keepScreenOnTitle = "Giữ màn hình luôn sáng",
+            keepScreenOnSubtitle = "Ngăn tắt màn hình khi đang xem lời bài hát hoặc bảng điều khiển"
         )
     } else {
         SettingsStrings(
@@ -347,7 +379,23 @@ fun settingsStringsFor(languageCode: String): SettingsStrings {
             linkImportEmptyError = "Paste a Spotify, Apple Music, Deezer, or YouTube Music URL.",
             linkImportedSummary = "Imported %d tracks from %s",
             settingsResetMsg = "Preferences reset to defaults",
-            backupCompletedMsg = "Transfer operation completed"
+            backupCompletedMsg = "Transfer operation completed",
+            smartOutputTitle = "Per-Output EQ Memory",
+            smartOutputSubtitle = "Auto-remember and switch EQ, Preamp, and loudness per audio device",
+            smartOutputActiveFormat = "Active: %s · %d saved",
+            sleepTimerTitle = "Sleep Timer (15s Fade-Out)",
+            sleepTimerSubtitle = "Gradually attenuate player volume over the final 15 seconds",
+            sleepTimerFadeNote = "Acoustic 15s volume fade-out before pausing",
+            sleepTimerEndOfTrackLabel = "End of Track",
+            sleepTimerFadingLabel = "Fading Out",
+            skipSilenceTitle = "Skip Silence",
+            skipSilenceSubtitle = "Automatically trim extended silent gaps during playback",
+            resumeHeadsetTitle = "Auto-Resume on Headset / BT",
+            resumeHeadsetSubtitle = "Resume paused queue automatically when external audio connects",
+            keepPlayingTitle = "Keep Playing When Swiped Away",
+            keepPlayingSubtitle = "Keep background playback service active when task is dismissed",
+            keepScreenOnTitle = "Keep Screen On",
+            keepScreenOnSubtitle = "Prevent display sleep while viewing lyrics or telemetry"
         )
     }
 }

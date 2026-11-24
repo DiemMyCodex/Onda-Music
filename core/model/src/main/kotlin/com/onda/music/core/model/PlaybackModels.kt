@@ -36,7 +36,8 @@ data class PlaybackState(
     val errorMessage: String? = null,
     val playbackSpeed: Float = 1.0f,
     val playbackPitch: Float = 1.0f,
-    val sleepTimerEndOfTrack: Boolean = false
+    val sleepTimerEndOfTrack: Boolean = false,
+    val sleepTimerFading: Boolean = false
 )
 
 @Serializable

@@ -3,7 +3,6 @@ package com.onda.music.feature.settings
 import android.os.Build
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -56,18 +55,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -80,6 +77,7 @@ import com.onda.music.core.design.BlurDirection
 import com.onda.music.core.design.BlurEffectCache
 import com.onda.music.core.design.DockMetrics
 import com.onda.music.core.design.OndaBackdropState
+import com.onda.music.core.design.OndaMonogramMark
 import com.onda.music.core.design.OndaSwitch
 import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.design.ProgressiveBlurBackground
@@ -87,8 +85,6 @@ import com.onda.music.core.design.RoundedHighlight
 import com.onda.music.core.design.SmoothCornerShape
 import com.onda.music.core.design.pressBounce
 import java.io.File
-import kotlin.math.PI
-import kotlin.math.sin
 
 internal object SettingsOledColors {
     val CanvasBlack = Color(0xFF000000)
@@ -134,43 +130,19 @@ fun rememberSettingsDetailTopBarHeight(): Dp {
 
 @Composable
 fun OndaWaveMark(modifier: Modifier = Modifier) {
-    Canvas(modifier = modifier) {
-        val w = size.width
-        val h = size.height
-        val strokeWidth = w * 0.085f
-
-        val playPath = Path().apply {
-            moveTo(w * 0.16f, h * 0.22f)
-            lineTo(w * 0.44f, h * 0.50f)
-            lineTo(w * 0.16f, h * 0.78f)
-            close()
-        }
-        drawPath(
-            path = playPath,
-            color = SettingsOledColors.TextPrimary
-        )
-
-        val wavePath = Path()
-        val startX = w * 0.52f
-        val endX = w * 0.94f
-        val midY = h * 0.50f
-        val amp = h * 0.24f
-        val steps = 16
-        for (i in 0..steps) {
-            val t = i.toFloat() / steps
-            val x = startX + (endX - startX) * t
-            val envelope = sin(t * PI.toFloat())
-            val y = midY - sin(t * 2.2f * PI.toFloat()) * amp * (0.45f + 0.55f * envelope)
-            if (i == 0) wavePath.moveTo(x, y) else wavePath.lineTo(x, y)
-        }
-        drawPath(
-            path = wavePath,
-            color = SettingsOledColors.TextPrimary,
-            style = Stroke(
-                width = strokeWidth,
-                cap = StrokeCap.Round,
-                join = StrokeJoin.Round
-            )
+    val plateShape = remember { SmoothCornerShape(9.dp) }
+    Box(
+        modifier = modifier
+            .defaultMinSize(minWidth = 30.dp, minHeight = 30.dp)
+            .clip(plateShape)
+            .background(Color(0xFF1A1A1A)),
+        contentAlignment = Alignment.Center
+    ) {
+        OndaMonogramMark(
+            modifier = Modifier.matchParentSize(),
+            tint = SettingsOledColors.TextPrimary,
+            cutoutColor = Color(0xFF1A1A1A),
+            filled = true
         )
     }
 }
@@ -262,10 +234,10 @@ fun SettingsCollapsingTopBar(
                     modifier = Modifier
                         .size(AvatarTapSize)
                         .pressBounce(backInteraction, pressedScale = 0.90f)
-                        .clip(CircleShape)
+                        .clip(SmoothCornerShape(12.dp))
                         .clickable(
                             interactionSource = backInteraction,
-                            indication = RoundedHighlight(cornerRadius = 22.dp),
+                            indication = RoundedHighlight(cornerRadius = 12.dp),
                             role = Role.Button,
                             onClick = {
                                 if (collapseProgressProvider() < 0.5f) {
@@ -275,7 +247,7 @@ fun SettingsCollapsingTopBar(
                         ),
                     contentAlignment = Alignment.CenterStart
                 ) {
-                    OndaWaveMark(modifier = Modifier.size(28.dp))
+                    OndaWaveMark(modifier = Modifier.size(30.dp))
                 }
 
                 Text(
@@ -405,16 +377,16 @@ fun SettingsHubHeader(
                 modifier = Modifier
                     .defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
                     .pressBounce(backInteraction, pressedScale = 0.90f)
-                    .clip(CircleShape)
+                    .clip(SmoothCornerShape(12.dp))
                     .clickable(
                         interactionSource = backInteraction,
-                        indication = RoundedHighlight(cornerRadius = 22.dp),
+                        indication = RoundedHighlight(cornerRadius = 12.dp),
                         role = Role.Button,
                         onClick = onBack
                     ),
                 contentAlignment = Alignment.CenterStart
             ) {
-                OndaWaveMark(modifier = Modifier.size(28.dp))
+                OndaWaveMark(modifier = Modifier.size(30.dp))
             }
 
             Box(
@@ -561,45 +533,59 @@ fun SettingsDetailTopBar(
     title: String,
     backLabel: String,
     onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    scrollOffsetPx: () -> Float = { 0f }
 ) {
     val backInteraction = remember { MutableInteractionSource() }
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .statusBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
+    val density = LocalDensity.current
+    val fadeRangePx = with(density) { 40.dp.toPx() }.coerceAtLeast(1f)
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
             modifier = Modifier
-                .size(DockMetrics.MinTapTarget)
-                .pressBounce(backInteraction, pressedScale = 0.92f)
-                .clip(CircleShape)
-                .background(SettingsOledColors.MatteCard)
-                .clickable(
-                    interactionSource = backInteraction,
-                    indication = RoundedHighlight(cornerRadius = 24.dp),
-                    role = Role.Button,
-                    onClick = onBack
-                ),
-            contentAlignment = Alignment.Center
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                contentDescription = backLabel,
-                tint = SettingsOledColors.TextPrimary
+            Box(
+                modifier = Modifier
+                    .size(DockMetrics.MinTapTarget)
+                    .pressBounce(backInteraction, pressedScale = 0.92f)
+                    .clip(CircleShape)
+                    .background(SettingsOledColors.MatteCard)
+                    .clickable(
+                        interactionSource = backInteraction,
+                        indication = RoundedHighlight(cornerRadius = 24.dp),
+                        role = Role.Button,
+                        onClick = onBack
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                    contentDescription = backLabel,
+                    tint = SettingsOledColors.TextPrimary
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = title,
+                fontSize = 24.sp,
+                lineHeight = 30.sp,
+                fontWeight = FontWeight.Bold,
+                color = SettingsOledColors.TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
-        Spacer(modifier = Modifier.width(12.dp))
-        Text(
-            text = title,
-            fontSize = 24.sp,
-            lineHeight = 30.sp,
-            fontWeight = FontWeight.Bold,
-            color = SettingsOledColors.TextPrimary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(0.75.dp)
+                .graphicsLayer {
+                    alpha = (scrollOffsetPx() / fadeRangePx).coerceIn(0f, 1f)
+                }
+                .background(SettingsOledColors.InsetDivider)
         )
     }
 }
@@ -688,7 +674,8 @@ fun SettingsCategoryPill(
     icon: ImageVector,
     title: String,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    trailingBadge: String? = null
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val shape = SmoothCornerShape(24.dp)
@@ -729,8 +716,23 @@ fun SettingsCategoryPill(
             fontWeight = FontWeight.SemiBold,
             color = SettingsOledColors.TextPrimary,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
         )
+        if (!trailingBadge.isNullOrBlank()) {
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = trailingBadge,
+                style = MaterialTheme.typography.labelMedium,
+                color = SettingsOledColors.TextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(SettingsOledColors.IconBadge)
+                    .padding(horizontal = 10.dp, vertical = 5.dp)
+            )
+        }
     }
 }
 
@@ -943,9 +945,17 @@ fun SettingsToggleRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
-    iconBadgeColor: Color = SettingsOledColors.IconBadge
+    iconBadgeColor: Color = SettingsOledColors.IconBadge,
+    hapticsEnabled: Boolean = true
 ) {
     val interactionSource = remember { MutableInteractionSource() }
+    val haptics = LocalHapticFeedback.current
+    val dispatchToggle: (Boolean) -> Unit = { next ->
+        if (hapticsEnabled) {
+            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        }
+        onCheckedChange(next)
+    }
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -956,7 +966,7 @@ fun SettingsToggleRow(
                 interactionSource = interactionSource,
                 indication = RoundedHighlight(cornerRadius = 18.dp),
                 role = Role.Switch,
-                onClick = { onCheckedChange(!checked) }
+                onClick = { dispatchToggle(!checked) }
             )
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -999,7 +1009,7 @@ fun SettingsToggleRow(
         Spacer(modifier = Modifier.width(10.dp))
         OndaSwitch(
             checked = checked,
-            onCheckedChange = onCheckedChange
+            onCheckedChange = dispatchToggle
         )
     }
 }

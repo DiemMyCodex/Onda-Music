@@ -79,6 +79,7 @@ class OndaMediaService : MediaLibraryService() {
 
     @Inject lateinit var streamResolver: StreamResolver
     @Inject lateinit var audioEffectsEngine: AudioEffectsEngine
+    @Inject lateinit var audioOutputProfileManager: AudioOutputProfileManager
     @Inject lateinit var ondaPreferences: OndaPreferences
     @Inject lateinit var songDao: SongDao
     @Inject lateinit var playEventDao: PlayEventDao
@@ -99,11 +100,20 @@ class OndaMediaService : MediaLibraryService() {
     private var currentTrackStartTimeMs: Long = 0L
     private var lastTrackedId: String? = null
 
+    @Volatile
+    private var keepPlayingOnTaskRemoved: Boolean = true
+
+    @Volatile
+    private var resumeOnHeadsetConnect: Boolean = false
+
     override fun onCreate() {
         super.onCreate()
         initLocks()
         initPlayer()
         initMediaSession()
+        audioOutputProfileManager.startMonitoring {
+            handleHeadsetConnectedAutoResume()
+        }
         observeSettings()
         observeNotificationControls()
         restoreCheckpointIfNeeded()
@@ -116,7 +126,12 @@ class OndaMediaService : MediaLibraryService() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         persistCheckpointNow()
-        if (!::player.isInitialized || !player.playWhenReady || player.mediaItemCount == 0) {
+        if (!keepPlayingOnTaskRemoved) {
+            if (::player.isInitialized) {
+                player.pause()
+            }
+            stopSelf()
+        } else if (!::player.isInitialized || !player.playWhenReady || player.mediaItemCount == 0) {
             stopSelf()
         }
         super.onTaskRemoved(rootIntent)
@@ -124,6 +139,7 @@ class OndaMediaService : MediaLibraryService() {
 
     override fun onDestroy() {
         persistCheckpointNow()
+        audioOutputProfileManager.stopMonitoring()
         releaseLocks()
         checkpointJob?.cancel()
         positionTickerJob?.cancel()
@@ -260,10 +276,26 @@ class OndaMediaService : MediaLibraryService() {
         mediaLibrarySession = builder.build()
     }
 
+    private fun handleHeadsetConnectedAutoResume() {
+        if (!resumeOnHeadsetConnect || !::player.isInitialized) return
+        if (player.mediaItemCount > 0 && !player.isPlaying) {
+            if (player.playbackState == Player.STATE_IDLE) {
+                player.prepare()
+            }
+            player.volume = 1.0f
+            player.play()
+        }
+    }
+
     private fun observeSettings() {
         serviceScope.launch {
             ondaPreferences.settings.collectLatest { userSettings ->
+                keepPlayingOnTaskRemoved = userSettings.keepPlayingOnTaskRemoved
+                resumeOnHeadsetConnect = userSettings.resumeOnHeadsetConnect
                 audioEffectsEngine.applyEqConfig(userSettings.eqConfig)
+                if (player.skipSilenceEnabled != userSettings.skipSilenceEnabled) {
+                    player.skipSilenceEnabled = userSettings.skipSilenceEnabled
+                }
                 val targetRepeatMode = when (userSettings.repeatMode) {
                     RepeatMode.OFF -> Player.REPEAT_MODE_OFF
                     RepeatMode.ALL -> Player.REPEAT_MODE_ALL
@@ -613,6 +645,12 @@ class OndaMediaService : MediaLibraryService() {
             if (isPlaying) {
                 acquireLocks()
                 startCheckpointLoop()
+                if (!sessionStore.playbackState.value.sleepTimerFading &&
+                    audioEffectsEngine.crossfadeController.crossfadeSeconds == 0 &&
+                    player.volume < 0.99f
+                ) {
+                    player.volume = 1.0f
+                }
                 if (currentTrackStartTimeMs == 0L) {
                     currentTrackStartTimeMs = System.currentTimeMillis()
                 }
@@ -667,10 +705,12 @@ class OndaMediaService : MediaLibraryService() {
         private fun pauseAndClearEndOfTrackTimer() {
             if (!sessionStore.playbackState.value.sleepTimerEndOfTrack) return
             player.pause()
+            player.volume = 1.0f
             sessionStore.updateState {
                 it.copy(
                     sleepTimerEndOfTrack = false,
-                    sleepTimerRemainingMs = null
+                    sleepTimerRemainingMs = null,
+                    sleepTimerFading = false
                 )
             }
         }
@@ -732,12 +772,23 @@ class OndaMediaService : MediaLibraryService() {
                     val duration = player.duration.takeIf { it != C.TIME_UNSET && it > 0L } ?: 0L
                     val position = player.currentPosition.coerceAtLeast(0L)
                     if (player.isPlaying) {
+                        val currentState = sessionStore.playbackState.value
+                        val sleepMultiplier = SleepTimerFadeCurve.computeFadeMultiplier(
+                            remainingMs = currentState.sleepTimerRemainingMs,
+                            endOfTrack = currentState.sleepTimerEndOfTrack,
+                            trackPositionMs = position,
+                            trackDurationMs = duration
+                        )
+                        val fadingNow = sleepMultiplier < 0.995f
+                        if (currentState.sleepTimerFading != fadingNow) {
+                            sessionStore.updateState { it.copy(sleepTimerFading = fadingNow) }
+                        }
                         val rampedVolume = audioEffectsEngine.crossfadeController.computeEffectiveVolume(
-                            baseVolume = 1f,
+                            baseVolume = sleepMultiplier,
                             positionMs = position,
                             durationMs = duration
                         )
-                        if (kotlin.math.abs(player.volume - rampedVolume) > 0.01f) {
+                        if (kotlin.math.abs(player.volume - rampedVolume) > 0.005f) {
                             player.volume = rampedVolume
                         }
                     }

@@ -3,6 +3,7 @@ package com.onda.music.feature.settings
 import android.net.Uri
 import androidx.compose.runtime.Immutable
 import com.onda.music.core.database.OndaUserSettings
+import com.onda.music.core.model.AudioOutputDevice
 import com.onda.music.core.model.LinkEntityKind
 import com.onda.music.core.model.LinkProvider
 import com.onda.music.core.model.MergePolicy
@@ -23,15 +24,21 @@ enum class SettingsGroup(val id: String) {
 
 enum class SettingsEntryId {
     EQUALIZER_EDITOR,
+    SMART_OUTPUT_PROFILES,
     LOUDNESS_NORMALIZE,
     GAPLESS_PLAYBACK,
     CROSSFADE_DURATION,
+    SLEEP_TIMER,
+    SKIP_SILENCE,
+    RESUME_ON_HEADSET,
+    KEEP_PLAYING_ON_SWIPE,
     PLAYER_STYLE_PICKER,
     GLASS_BLUR,
     DYNAMIC_MESH,
     LYRICS_MOTION,
     LYRICS_FONT_SCALE,
     HAPTIC_FEEDBACK,
+    KEEP_SCREEN_ON,
     PROFILE_CARD,
     LANGUAGE_TOGGLE,
     MONOCHROME_FLAC,
@@ -94,7 +101,12 @@ data class SettingsUiState(
     val isClearingCache: Boolean = false,
     val transfer: TransferUiState = TransferUiState(),
     val linkImport: LinkImportUiState = LinkImportUiState(),
-    val statusMessage: String? = null
+    val statusMessage: String? = null,
+    val activeOutputDevice: AudioOutputDevice = AudioOutputDevice(),
+    val savedOutputProfileCount: Int = 0,
+    val sleepTimerRemainingMs: Long? = null,
+    val sleepTimerEndOfTrack: Boolean = false,
+    val sleepTimerFading: Boolean = false
 )
 
 fun buildSettingsSearchEntries(strings: SettingsStrings): List<SettingsSearchEntry> = listOf(
@@ -104,6 +116,13 @@ fun buildSettingsSearchEntries(strings: SettingsStrings): List<SettingsSearchEnt
         title = strings.eqTitle,
         subtitle = strings.eqSubtitle,
         keywords = listOf("eq", "equalizer", "10-band", "31hz", "16khz", "preamp", "preset", "audio", "am thanh")
+    ),
+    SettingsSearchEntry(
+        id = SettingsEntryId.SMART_OUTPUT_PROFILES,
+        group = SettingsGroup.AUDIO_EQ,
+        title = strings.smartOutputTitle,
+        subtitle = strings.smartOutputSubtitle,
+        keywords = listOf("output", "profile", "bluetooth", "headset", "speaker", "dac", "auto", "thiet bi", "tai nghe")
     ),
     SettingsSearchEntry(
         id = SettingsEntryId.LOUDNESS_NORMALIZE,
@@ -125,6 +144,34 @@ fun buildSettingsSearchEntries(strings: SettingsStrings): List<SettingsSearchEnt
         title = strings.crossfadeTitle,
         subtitle = strings.crossfadeSubtitle,
         keywords = listOf("crossfade", "fade", "seconds", "chuyen bai")
+    ),
+    SettingsSearchEntry(
+        id = SettingsEntryId.SLEEP_TIMER,
+        group = SettingsGroup.AUDIO_EQ,
+        title = strings.sleepTimerTitle,
+        subtitle = strings.sleepTimerSubtitle,
+        keywords = listOf("sleep", "timer", "fade", "bedtime", "hen gio", "ngu", "15m", "30m", "60m")
+    ),
+    SettingsSearchEntry(
+        id = SettingsEntryId.SKIP_SILENCE,
+        group = SettingsGroup.AUDIO_EQ,
+        title = strings.skipSilenceTitle,
+        subtitle = strings.skipSilenceSubtitle,
+        keywords = listOf("skip", "silence", "trim", "quiet", "khoang lang", "im lang")
+    ),
+    SettingsSearchEntry(
+        id = SettingsEntryId.RESUME_ON_HEADSET,
+        group = SettingsGroup.AUDIO_EQ,
+        title = strings.resumeHeadsetTitle,
+        subtitle = strings.resumeHeadsetSubtitle,
+        keywords = listOf("resume", "headset", "bluetooth", "connect", "tu phat", "tai nghe")
+    ),
+    SettingsSearchEntry(
+        id = SettingsEntryId.KEEP_PLAYING_ON_SWIPE,
+        group = SettingsGroup.AUDIO_EQ,
+        title = strings.keepPlayingTitle,
+        subtitle = strings.keepPlayingSubtitle,
+        keywords = listOf("background", "swipe", "task", "keep playing", "chay nen", "vuot tat")
     ),
     SettingsSearchEntry(
         id = SettingsEntryId.PLAYER_STYLE_PICKER,
@@ -170,6 +217,13 @@ fun buildSettingsSearchEntries(strings: SettingsStrings): List<SettingsSearchEnt
         title = strings.hapticsTitle,
         subtitle = strings.hapticsSubtitle,
         keywords = listOf("haptics", "vibration", "touch", "rung")
+    ),
+    SettingsSearchEntry(
+        id = SettingsEntryId.KEEP_SCREEN_ON,
+        group = SettingsGroup.NOW_PLAYING_MOTION,
+        title = strings.keepScreenOnTitle,
+        subtitle = strings.keepScreenOnSubtitle,
+        keywords = listOf("keep screen", "awake", "display", "sleep", "man hinh", "luon sang")
     ),
     SettingsSearchEntry(
         id = SettingsEntryId.PROFILE_CARD,
@@ -298,6 +352,18 @@ fun formatShortDb(db: Float): String {
     val rounded = kotlin.math.round(db * 2f) / 2f
     val sign = if (rounded > 0.05f) "+" else if (rounded < -0.05f) "-" else ""
     return String.format(Locale.US, "%s%.1f", sign, abs(rounded))
+}
+
+fun formatSettingsDurationMs(ms: Long): String {
+    val totalSec = (ms / 1000L).coerceAtLeast(0L)
+    val hours = totalSec / 3600L
+    val minutes = (totalSec % 3600L) / 60L
+    val seconds = totalSec % 60L
+    return if (hours > 0L) {
+        String.format(Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
+    } else {
+        String.format(Locale.US, "%02d:%02d", minutes, seconds)
+    }
 }
 
 fun computeCollapseLatch(

@@ -124,14 +124,16 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 private val LibraryTopInset = 12.dp
-private val LibraryRow1Height = 44.dp
+private val LibraryRow1Height = 42.dp
+private val LibraryHeaderSearchGap = 16.dp
 private val LibraryRowGap = 12.dp
-private val LibrarySearchHeight = 44.dp
+private val LibrarySearchHeight = 48.dp
 private val LibraryTabRowHeight = 34.dp
 private val LibraryHeaderBottomPad = 12.dp
 
 private val CardSurfaceObsidian = Color(0xFF141416)
-private val ActionPillObsidian = Color(0xFF161619)
+private val ActionPillObsidian = Color(0xFF1E1E1E)
+private val SearchPillObsidian = Color(0xFF1A1A1A)
 private val CardHairlineBorder = Color(0x16FFFFFF)
 private val MutedTextGray = Color(0xFF9A9AA0)
 
@@ -141,7 +143,7 @@ internal fun libraryExpandedTopPadding(): Dp {
     return statusBar +
         LibraryTopInset +
         LibraryRow1Height +
-        LibraryRowGap +
+        LibraryHeaderSearchGap +
         LibrarySearchHeight +
         LibraryRowGap +
         LibraryTabRowHeight +
@@ -174,7 +176,7 @@ internal fun LibraryGlassTopBar(
     val reducedMotion = OndaTheme.reducedMotion
     val statusBar = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val density = LocalDensity.current
-    val row1TotalPx = with(density) { (LibraryRow1Height + LibraryRowGap).toPx() }
+    val row1TotalPx = with(density) { (LibraryRow1Height + LibraryHeaderSearchGap).toPx() }
     val slideInOffsetPx = with(density) { 16.dp.toPx() }
 
     Box(modifier = modifier.fillMaxWidth()) {
@@ -198,67 +200,71 @@ internal fun LibraryGlassTopBar(
                     .layout { measurable, constraints ->
                         val p = collapseProgress().coerceIn(0f, 1f)
                         val placeable = measurable.measure(constraints)
-                        val collapsedHeight = (row1TotalPx * (1f - p)).roundToInt().coerceIn(0, placeable.height)
+                        val collapsedHeight = (placeable.height * (1f - p)).roundToInt().coerceIn(0, placeable.height)
                         layout(constraints.maxWidth, collapsedHeight) {
                             placeable.place(0, 0)
                         }
                     }
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp)
-                        .height(LibraryRow1Height)
-                        .graphicsLayer {
-                            val p = collapseProgress().coerceIn(0f, 1f)
-                            alpha = (1f - p * 1.75f).coerceIn(0f, 1f)
-                            val s = if (reducedMotion) 1f else 1f - p * 0.08f
-                            scaleX = s
-                            scaleY = s
-                            translationY = if (reducedMotion) 0f else -p * row1TotalPx * 0.45f
-                            transformOrigin = TransformOrigin(0f, 0.5f)
-                            if (!reducedMotion && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                renderEffect = if (p > 0.06f) LibraryBlurCache.blur(p * 10f) else null
-                            }
-                        },
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = "Library",
-                        fontSize = 28.sp,
-                        lineHeight = 34.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = (-0.5).sp,
-                        color = Color.White,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                Column(modifier = Modifier.fillMaxWidth()) {
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                            .height(LibraryRow1Height)
+                            .graphicsLayer {
+                                val p = collapseProgress().coerceIn(0f, 1f)
+                                alpha = (1f - p * 1.75f).coerceIn(0f, 1f)
+                                val s = if (reducedMotion) 1f else 1f - p * 0.08f
+                                scaleX = s
+                                scaleY = s
+                                translationY = if (reducedMotion) 0f else -p * row1TotalPx * 0.45f
+                                transformOrigin = TransformOrigin(0f, 0.5f)
+                                if (!reducedMotion && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                    renderEffect = if (p > 0.06f) LibraryBlurCache.blur(p * 10f) else null
+                                }
+                            },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        val actionsActive = collapseProgress() < 0.45f
-                        ObsidianCircleActionPill(
-                            icon = Icons.Rounded.Add,
-                            contentDescription = "New playlist",
-                            enabled = actionsActive,
-                            onClick = onCreatePlaylist
+                        Text(
+                            text = "Library",
+                            fontSize = 28.sp,
+                            lineHeight = 34.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = (-0.5).sp,
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
-                        ObsidianCircleActionPill(
-                            icon = Icons.Rounded.Settings,
-                            contentDescription = "Settings",
-                            enabled = actionsActive,
-                            onClick = onOpenSettings
-                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val actionsActive = collapseProgress() < 0.45f
+                            ObsidianCircleActionPill(
+                                icon = Icons.Rounded.Add,
+                                contentDescription = "New playlist",
+                                enabled = actionsActive,
+                                onClick = onCreatePlaylist
+                            )
+                            ObsidianCircleActionPill(
+                                icon = Icons.Rounded.Settings,
+                                contentDescription = "Settings",
+                                enabled = actionsActive,
+                                onClick = onOpenSettings
+                            )
+                        }
                     }
+
+                    Spacer(modifier = Modifier.height(LibraryHeaderSearchGap))
                 }
             }
 
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp)
+                    .padding(horizontal = 16.dp)
                     .height(LibrarySearchHeight),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -283,7 +289,7 @@ internal fun LibraryGlassTopBar(
                     val inlineActive = collapseProgress() > 0.5f
                     Row(
                         modifier = Modifier
-                            .padding(start = 8.dp)
+                            .padding(start = 10.dp)
                             .graphicsLayer {
                                 val p = collapseProgress().coerceIn(0f, 1f)
                                 val reveal = ((p - 0.15f) / 0.85f).coerceIn(0f, 1f)
@@ -293,7 +299,7 @@ internal fun LibraryGlassTopBar(
                                 scaleY = s
                                 translationX = if (reducedMotion) 0f else (1f - reveal) * slideInOffsetPx
                             },
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         ObsidianCircleActionPill(
@@ -333,14 +339,13 @@ private fun ObsidianCircleActionPill(
     val interactionSource = remember { MutableInteractionSource() }
     Box(
         modifier = modifier
-            .size(44.dp)
+            .size(42.dp)
             .libraryPressBounce(interactionSource, pressedScale = 0.90f)
             .clip(CircleShape)
             .background(ActionPillObsidian)
-            .border(0.5.dp, CardHairlineBorder, CircleShape)
             .clickable(
                 interactionSource = interactionSource,
-                indication = LibraryHighlightIndication(cornerRadius = 22.dp),
+                indication = LibraryHighlightIndication(cornerRadius = 21.dp),
                 enabled = enabled,
                 onClick = onClick
             ),
@@ -361,22 +366,15 @@ internal fun LibrarySearchPill(
     onQueryChange: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val reducedMotion = OndaTheme.reducedMotion
     val focusManager = LocalFocusManager.current
     var isFocused by remember { mutableStateOf(false) }
-    val searchShape = remember { SmoothCornerShape(22.dp) }
-    val borderColor by animateColorAsState(
-        targetValue = if (isFocused) Color(0x36FFFFFF) else CardHairlineBorder,
-        animationSpec = if (reducedMotion) snap() else tween(160),
-        label = "librarySearchBorder"
-    )
+    val searchShape = remember { RoundedCornerShape(999.dp) }
 
     Row(
         modifier = modifier
             .height(LibrarySearchHeight)
             .clip(searchShape)
-            .background(CardSurfaceObsidian)
-            .border(0.5.dp, borderColor, searchShape)
+            .background(SearchPillObsidian)
             .padding(start = 14.dp, end = if (query.isNotEmpty()) 4.dp else 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

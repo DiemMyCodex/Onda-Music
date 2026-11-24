@@ -584,6 +584,7 @@ fun FullPlayerOverlay(
                 OndaSleepTimerSheet(
                     remainingMs = playbackState.sleepTimerRemainingMs,
                     endOfTrack = playbackState.sleepTimerEndOfTrack,
+                    isFading = playbackState.sleepTimerFading,
                     onSelectDurationMs = viewModel::startSleepTimer,
                     onSelectEndOfTrack = viewModel::startSleepTimerEndOfTrack,
                     onAdjustDurationMs = viewModel::adjustSleepTimer,

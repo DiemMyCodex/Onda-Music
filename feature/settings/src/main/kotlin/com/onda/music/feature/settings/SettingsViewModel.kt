@@ -12,6 +12,7 @@ import com.onda.music.core.database.PlaylistDao
 import com.onda.music.core.database.PlaylistSongEntity
 import com.onda.music.core.database.SongDao
 import com.onda.music.core.database.toEntity
+import com.onda.music.core.model.AudioOutputDevice
 import com.onda.music.core.model.EqConfig
 import com.onda.music.core.model.EqPreset
 import com.onda.music.core.model.MergePolicy
@@ -69,9 +70,17 @@ class SettingsViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
+    private data class PlaybackRuntimeSnapshot(
+        val activeOutputDevice: AudioOutputDevice,
+        val savedOutputProfileCount: Int,
+        val sleepTimerRemainingMs: Long?,
+        val sleepTimerEndOfTrack: Boolean,
+        val sleepTimerFading: Boolean
+    )
+
     init {
         viewModelScope.launch {
-            combine(
+            val baseFlow = combine(
                 preferences.settings,
                 downloadManager.completedDownloads,
                 localState
@@ -79,6 +88,28 @@ class SettingsViewModel @Inject constructor(
                 local.copy(
                     settings = userSettings,
                     completedDownloadsCount = completedDownloads.size
+                )
+            }
+            val runtimeFlow = combine(
+                playbackController.activeOutputDevice,
+                playbackController.savedOutputProfiles,
+                playbackController.playbackState
+            ) { device, profiles, playback ->
+                PlaybackRuntimeSnapshot(
+                    activeOutputDevice = device,
+                    savedOutputProfileCount = profiles.size,
+                    sleepTimerRemainingMs = playback.sleepTimerRemainingMs,
+                    sleepTimerEndOfTrack = playback.sleepTimerEndOfTrack,
+                    sleepTimerFading = playback.sleepTimerFading
+                )
+            }
+            combine(baseFlow, runtimeFlow) { base, runtime ->
+                base.copy(
+                    activeOutputDevice = runtime.activeOutputDevice,
+                    savedOutputProfileCount = runtime.savedOutputProfileCount,
+                    sleepTimerRemainingMs = runtime.sleepTimerRemainingMs,
+                    sleepTimerEndOfTrack = runtime.sleepTimerEndOfTrack,
+                    sleepTimerFading = runtime.sleepTimerFading
                 )
             }.collect { combined ->
                 _uiState.value = combined
@@ -151,6 +182,48 @@ class SettingsViewModel @Inject constructor(
     fun setGaplessEnabled(enabled: Boolean) {
         val current = _uiState.value.settings.eqConfig
         updateEqConfig(current.copy(gaplessEnabled = enabled))
+    }
+
+    fun setSmartOutputProfilesEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            preferences.setSmartOutputProfilesEnabled(enabled)
+        }
+    }
+
+    fun setSkipSilenceEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            preferences.setSkipSilenceEnabled(enabled)
+        }
+    }
+
+    fun setResumeOnHeadsetConnect(enabled: Boolean) {
+        viewModelScope.launch {
+            preferences.setResumeOnHeadsetConnect(enabled)
+        }
+    }
+
+    fun setKeepPlayingOnTaskRemoved(enabled: Boolean) {
+        viewModelScope.launch {
+            preferences.setKeepPlayingOnTaskRemoved(enabled)
+        }
+    }
+
+    fun setKeepScreenOn(enabled: Boolean) {
+        viewModelScope.launch {
+            preferences.setKeepScreenOn(enabled)
+        }
+    }
+
+    fun startSleepTimer(durationMs: Long) {
+        playbackController.startSleepTimer(durationMs)
+    }
+
+    fun startSleepTimerEndOfTrack() {
+        playbackController.startSleepTimerEndOfTrack()
+    }
+
+    fun cancelSleepTimer() {
+        playbackController.cancelSleepTimer()
     }
 
     fun setPlayerStyle(style: PlayerStyle) {

@@ -134,4 +134,18 @@ class DesignSystemTest {
         assertTrue(state.hasSeen("hub_eq"))
         assertEquals(setOf("hub_eq", "hub_transfer"), state.snapshotKeys().toSet())
     }
+
+    @Test
+    fun launchChoreographyStaggersOrdersMonotonicallyWithinBounds() {
+        for (order in 0..3) {
+            assertEquals(0f, ondaLaunchRiseOrderProgress(0f, order), 0.0001f)
+            assertEquals(1f, ondaLaunchRiseOrderProgress(1f, order), 0.0001f)
+        }
+        val mid0 = ondaLaunchRiseOrderProgress(0.35f, 0)
+        val mid1 = ondaLaunchRiseOrderProgress(0.35f, 1)
+        val mid2 = ondaLaunchRiseOrderProgress(0.35f, 2)
+        val mid3 = ondaLaunchRiseOrderProgress(0.35f, 3)
+        assertTrue(mid0 >= mid1 && mid1 >= mid2 && mid2 >= mid3)
+        assertTrue(mid0 > 0f)
+    }
 }

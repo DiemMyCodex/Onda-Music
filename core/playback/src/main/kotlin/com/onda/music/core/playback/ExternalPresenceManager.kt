@@ -191,7 +191,7 @@ class ExternalPresenceManager @Inject constructor() {
         form.add("format", "json")
         val request = Request.Builder()
             .url(creds.endpoint)
-            .header("User-Agent", "OndaMusic/1.2.8")
+            .header("User-Agent", "OndaMusic/1.2.9")
             .post(form.build())
             .build()
         runCatching {

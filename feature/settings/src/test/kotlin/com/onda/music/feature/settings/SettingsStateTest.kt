@@ -67,7 +67,7 @@ class SettingsStateTest {
         assertEquals(1, discordMatches.size)
         assertEquals(SettingsEntryId.DISCORD_RPC, discordMatches.first().id)
 
-        assertTrue(strings.appVersionFooter.contains("1.2.8"))
+        assertTrue(strings.appVersionFooter.contains("1.2.9"))
     }
 
     @Test

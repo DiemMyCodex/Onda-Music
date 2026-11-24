@@ -6,7 +6,7 @@
   <br/>
 <p align="center">
   <a href="https://github.com/DiemMyCodex/Onda-Music/releases">
-    <img src="https://shieldcn.dev/github/downloads/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff&v=1.2.8r" alt="Downloads" />
+    <img src="https://shieldcn.dev/github/downloads/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff&v=1.2.9r" alt="Downloads" />
   </a>
   <a href="https://github.com/DiemMyCodex/Onda-Music/stargazers">
     <img src="https://shieldcn.dev/github/stars/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff" alt="Stars" />
@@ -18,7 +18,7 @@
     <img src="https://shieldcn.dev/badge/Android-10%2B-1e1e1e.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logo=android&logoColor=ffffff" alt="Android 10+" />
   </a>
   <a href="https://github.com/DiemMyCodex/Onda-Music/releases/latest">
-    <img src="https://shieldcn.dev/github/release/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff&v=1.2.8r" alt="Latest Release" />
+    <img src="https://shieldcn.dev/github/release/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff&v=1.2.9r" alt="Latest Release" />
   </a>
 </p>
 </div>
@@ -32,10 +32,10 @@
 
 <p>
   <a href="https://github.com/DiemMyCodex/Onda-Music/releases/latest">
-    <img src="https://shieldcn.dev/github/release/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff&v=1.2.8r" alt="Latest Release" />
+    <img src="https://shieldcn.dev/github/release/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff&v=1.2.9r" alt="Latest Release" />
   </a>
   <a href="https://github.com/DiemMyCodex/Onda-Music/releases">
-    <img src="https://shieldcn.dev/github/downloads/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff&v=1.2.8r" alt="Total Downloads" />
+    <img src="https://shieldcn.dev/github/downloads/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff&v=1.2.9r" alt="Total Downloads" />
   </a>
 </p>
 
@@ -51,7 +51,7 @@ Updating works the same way: install the newer APK right over the old one and yo
 
 ---
 
-## What is inside (`v1.2.8`)
+## What is inside (`v1.2.9`)
 
 - Pure `#000000` OLED monochrome look with squircle geometry, seamless black system splash into Acoustic Ignition launch choreography, smoked glass blur, optional AGSL artwork mesh, and opt-in **OLED Adaptive Accent** (high-contrast WCAG AA artwork tint with `#000000` locked surfaces).
 - Pro-grade **32-bit Float Parametric EQ** (`31Hz` to `16kHz`) supporting `PCM_16BIT`, `PCM_24BIT`, `PCM_32BIT`, and `PCM_FLOAT` (so 24-bit FLAC never bypasses EQ), bundled offline **AutoEq** search across **2,287 headphone/IEM/TWS profiles** bound per audio output (Bluetooth, Wired, USB DAC, Speaker), real-time Media3/FFmpeg **Audio Signal Path Telemetry** badge (`FLAC · 24-bit/96kHz · USB DAC`), and per-session or global speed/pitch persistence.

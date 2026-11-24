@@ -185,7 +185,7 @@ object OndaRecapCardRenderer {
             }
         }
 
-        canvas.drawText("ONDA MUSIC v1.2.8 · PURE #000000 OLED", 84f, height - 74f, labelPaint)
+        canvas.drawText("ONDA MUSIC v1.2.9 · PURE #000000 OLED", 84f, height - 74f, labelPaint)
         return bitmap
     }
 

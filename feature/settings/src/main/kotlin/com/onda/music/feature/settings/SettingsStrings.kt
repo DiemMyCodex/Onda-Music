@@ -355,7 +355,7 @@ fun settingsStringsFor(languageCode: String): SettingsStrings {
             discordTosWarningBody = "Kết nối Gateway bằng user token cá nhân không phải phương thức chính thức của Discord và có thể vi phạm ToS Discord. Token chỉ lưu cục bộ trong DataStore của máy bạn và không bao giờ gửi sang máy chủ thứ ba.",
             discordTokenLabel = "Discord User Token (lưu cục bộ)",
             discordTokenPlaceholder = "Dán token tài khoản Discord...",
-            appVersionFooter = "Onda Music v1.2.8 · Pure #000000 OLED · Local-First"
+            appVersionFooter = "Onda Music v1.2.9 · Pure #000000 OLED · Local-First"
         )
     } else {
         SettingsStrings(
@@ -531,7 +531,7 @@ fun settingsStringsFor(languageCode: String): SettingsStrings {
             discordTosWarningBody = "Connecting to Discord Gateway with a personal user token is unofficial and may violate Discord ToS. Your token is stored strictly locally in DataStore and never sent to any third-party server.",
             discordTokenLabel = "Discord User Token (stored locally)",
             discordTokenPlaceholder = "Paste your Discord user token...",
-            appVersionFooter = "Onda Music v1.2.8 · Pure #000000 OLED · Local-First"
+            appVersionFooter = "Onda Music v1.2.9 · Pure #000000 OLED · Local-First"
         )
     }
 }

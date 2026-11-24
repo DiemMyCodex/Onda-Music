@@ -30,6 +30,15 @@
 
 ## How to install
 
+<p>
+  <a href="https://github.com/DiemMyCodex/Onda-Music/releases/latest">
+    <img src="https://shieldcn.dev/github/release/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff" alt="Latest Release" />
+  </a>
+  <a href="https://github.com/DiemMyCodex/Onda-Music/releases">
+    <img src="https://shieldcn.dev/github/downloads/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff" alt="Total Downloads" />
+  </a>
+</p>
+
 1. Open the [latest release](https://github.com/DiemMyCodex/Onda-Music/releases/latest) on your phone.
 2. Download the `.apk` file. Pick **arm64** for basically any modern Android phone (64-bit, Android 10+).
 3. Tap the downloaded file and allow installs from your browser or file manager if Android asks (you can turn it back off right after).
@@ -147,7 +156,7 @@ Onda is an independent open-source project built for personal use, with no ads o
 
 ## Projects and APIs behind Onda
 
-- **Mochy Music** by [realidkroo](https://github.com/realidkroo/Mochy-Music) and **MomiMusic** ([Repository](https://github.com/DiemMyCodex/MomiMusic)) for UI inspiration and `momi-transfer v1` backup compatibility.
+- **Mochy Music** by [realidkroo](https://github.com/realidkroo/Mochy-Music) for UI inspiration and `momi-transfer v1` backup compatibility.
 - **InnertubeX** ([Repository](https://github.com/MetrolistGroup/innertubex)) for YouTube Music InnerTube API access.
 - **NewPipeExtractor** ([Repository](https://github.com/TeamNewPipe/NewPipeExtractor)) for stream extraction fallback.
 - **Monochrome** ([Website](https://monochrome.st)) for lossless FLAC stream resolution.

@@ -206,4 +206,35 @@ class DesignSystemTest {
         assertTrue(warmResume.isSettled)
         assertTrue(warmResume.isContentReady)
     }
+
+    @Test
+    fun ondaKaraokeHeadGlidesContinuouslyAndSwellsOnHeldNotes() {
+        val text = "Hold this note"
+        val words = listOf(
+            com.onda.music.core.model.LyricsWord("Hold", 1_000L, 1_320L),
+            com.onda.music.core.model.LyricsWord("this", 1_320L, 1_640L),
+            com.onda.music.core.model.LyricsWord("note", 1_640L, 3_400L)
+        )
+        val timed = computeOndaTimedRanges(text, words, 1_000L, 3_400L)
+        assertEquals(3, timed.size)
+        val head = ondaKaraokeHeadFor(text)
+        assertEquals(3, head.wordCount)
+        assertTrue(head.cellCount >= 12)
+
+        head.advance(timed, positionSec = 1.31, dt = 0.016f, wordMotion = true)
+        assertTrue(head.offset.floatValue > 4.0f && head.offset.floatValue < 5.0f)
+
+        var maxSwell = 0f
+        var maxGlow = 0f
+        for (step in 0 until 45) {
+            val sec = 1.64 + step * 0.032
+            head.advance(timed, positionSec = sec, dt = 0.032f, wordMotion = true)
+            maxGlow = maxOf(maxGlow, head.glow.floatValue)
+            for (c in 0 until head.cellCount) {
+                maxSwell = maxOf(maxSwell, head.swell[c])
+            }
+        }
+        assertTrue(maxGlow > 0.75f)
+        assertTrue(maxSwell > 0.50f)
+    }
 }

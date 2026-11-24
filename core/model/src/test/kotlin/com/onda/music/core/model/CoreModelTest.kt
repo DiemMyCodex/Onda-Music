@@ -62,4 +62,21 @@ class CoreModelTest {
         assertTrue(summary.importedTracks == 334)
         assertEquals(PlayerStyle.POSTER, summary.importedPlayerStyle)
     }
+
+    @Test
+    fun lyricsMotionStyleExposesAllFourModesAndBehaviorMatrix() {
+        assertEquals(
+            listOf(
+                LyricsMotionStyle.KINETIC_GLOW,
+                LyricsMotionStyle.WAVE_GLOW,
+                LyricsMotionStyle.KINETIC_CLEAN,
+                LyricsMotionStyle.PURE_SWEEP
+            ),
+            LyricsMotionStyle.entries
+        )
+        assertTrue(LyricsMotionStyle.KINETIC_GLOW.risesLetters && LyricsMotionStyle.KINETIC_GLOW.glowEnabled && LyricsMotionStyle.KINETIC_GLOW.cascadesRows)
+        assertTrue(!LyricsMotionStyle.WAVE_GLOW.risesLetters && LyricsMotionStyle.WAVE_GLOW.glowEnabled && !LyricsMotionStyle.WAVE_GLOW.cascadesRows)
+        assertTrue(LyricsMotionStyle.KINETIC_CLEAN.risesLetters && !LyricsMotionStyle.KINETIC_CLEAN.glowEnabled && LyricsMotionStyle.KINETIC_CLEAN.cascadesRows)
+        assertTrue(!LyricsMotionStyle.PURE_SWEEP.risesLetters && !LyricsMotionStyle.PURE_SWEEP.glowEnabled && !LyricsMotionStyle.PURE_SWEEP.cascadesRows)
+    }
 }

@@ -15,6 +15,7 @@ import com.onda.music.core.database.toEntity
 import com.onda.music.core.model.AudioOutputDevice
 import com.onda.music.core.model.EqConfig
 import com.onda.music.core.model.EqPreset
+import com.onda.music.core.model.LyricsMotionStyle
 import com.onda.music.core.model.MergePolicy
 import com.onda.music.core.model.PlayerStyle
 import com.onda.music.core.model.Playlist
@@ -247,6 +248,12 @@ class SettingsViewModel @Inject constructor(
     fun setLyricsMotionEnabled(enabled: Boolean) {
         viewModelScope.launch {
             preferences.setLyricsMotionEnabled(enabled)
+        }
+    }
+
+    fun setLyricsMotionStyle(style: LyricsMotionStyle) {
+        viewModelScope.launch {
+            preferences.setLyricsMotionStyle(style)
         }
     }
 

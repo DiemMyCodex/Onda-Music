@@ -31,6 +31,18 @@ enum class LyricsSource {
     CACHE
 }
 
+@Serializable
+enum class LyricsMotionStyle(
+    val risesLetters: Boolean,
+    val glowEnabled: Boolean,
+    val cascadesRows: Boolean
+) {
+    KINETIC_GLOW(risesLetters = true, glowEnabled = true, cascadesRows = true),
+    WAVE_GLOW(risesLetters = false, glowEnabled = true, cascadesRows = false),
+    KINETIC_CLEAN(risesLetters = true, glowEnabled = false, cascadesRows = true),
+    PURE_SWEEP(risesLetters = false, glowEnabled = false, cascadesRows = false)
+}
+
 @Immutable
 @Serializable
 data class LyricsDocument(

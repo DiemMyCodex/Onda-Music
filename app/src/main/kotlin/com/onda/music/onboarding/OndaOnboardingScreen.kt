@@ -100,14 +100,15 @@ import androidx.core.content.ContextCompat
 import com.onda.music.core.database.OndaUserSettings
 import com.onda.music.core.design.DockMetrics
 import com.onda.music.core.design.OndaAnimatedBrandMark
+import com.onda.music.core.design.OndaLyricSweepLine
 import com.onda.music.core.design.OndaPagerIndicator
 import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.design.RoundedHighlight
 import com.onda.music.core.design.SmoothCornerShape
 import com.onda.music.core.design.pressBounce
 import com.onda.music.core.model.LyricsLine
+import com.onda.music.core.model.LyricsMotionStyle
 import com.onda.music.core.model.PlayerStyle
-import com.onda.music.feature.player.FeatheredSweepWord
 import com.onda.music.feature.player.synthesizeWordTimings
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -973,25 +974,21 @@ private fun KineticEnginePage(
                 lineHeight = 25.sp,
                 fontWeight = FontWeight.ExtraBold
             )
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(5.dp, Alignment.Start),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                previewWords.forEach { word ->
-                    FeatheredSweepWord(
-                        text = word.text,
-                        style = sweepStyle,
-                        startTimeMs = word.startTimeMs,
-                        endTimeMs = word.endTimeMs,
-                        positionProvider = { loopPositionMs },
-                        activeColor = Color.White,
-                        baseColor = Color(0x52FFFFFF),
-                        motionActive = motionActive,
-                        glowColor = Color(0xFFE4E7FF)
-                    )
-                }
-            }
+            OndaLyricSweepLine(
+                text = activeLine.text,
+                words = previewWords,
+                lineStartMs = activeLine.startTimeMs,
+                lineEndMs = activeLine.endTimeMs,
+                positionProvider = { loopPositionMs },
+                style = sweepStyle,
+                motionStyle = LyricsMotionStyle.KINETIC_GLOW,
+                motionActive = motionActive,
+                activeColor = Color.White,
+                baseColor = Color(0x5AFFFFFF),
+                glowColor = Color(0xFFE4E7FF),
+                textAlign = TextAlign.Start,
+                motionScale = 0.85f
+            )
 
             Text(
                 text = copy.lyricsNext,

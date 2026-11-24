@@ -11,6 +11,7 @@ import com.onda.music.core.model.DownloadStatus
 import com.onda.music.core.model.EqConfig
 import com.onda.music.core.model.LyricsDocument
 import com.onda.music.core.model.LyricsLine
+import com.onda.music.core.model.LyricsMotionStyle
 import com.onda.music.core.model.LyricsSource
 import com.onda.music.core.model.LyricsWord
 import com.onda.music.core.model.PlayEvent
@@ -184,6 +185,7 @@ class DatabaseMappersAndPrefsTest {
 
         val defaults = preferences.currentSettings()
         assertEquals(PlayerStyle.POSTER, defaults.playerStyle)
+        assertEquals(LyricsMotionStyle.KINETIC_GLOW, defaults.lyricsMotionStyle)
         assertEquals(RepeatMode.OFF, defaults.repeatMode)
         assertFalse(defaults.shuffleEnabled)
         assertEquals("en", defaults.languageCode)
@@ -200,6 +202,7 @@ class DatabaseMappersAndPrefsTest {
         )
 
         preferences.setPlayerStyle(PlayerStyle.TURNTABLE)
+        preferences.setLyricsMotionStyle(LyricsMotionStyle.WAVE_GLOW)
         preferences.setEqConfig(eq)
         preferences.setRepeatMode(RepeatMode.ALL)
         preferences.setShuffleEnabled(true)
@@ -212,6 +215,7 @@ class DatabaseMappersAndPrefsTest {
 
         val updated = preferences.settings.first()
         assertEquals(PlayerStyle.TURNTABLE, updated.playerStyle)
+        assertEquals(LyricsMotionStyle.WAVE_GLOW, updated.lyricsMotionStyle)
         assertEquals(eq, updated.eqConfig)
         assertEquals(RepeatMode.ALL, updated.repeatMode)
         assertTrue(updated.shuffleEnabled)

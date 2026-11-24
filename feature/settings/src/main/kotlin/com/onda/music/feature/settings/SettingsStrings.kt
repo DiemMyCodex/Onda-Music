@@ -1,6 +1,7 @@
 package com.onda.music.feature.settings
 
 import androidx.compose.runtime.Immutable
+import com.onda.music.core.model.LyricsMotionStyle
 
 @Immutable
 data class SettingsStrings(
@@ -41,6 +42,25 @@ data class SettingsStrings(
     val glassBlurSubtitle: String,
     val dynamicMeshTitle: String,
     val dynamicMeshSubtitle: String,
+    val lyricsStyleTitle: String,
+    val lyricsStyleSubtitle: String,
+    val lyricsStyleSheetTitle: String,
+    val lyricsStyleKineticGlowName: String,
+    val lyricsStyleKineticGlowDesc: String,
+    val lyricsStyleWaveGlowName: String,
+    val lyricsStyleWaveGlowDesc: String,
+    val lyricsStyleKineticCleanName: String,
+    val lyricsStyleKineticCleanDesc: String,
+    val lyricsStylePureSweepName: String,
+    val lyricsStylePureSweepDesc: String,
+    val lyricsStyleTagBloom: String,
+    val lyricsStyleTagCascade: String,
+    val lyricsStyleTagWave: String,
+    val lyricsStyleTagCrisp: String,
+    val lyricsStyleTagSweep: String,
+    val lyricsStyleSamplePrev: String,
+    val lyricsStyleSampleLine: String,
+    val lyricsStyleSampleNext: String,
     val lyricsMotionTitle: String,
     val lyricsMotionSubtitle: String,
     val lyricsFontScaleTitle: String,
@@ -176,8 +196,27 @@ fun settingsStringsFor(languageCode: String): SettingsStrings {
             glassBlurSubtitle = "RenderEffect blur cho thanh phát và bảng điều khiển",
             dynamicMeshTitle = "Nền lưới động AGSL",
             dynamicMeshSubtitle = "Shader chuyển sắc mềm mại theo ảnh bìa bài hát",
+            lyricsStyleTitle = "Kiểu hoạt ảnh lời bài hát",
+            lyricsStyleSubtitle = "4 chế độ Onda Kinetic, Sóng quang học, Nổi nét tối giản và Quét chữ mượt",
+            lyricsStyleSheetTitle = "Chọn kiểu lời bài hát",
+            lyricsStyleKineticGlowName = "Onda Kinetic",
+            lyricsStyleKineticGlowDesc = "Chữ nổi theo làn sóng mượt, nốt ngân phồng sáng và cuộn tầng",
+            lyricsStyleWaveGlowName = "Sóng quang học",
+            lyricsStyleWaveGlowDesc = "Sóng ánh sáng và hào quang lướt theo nhịp hát, cuộn đồng khối",
+            lyricsStyleKineticCleanName = "Nổi nét tối giản",
+            lyricsStyleKineticCleanDesc = "Chuyển động nổi chữ và cuộn tầng sắc nét, không dùng shader phát sáng",
+            lyricsStylePureSweepName = "Quét chữ mượt",
+            lyricsStylePureSweepDesc = "Chỉ quét sáng mềm mại từng chữ, không rung hay nhấp nhô",
+            lyricsStyleTagBloom = "Hào quang AGSL",
+            lyricsStyleTagCascade = "Cuộn tầng",
+            lyricsStyleTagWave = "Sóng AGSL",
+            lyricsStyleTagCrisp = "OLED sắc nét",
+            lyricsStyleTagSweep = "Tối giản",
+            lyricsStyleSamplePrev = "Ánh đèn khuya lướt nhẹ qua khung kính",
+            lyricsStyleSampleLine = "Từng nhịp âm thanh ngân vang mãi",
+            lyricsStyleSampleNext = "Giữa màn đêm đen sâu tĩnh lặng",
             lyricsMotionTitle = "Chuyển động lời bài hát",
-            lyricsMotionSubtitle = "Nội suy 120Hz mượt mà, cuộn spring tự nhiên và tô sáng từng từ",
+            lyricsMotionSubtitle = "Bật hoặc tắt hoạt ảnh đồng bộ từng chữ trong Now Playing",
             lyricsFontScaleTitle = "Cỡ chữ lời bài hát",
             lyricsFontScaleSubtitle = "Điều chỉnh tỉ lệ hiển thị lời đồng bộ",
             hapticsTitle = "Phản hồi rung",
@@ -309,8 +348,27 @@ fun settingsStringsFor(languageCode: String): SettingsStrings {
             glassBlurSubtitle = "RenderEffect backdrop blur for dock and sheets",
             dynamicMeshTitle = "Dynamic AGSL Mesh",
             dynamicMeshSubtitle = "Animated artwork shader mesh behind player and hub",
+            lyricsStyleTitle = "Lyrics Animation Style",
+            lyricsStyleSubtitle = "4 modes: Onda Kinetic, Acoustic Wave, Clean Rise, and Pure Sweep",
+            lyricsStyleSheetTitle = "Choose Lyrics Style",
+            lyricsStyleKineticGlowName = "Onda Kinetic",
+            lyricsStyleKineticGlowDesc = "Letters rise in a smooth wave, held notes swell & bloom, rows cascade",
+            lyricsStyleWaveGlowName = "Acoustic Wave",
+            lyricsStyleWaveGlowDesc = "Continuous optical wave and trailing glow across sung letters",
+            lyricsStyleKineticCleanName = "Clean Rise",
+            lyricsStyleKineticCleanDesc = "Smooth letter rise and cascading scroll without bloom shader",
+            lyricsStylePureSweepName = "Pure Sweep",
+            lyricsStylePureSweepDesc = "Minimal feathered light sweep with zero vertical bounce",
+            lyricsStyleTagBloom = "AGSL Bloom",
+            lyricsStyleTagCascade = "Cascade",
+            lyricsStyleTagWave = "Optical Wave",
+            lyricsStyleTagCrisp = "OLED Crisp",
+            lyricsStyleTagSweep = "Minimal",
+            lyricsStyleSamplePrev = "City lights drift past the smoked glass",
+            lyricsStyleSampleLine = "Every single resonance holds in time",
+            lyricsStyleSampleNext = "Through the pure black quiet night",
             lyricsMotionTitle = "Synced Lyrics Motion",
-            lyricsMotionSubtitle = "55ms spring row stagger and word-level karaoke sweep",
+            lyricsMotionSubtitle = "Toggle real-time word sweep and kinetic motion in Now Playing",
             lyricsFontScaleTitle = "Lyrics Font Scale",
             lyricsFontScaleSubtitle = "Adjust synced lyrics readability scale",
             hapticsTitle = "Haptic Feedback",
@@ -404,4 +462,18 @@ fun settingsStringsFor(languageCode: String): SettingsStrings {
             replayOnboardingSubtitle = "Revisit Onda's first-launch tour and quick setup"
         )
     }
+}
+
+fun SettingsStrings.lyricsMotionStyleName(style: LyricsMotionStyle): String = when (style) {
+    LyricsMotionStyle.KINETIC_GLOW -> lyricsStyleKineticGlowName
+    LyricsMotionStyle.WAVE_GLOW -> lyricsStyleWaveGlowName
+    LyricsMotionStyle.KINETIC_CLEAN -> lyricsStyleKineticCleanName
+    LyricsMotionStyle.PURE_SWEEP -> lyricsStylePureSweepName
+}
+
+fun SettingsStrings.lyricsMotionStyleDesc(style: LyricsMotionStyle): String = when (style) {
+    LyricsMotionStyle.KINETIC_GLOW -> lyricsStyleKineticGlowDesc
+    LyricsMotionStyle.WAVE_GLOW -> lyricsStyleWaveGlowDesc
+    LyricsMotionStyle.KINETIC_CLEAN -> lyricsStyleKineticCleanDesc
+    LyricsMotionStyle.PURE_SWEEP -> lyricsStylePureSweepDesc
 }

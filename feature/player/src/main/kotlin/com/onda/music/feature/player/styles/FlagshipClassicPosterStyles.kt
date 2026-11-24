@@ -4,6 +4,7 @@ import android.os.Build
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
@@ -121,13 +122,14 @@ import com.onda.music.core.design.AppMotion
 import com.onda.music.core.design.GlassTokens
 import com.onda.music.core.design.OndaAcousticBarLoader
 import com.onda.music.core.design.OndaArtworkPalette
+import com.onda.music.core.design.OndaLyricSweepLine
 import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.design.RoundedHighlight
 import com.onda.music.core.model.LyricsDocument
 import com.onda.music.core.model.LyricsLine
+import com.onda.music.core.model.LyricsMotionStyle
 import com.onda.music.core.model.PlaybackStatus
 import com.onda.music.core.model.StudioQuickAction
-import com.onda.music.feature.player.FeatheredSweepWord
 import com.onda.music.feature.player.GlassPillButton
 import com.onda.music.feature.player.LyricsInterludeDots
 import com.onda.music.feature.player.LyricsPane
@@ -239,6 +241,7 @@ fun FlagshipPlayerStyle(
                             isLoading = ctx.isLyricsLoading,
                             errorMessage = ctx.lyricsError,
                             lyricsMotionEnabled = ctx.settings.lyricsMotionEnabled,
+                            lyricsMotionStyle = ctx.settings.lyricsMotionStyle,
                             lyricsFontScale = ctx.settings.lyricsFontScale,
                             hapticsEnabled = ctx.settings.hapticsEnabled,
                             onSeekToMs = ctx.onSeekToMs,
@@ -413,6 +416,7 @@ fun ClassicPlayerStyle(
                         isLoading = ctx.isLyricsLoading,
                         errorMessage = ctx.lyricsError,
                         lyricsMotionEnabled = ctx.settings.lyricsMotionEnabled,
+                        lyricsMotionStyle = ctx.settings.lyricsMotionStyle,
                         lyricsFontScale = ctx.settings.lyricsFontScale,
                         hapticsEnabled = ctx.settings.hapticsEnabled,
                         onSeekToMs = ctx.onSeekToMs,
@@ -1147,6 +1151,7 @@ fun PosterPlayerStyle(
                                 isLoading = ctx.isLyricsLoading,
                                 expanded = ctx.showInlineLyrics,
                                 lyricsMotionEnabled = ctx.settings.lyricsMotionEnabled,
+                                lyricsMotionStyle = ctx.settings.lyricsMotionStyle,
                                 hapticsEnabled = ctx.settings.hapticsEnabled,
                                 onToggleExpanded = ctx.onToggleInlineLyrics,
                                 onSeekToMs = ctx.onSeekToMs,
@@ -1519,7 +1524,7 @@ private fun PosterGlassActionPill(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PosterKineticLyrics(
     lyrics: LyricsDocument?,
@@ -1530,6 +1535,7 @@ private fun PosterKineticLyrics(
     isLoading: Boolean,
     expanded: Boolean,
     lyricsMotionEnabled: Boolean,
+    lyricsMotionStyle: LyricsMotionStyle,
     hapticsEnabled: Boolean,
     onToggleExpanded: () -> Unit,
     onSeekToMs: (Long) -> Unit,
@@ -1543,7 +1549,7 @@ private fun PosterKineticLyrics(
     val reducedMotion = OndaTheme.reducedMotion
     val motionActive = lyricsMotionEnabled && !reducedMotion
     val glowTint = remember(accentColor) {
-        colorLerp(Color.White, accentColor, 0.34f)
+        colorLerp(Color.White, accentColor, 0.30f)
     }
     val haptics = LocalHapticFeedback.current
     val density = LocalDensity.current
@@ -1561,12 +1567,13 @@ private fun PosterKineticLyrics(
         active = isSynced && lines.isNotEmpty()
     )
 
-    val effectivePositionMs = (positionMs + lyricsOffsetMs).coerceAtLeast(0L)
     val smoothPositionProvider: () -> Long = remember(lyricClock, lyricsOffsetMs) {
         { (lyricClock.positionMs + lyricsOffsetMs).coerceAtLeast(0L) }
     }
-    val activeIndex = remember(lines, effectivePositionMs, isSynced) {
-        findActiveLyricsLineIndex(lines, effectivePositionMs, isSynced)
+    val activeIndex by remember(lines, lyricClock, lyricsOffsetMs, isSynced) {
+        derivedStateOf {
+            findActiveLyricsLineIndex(lines, (lyricClock.positionMs + lyricsOffsetMs).coerceAtLeast(0L), isSynced)
+        }
     }
 
     val spotlightIndex = remember(lines, activeIndex, isSynced, positionMs, durationMs) {
@@ -1603,7 +1610,7 @@ private fun PosterKineticLyrics(
     val maxOffsetPx = with(density) { 120.dp.toPx() }
     val fallbackOffsetPx = with(density) { 72.dp.toPx() }
 
-    LaunchedEffect(activeIndex, userDetachedScroll, isSynced, expanded, motionActive) {
+    LaunchedEffect(activeIndex, userDetachedScroll, isSynced, expanded, motionActive, lyricsMotionStyle) {
         if (!expanded || !isSynced || activeIndex !in lines.indices || userDetachedScroll) return@LaunchedEffect
         val layoutInfo = listState.layoutInfo
         val viewportHeight = layoutInfo.viewportSize.height.toFloat()
@@ -1617,14 +1624,19 @@ private fun PosterKineticLyrics(
             val currentTop = visible.offset - layoutInfo.viewportStartOffset
             val distance = (currentTop - restingOffsetPx).toFloat()
             if (abs(distance) > 1f) {
+                val recenterEasing = if (lyricsMotionStyle.risesLetters) {
+                    CubicBezierEasing(0.42f, 0f, 0.16f, 1f)
+                } else {
+                    CubicBezierEasing(0.5f, 0.45f, 0f, 1f)
+                }
                 listState.scroll {
                     var previous = 0f
                     animate(
                         initialValue = 0f,
                         targetValue = distance,
-                        animationSpec = spring(
-                            dampingRatio = 0.88f,
-                            stiffness = 175f
+                        animationSpec = tween(
+                            durationMillis = 760,
+                            easing = recenterEasing
                         )
                     ) { value, _ ->
                         val consumed = scrollBy(value - previous)
@@ -1740,6 +1752,7 @@ private fun PosterKineticLyrics(
                         smoothPositionProvider = smoothPositionProvider,
                         isPlaying = isPlaying,
                         motionActive = motionActive,
+                        motionStyle = lyricsMotionStyle,
                         glowColor = glowTint
                     )
                 }
@@ -1791,6 +1804,7 @@ private fun PosterKineticLyrics(
                             isUserScrolling = userDetachedScroll,
                             isPlaying = isPlaying,
                             motionActive = motionActive,
+                            motionStyle = lyricsMotionStyle,
                             onClick = {
                                 if (hapticsEnabled) {
                                     haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -1852,7 +1866,6 @@ private fun PosterKineticLyrics(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PosterSpotlightStanza(
     line: LyricsLine,
@@ -1862,6 +1875,7 @@ private fun PosterSpotlightStanza(
     smoothPositionProvider: () -> Long,
     isPlaying: Boolean,
     motionActive: Boolean,
+    motionStyle: LyricsMotionStyle,
     glowColor: Color = Color.White
 ) {
     val spotlightStyle = MaterialTheme.typography.headlineMedium.copy(
@@ -1910,33 +1924,35 @@ private fun PosterSpotlightStanza(
         synthesizeWordTimings(
             line = line,
             nextLineStartMs = nextLineStartMs,
-            preferExplicit = hasWordTiming,
-            maxTokens = 16
+            preferExplicit = hasWordTiming
         )
     }
-
-    FlowRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.Start),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        wordSlices.forEach { slice ->
-            FeatheredSweepWord(
-                text = slice.text,
-                style = spotlightStyle,
-                startTimeMs = slice.startTimeMs,
-                endTimeMs = slice.endTimeMs,
-                positionProvider = smoothPositionProvider,
-                activeColor = Color.White,
-                baseColor = Color(0x52FFFFFF),
-                motionActive = motionActive,
-                glowColor = glowColor
-            )
+    val resolvedEndMs = remember(line, nextLineStartMs) {
+        when {
+            line.endTimeMs > line.startTimeMs + 250L -> line.endTimeMs
+            nextLineStartMs != null && nextLineStartMs > line.startTimeMs + 250L -> nextLineStartMs
+            else -> line.startTimeMs + 3_500L
         }
     }
+
+    OndaLyricSweepLine(
+        text = line.text,
+        words = wordSlices,
+        lineStartMs = line.startTimeMs,
+        lineEndMs = resolvedEndMs,
+        positionProvider = smoothPositionProvider,
+        style = spotlightStyle,
+        motionStyle = motionStyle,
+        motionActive = motionActive,
+        activeColor = Color.White,
+        baseColor = Color(0x5AFFFFFF),
+        glowColor = glowColor,
+        textAlign = TextAlign.Start,
+        motionScale = 1.1f
+    )
 }
 
-@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PosterLyricRow(
     line: LyricsLine,
@@ -1950,6 +1966,7 @@ private fun PosterLyricRow(
     isUserScrolling: Boolean,
     isPlaying: Boolean,
     motionActive: Boolean,
+    motionStyle: LyricsMotionStyle,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null
 ) {
@@ -1978,11 +1995,11 @@ private fun PosterLyricRow(
 
     val focus by animateFloatAsState(
         targetValue = if (!isSynced || isActive) 1f else 0f,
-        animationSpec = AppMotion.adaptiveSpring(
-            dampingRatio = 0.86f,
-            stiffness = 240f,
-            reducedMotion = !motionActive
-        ),
+        animationSpec = if (!motionActive) {
+            snap()
+        } else {
+            tween(durationMillis = 520, easing = FastOutSlowInEasing)
+        },
         label = "PosterLyricFocus"
     )
 
@@ -1992,7 +2009,7 @@ private fun PosterLyricRow(
         else -> 0.22f
     }
     val rowAlpha = if (!isSynced) 1f else lerp(inactiveAlpha, 1f, focus)
-    val rowScale = if (motionActive && isSynced) lerp(0.94f, 1.035f, focus) else 1f
+    val rowScale = if (motionActive && isSynced) lerp(0.955f, 1.045f, focus) else 1f
     val rowBlurPx = when {
         !motionActive || !isSynced || isActive || isUserScrolling || Build.VERSION.SDK_INT < Build.VERSION_CODES.S -> 0f
         distanceFromActive <= 1 -> 1.0f
@@ -2004,10 +2021,11 @@ private fun PosterLyricRow(
     val textStyle = MaterialTheme.typography.headlineMedium.copy(
         fontSize = 28.sp,
         lineHeight = 36.sp,
-        fontWeight = FontWeight.ExtraBold
+        fontWeight = FontWeight.ExtraBold,
+        fontFeatureSettings = if (motionActive && motionStyle.risesLetters) "liga 0, clig 0" else null
     )
     val rowInteraction = remember { MutableInteractionSource() }
-    val showWordSweep = isSynced && line.text.isNotBlank() && (isActive || focus > 0.08f)
+    val showWordSweep = isSynced && line.text.isNotBlank() && (isActive || focus > 0.04f)
     val resolvedWords = remember(line, nextLineStartMs, hasWordTiming) {
         if (isSynced && line.text.isNotBlank()) {
             synthesizeWordTimings(
@@ -2017,6 +2035,13 @@ private fun PosterLyricRow(
             )
         } else {
             emptyList()
+        }
+    }
+    val resolvedEndMs = remember(line, nextLineStartMs) {
+        when {
+            line.endTimeMs > line.startTimeMs + 250L -> line.endTimeMs
+            nextLineStartMs != null && nextLineStartMs > line.startTimeMs + 250L -> nextLineStartMs
+            else -> line.startTimeMs + 3_500L
         }
     }
 
@@ -2052,26 +2077,24 @@ private fun PosterLyricRow(
             .padding(horizontal = 4.dp, vertical = 2.dp),
         contentAlignment = Alignment.CenterStart
     ) {
-        if (showWordSweep && resolvedWords.isNotEmpty()) {
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(7.dp, Alignment.Start),
-                verticalArrangement = Arrangement.spacedBy(3.dp)
-            ) {
-                resolvedWords.forEach { word ->
-                    FeatheredSweepWord(
-                        text = word.text,
-                        style = textStyle,
-                        startTimeMs = word.startTimeMs,
-                        endTimeMs = word.endTimeMs.coerceAtLeast(word.startTimeMs + 80L),
-                        positionProvider = smoothPositionProvider,
-                        activeColor = Color.White,
-                        baseColor = Color(0x52FFFFFF),
-                        motionActive = motionActive,
-                        glowColor = glowColor
-                    )
-                }
-            }
+        if (showWordSweep) {
+            OndaLyricSweepLine(
+                text = line.text,
+                words = resolvedWords,
+                lineStartMs = line.startTimeMs,
+                lineEndMs = resolvedEndMs,
+                positionProvider = smoothPositionProvider,
+                style = textStyle,
+                motionStyle = motionStyle,
+                motionActive = motionActive,
+                activeColor = Color.White,
+                baseColor = Color(0x5AFFFFFF),
+                glowColor = glowColor,
+                textAlign = TextAlign.Start,
+                waveAmplitudeProvider = { focus },
+                riseAmplitudeProvider = { focus },
+                motionScale = 1.08f
+            )
         } else {
             Text(
                 text = line.text,

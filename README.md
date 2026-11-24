@@ -51,13 +51,14 @@ Updating works the same way: install the newer APK right over the old one and yo
 
 ---
 
-## What is inside
+## What is inside (`v1.2.6`)
 
-- Pure `#000000` OLED monochrome look with squircle geometry, smoked glass blur, and optional AGSL artwork mesh.
+- Pure `#000000` OLED monochrome look with squircle geometry, seamless black system splash into Acoustic Ignition launch choreography, smoked glass blur, and optional AGSL artwork mesh.
+- First-launch 4-stage Acoustic Studio onboarding (bilingual Vietnamese/English, live lyrics motion preview, 2x2 Now Playing stage picker, and polite permission flow — replayable anytime in Settings).
 - 10 switchable Now Playing styles (`Poster`, `Flagship` curved-arc, `Classic`, `Turntable`, `Video`, `iPod`, `Timeline`, `Lyrics`, `Bedside`, and `Bedside Tiles`).
-- 10-band parametric EQ (`31Hz` to `16kHz`), preamp, loudness normalization, gapless playback, crossfade, and per-output EQ memory that remembers your curve for each Bluetooth headset, wired pair, USB DAC, or phone speaker.
-- Synced lyrics with tap-to-seek, timing offset, and a sleep timer (`15m`, `30m`, `45m`, `60m`, or end of track) with a 15-second volume fade-out before pausing.
-- Plays local audio files alongside YouTube Music, Monochrome FLAC streams, and link imports from Spotify, Apple Music, Deezer, or YouTube Music.
+- Continuous 120Hz synced lyrics engine with 4 selectable animation styles in Settings (`Onda Kinetic`, `Acoustic Wave`, `Clean Rise`, and `Pure Sweep`), live singing previews, smooth ease-in auto-scroll, tap-to-seek, timing offset, and held-note AGSL bloom.
+- 10-band parametric EQ (`31Hz` to `16kHz`), preamp, loudness normalization, gapless playback, crossfade, sleep timer (`15m`, `30m`, `45m`, `60m`, or end of track with a 15-second volume fade-out), and per-output EQ memory for Bluetooth headsets, wired pairs, USB DACs, and phone speakers.
+- Plays local audio files alongside fast hedged YouTube Music stream resolution, Monochrome lossless FLAC streams with automatic failover, and link imports from Spotify, Apple Music, Deezer, or YouTube Music.
 - Portable ZIP backups, including direct import for `momi-export-*.zip` archives if you are coming over from MomiMusic or Mochy Music.
 
 ---
@@ -74,7 +75,7 @@ A - That usually means their upstream server is down or rate-limiting. Switch of
 
 Q - The app feels heavy or drains battery on an older phone
 
-A - Turning off Smoked Glass Blur and Dynamic AGSL Mesh in Settings -> Now Playing & Motion helps right away.
+A - Turning off Smoked Glass Blur and Dynamic AGSL Mesh in Settings -> Now Playing & Motion, or switching Lyrics Animation Style to `Clean Rise` or `Pure Sweep`, helps right away.
 
 Q - Can I bring my library over from MomiMusic or Mochy Music?
 
@@ -119,9 +120,9 @@ Debug builds install side-by-side with `com.onda.music.debug` so they will not t
 
 | Command | What it does |
 | --- | --- |
-| `./gradlew :app:assembleArm64Debug --no-daemon` | builds the arm64 debug APK |
-| `./gradlew :app:assembleArm64Release --no-daemon` | builds the minified arm64 release APK |
-| `./gradlew testDebugUnitTest --no-daemon` | runs JVM unit tests across modules |
+| `./gradlew :app:assembleArm64Debug` | builds the arm64 debug APK |
+| `./gradlew :app:assembleArm64Release` | builds the minified arm64 release APK |
+| `./gradlew testDebugUnitTest :app:testArm64DebugUnitTest` | runs JVM unit tests across all modules |
 
 ### Release signing (optional)
 

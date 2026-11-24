@@ -11,6 +11,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.onda.music.core.model.AudioOutputEqProfile
 import com.onda.music.core.model.EqConfig
+import com.onda.music.core.model.LyricsMotionStyle
 import com.onda.music.core.model.PlayerStudioConfig
 import com.onda.music.core.model.PlayerStyle
 import com.onda.music.core.model.RepeatMode
@@ -33,6 +34,7 @@ data class OndaUserSettings(
     val glassBlurEnabled: Boolean = true,
     val dynamicMeshEnabled: Boolean = true,
     val lyricsMotionEnabled: Boolean = true,
+    val lyricsMotionStyle: LyricsMotionStyle = LyricsMotionStyle.KINETIC_GLOW,
     val lyricsFontScale: Float = 1.0f,
     val hapticsEnabled: Boolean = true,
     val monochromeEnabled: Boolean = true,
@@ -74,6 +76,7 @@ class OndaPreferences @Inject constructor(
         val glassBlurEnabled = booleanPreferencesKey("glass_blur_enabled")
         val dynamicMeshEnabled = booleanPreferencesKey("dynamic_mesh_enabled")
         val lyricsMotionEnabled = booleanPreferencesKey("lyrics_motion_enabled")
+        val lyricsMotionStyle = stringPreferencesKey("lyrics_motion_style")
         val lyricsFontScale = floatPreferencesKey("lyrics_font_scale")
         val hapticsEnabled = booleanPreferencesKey("haptics_enabled")
         val monochromeEnabled = booleanPreferencesKey("monochrome_enabled")
@@ -157,6 +160,10 @@ class OndaPreferences @Inject constructor(
 
     suspend fun setLyricsMotionEnabled(enabled: Boolean) {
         dataStore.edit { it[Keys.lyricsMotionEnabled] = enabled }
+    }
+
+    suspend fun setLyricsMotionStyle(style: LyricsMotionStyle) {
+        dataStore.edit { it[Keys.lyricsMotionStyle] = style.name }
     }
 
     suspend fun setLyricsFontScale(scale: Float) {
@@ -308,6 +315,9 @@ class OndaPreferences @Inject constructor(
         val repeat = prefs[Keys.repeatMode]?.let { raw ->
             runCatching { RepeatMode.valueOf(raw) }.getOrNull()
         } ?: RepeatMode.OFF
+        val lyricsStyle = prefs[Keys.lyricsMotionStyle]?.let { raw ->
+            runCatching { LyricsMotionStyle.valueOf(raw) }.getOrNull()
+        } ?: LyricsMotionStyle.KINETIC_GLOW
         return OndaUserSettings(
             playerStyle = style,
             eqConfig = decodeEqConfig(prefs[Keys.eqConfigJson]),
@@ -316,6 +326,7 @@ class OndaPreferences @Inject constructor(
             glassBlurEnabled = prefs[Keys.glassBlurEnabled] ?: true,
             dynamicMeshEnabled = prefs[Keys.dynamicMeshEnabled] ?: true,
             lyricsMotionEnabled = prefs[Keys.lyricsMotionEnabled] ?: true,
+            lyricsMotionStyle = lyricsStyle,
             lyricsFontScale = (prefs[Keys.lyricsFontScale] ?: 1.0f).coerceIn(0.75f, 1.75f),
             hapticsEnabled = prefs[Keys.hapticsEnabled] ?: true,
             monochromeEnabled = prefs[Keys.monochromeEnabled] ?: true,
@@ -346,6 +357,7 @@ class OndaPreferences @Inject constructor(
         prefs[Keys.glassBlurEnabled] = settings.glassBlurEnabled
         prefs[Keys.dynamicMeshEnabled] = settings.dynamicMeshEnabled
         prefs[Keys.lyricsMotionEnabled] = settings.lyricsMotionEnabled
+        prefs[Keys.lyricsMotionStyle] = settings.lyricsMotionStyle.name
         prefs[Keys.lyricsFontScale] = settings.lyricsFontScale.coerceIn(0.75f, 1.75f)
         prefs[Keys.hapticsEnabled] = settings.hapticsEnabled
         prefs[Keys.monochromeEnabled] = settings.monochromeEnabled

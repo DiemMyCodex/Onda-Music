@@ -46,6 +46,10 @@ class SettingsStateTest {
         val styleMatches = filterSettingsEntries(entries, "turntable")
         assertEquals(1, styleMatches.size)
         assertEquals(SettingsEntryId.PLAYER_STYLE_PICKER, styleMatches.first().id)
+
+        val lyricsStyleMatches = filterSettingsEntries(entries, "lyrics style")
+        assertEquals(1, lyricsStyleMatches.size)
+        assertEquals(SettingsEntryId.LYRICS_STYLE_PICKER, lyricsStyleMatches.first().id)
     }
 
     @Test

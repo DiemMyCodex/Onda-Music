@@ -35,6 +35,7 @@ enum class SettingsEntryId {
     PLAYER_STYLE_PICKER,
     GLASS_BLUR,
     DYNAMIC_MESH,
+    LYRICS_STYLE_PICKER,
     LYRICS_MOTION,
     LYRICS_FONT_SCALE,
     HAPTIC_FEEDBACK,
@@ -197,6 +198,13 @@ fun buildSettingsSearchEntries(strings: SettingsStrings): List<SettingsSearchEnt
         title = strings.dynamicMeshTitle,
         subtitle = strings.dynamicMeshSubtitle,
         keywords = listOf("mesh", "agsl", "shader", "gradient", "background", "nen dong")
+    ),
+    SettingsSearchEntry(
+        id = SettingsEntryId.LYRICS_STYLE_PICKER,
+        group = SettingsGroup.NOW_PLAYING_MOTION,
+        title = strings.lyricsStyleTitle,
+        subtitle = strings.lyricsStyleSubtitle,
+        keywords = listOf("lyrics style", "kinetic", "wave", "sweep", "bloom", "glow", "kieu loi", "hoat anh loi")
     ),
     SettingsSearchEntry(
         id = SettingsEntryId.LYRICS_MOTION,

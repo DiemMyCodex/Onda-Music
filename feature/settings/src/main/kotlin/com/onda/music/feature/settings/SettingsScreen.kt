@@ -61,6 +61,7 @@ import androidx.compose.material.icons.rounded.HighQuality
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Person
@@ -120,6 +121,7 @@ import com.onda.music.core.design.rememberRevealSeenState
 import com.onda.music.core.design.revealOnAppear
 import com.onda.music.core.model.EqConfig
 import com.onda.music.core.model.EqPreset
+import com.onda.music.core.model.LyricsMotionStyle
 import com.onda.music.core.model.MergePolicy
 import com.onda.music.core.model.PlayerStyle
 import java.io.File
@@ -155,6 +157,7 @@ fun SettingsRoute(
         onPlayerStyleChange = viewModel::setPlayerStyle,
         onGlassBlurChange = viewModel::setGlassBlurEnabled,
         onDynamicMeshChange = viewModel::setDynamicMeshEnabled,
+        onLyricsMotionStyleChange = viewModel::setLyricsMotionStyle,
         onLyricsMotionChange = viewModel::setLyricsMotionEnabled,
         onLyricsFontScaleChange = viewModel::setLyricsFontScale,
         onHapticsChange = viewModel::setHapticsEnabled,
@@ -207,6 +210,7 @@ fun SettingsScreen(
     onPlayerStyleChange: (PlayerStyle) -> Unit,
     onGlassBlurChange: (Boolean) -> Unit,
     onDynamicMeshChange: (Boolean) -> Unit,
+    onLyricsMotionStyleChange: (LyricsMotionStyle) -> Unit,
     onLyricsMotionChange: (Boolean) -> Unit,
     onLyricsFontScaleChange: (Float) -> Unit,
     onHapticsChange: (Boolean) -> Unit,
@@ -248,6 +252,7 @@ fun SettingsScreen(
     var isSearchFocused by remember { mutableStateOf(false) }
     var showEqSheet by rememberSaveable { mutableStateOf(false) }
     var showPlayerStyleSheet by rememberSaveable { mutableStateOf(false) }
+    var showLyricsStyleSheet by rememberSaveable { mutableStateOf(false) }
     var showTransferSheet by rememberSaveable { mutableStateOf(false) }
     var showUsernameDialog by rememberSaveable { mutableStateOf(false) }
     var showYtCookieDialog by rememberSaveable { mutableStateOf(false) }
@@ -307,6 +312,7 @@ fun SettingsScreen(
             onKeepPlayingChange = onKeepPlayingChange,
             onKeepScreenOnChange = onKeepScreenOnChange,
             onOpenPlayerStyle = { showPlayerStyleSheet = true },
+            onOpenLyricsStyle = { showLyricsStyleSheet = true },
             onGlassBlurChange = onGlassBlurChange,
             onDynamicMeshChange = onDynamicMeshChange,
             onLyricsMotionChange = onLyricsMotionChange,
@@ -728,6 +734,18 @@ fun SettingsScreen(
         )
     }
 
+    if (showLyricsStyleSheet) {
+        LyricsStylePickerSheet(
+            selectedStyle = settings.lyricsMotionStyle,
+            lyricsMotionEnabled = settings.lyricsMotionEnabled,
+            hapticsEnabled = settings.hapticsEnabled,
+            strings = strings,
+            onSelectStyle = onLyricsMotionStyleChange,
+            onLyricsMotionChange = onLyricsMotionChange,
+            onDismiss = { showLyricsStyleSheet = false }
+        )
+    }
+
     if (showTransferSheet) {
         TransferSheet(
             transferState = uiState.transfer,
@@ -837,6 +855,7 @@ private fun entryIconFor(id: SettingsEntryId): ImageVector = when (id) {
     SettingsEntryId.PLAYER_STYLE_PICKER -> Icons.Rounded.Palette
     SettingsEntryId.GLASS_BLUR -> Icons.Rounded.BlurOn
     SettingsEntryId.DYNAMIC_MESH -> Icons.Rounded.Gradient
+    SettingsEntryId.LYRICS_STYLE_PICKER -> Icons.Rounded.Lyrics
     SettingsEntryId.LYRICS_MOTION -> Icons.Rounded.MusicNote
     SettingsEntryId.LYRICS_FONT_SCALE -> Icons.Rounded.TextFields
     SettingsEntryId.HAPTIC_FEEDBACK -> Icons.Rounded.Vibration
@@ -873,6 +892,7 @@ private fun SettingsEntryRow(
     onKeepPlayingChange: (Boolean) -> Unit,
     onKeepScreenOnChange: (Boolean) -> Unit,
     onOpenPlayerStyle: () -> Unit,
+    onOpenLyricsStyle: () -> Unit,
     onGlassBlurChange: (Boolean) -> Unit,
     onDynamicMeshChange: (Boolean) -> Unit,
     onLyricsMotionChange: (Boolean) -> Unit,
@@ -1109,6 +1129,16 @@ private fun SettingsEntryRow(
                 checked = settings.dynamicMeshEnabled,
                 onCheckedChange = onDynamicMeshChange,
                 hapticsEnabled = haptics
+            )
+        }
+        SettingsEntryId.LYRICS_STYLE_PICKER -> {
+            SettingsActionRow(
+                icon = Icons.Rounded.Lyrics,
+                title = entry.title,
+                subtitle = entry.subtitle,
+                badgeText = strings.lyricsMotionStyleName(settings.lyricsMotionStyle),
+                badgeAccent = settings.lyricsMotionEnabled,
+                onClick = onOpenLyricsStyle
             )
         }
         SettingsEntryId.LYRICS_MOTION -> {

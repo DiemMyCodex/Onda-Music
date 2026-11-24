@@ -1,75 +1,167 @@
-# Onda
+<img width="1280" height="520" alt="Onda" src="assets/banner.svg" />
 
-[![Onda CI](https://github.com/DiemMyCodex/Onda-Music/actions/workflows/ci.yml/badge.svg)](https://github.com/DiemMyCodex/Onda-Music/actions/workflows/ci.yml)
+<div align="center">
 
-Native Android music player built with Kotlin, Jetpack Compose, and Media3 — featuring 120Hz GPU-accelerated motion, 10-band parametric EQ with per-output device profiles, synced lyrics, and a monochrome OLED interface.
+  <sub>What is Onda? It is a fast, pure-black OLED music player for Android. Open source, local-first, no ads, and it does not collect your data. Still actively being built, so expect a few rough edges along the way.</sub>
+  <br/>
+<p align="center">
+  <a href="https://github.com/DiemMyCodex/Onda-Music/releases">
+    <img src="https://shieldcn.dev/github/downloads/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff" alt="Downloads" />
+  </a>
+  <a href="https://github.com/DiemMyCodex/Onda-Music/stargazers">
+    <img src="https://shieldcn.dev/github/stars/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff" alt="Stars" />
+  </a>
+  <a href="https://github.com/DiemMyCodex/Onda-Music/network/members">
+    <img src="https://shieldcn.dev/github/forks/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff" alt="Forks" />
+  </a>
+  <a href="https://github.com/DiemMyCodex/Onda-Music/releases">
+    <img src="https://shieldcn.dev/badge/Android-10%2B-1e1e1e.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logo=android&logoColor=ffffff" alt="Android 10+" />
+  </a>
+  <a href="https://github.com/DiemMyCodex/Onda-Music/releases/latest">
+    <img src="https://shieldcn.dev/github/release/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff" alt="Latest Release" />
+  </a>
+</p>
+</div>
 
-Target stack: Android 10+ (`minSdk = 29`, `targetSdk = 35`, `compileSdk = 37`), JDK 21, Multi-Module Gradle.
+> [!NOTE]
+> Onda is still under active development. If something crashes or feels off, opening an issue helps a lot.
 
-## Features
+---
 
-- **Audio Lab & Per-Output EQ Memory:** 10-band parametric equalizer (`31 Hz` to `16 kHz`) with preamp gain, loudness normalization, gapless playback, crossfade (`0-12s`), and automatic per-device profile switching across Speaker, Wired Headset, USB Audio/DAC, and Bluetooth routes.
-- **Now Playing Studio:** 10 native player styles (`Poster`, `Flagship`, `Classic`, `Turntable`, `Video`, `iPod`, `Timeline`, `Lyrics`, `Bedside`, `Bedside Tiles`), curved-arc and wavy scrubbers, custom backdrop modes, and quick-action studio configuration.
-- **Synced Lyrics & Acoustic Sleep Timer:** Word-level and line-synced lyrics with interactive tap-to-seek, adjustable offset (`+/-15s`), lyric card sharing, and a sleep timer (`15m`, `30m`, `45m`, `60m`, or `End of Track`) with a smooth 15-second volume fade-out before pausing.
-- **Playback & System Controls:** Skip silence, auto-resume on headset/Bluetooth connection, background playback persistence across task dismissal, and optional keep-screen-on mode.
-- **Multi-Source Library & Backup Transfer:** Unified playback pipeline across Local MediaStore, YouTube Music, Monochrome FLAC streams, and link imports, plus portable ZIP backup export/restore (`Onda` and `momi-transfer v1`).
+## How to install
 
-## Download
+1. Open the [latest release](https://github.com/DiemMyCodex/Onda-Music/releases/latest) on your phone.
+2. Download the `.apk` file. Pick **arm64** for basically any modern Android phone (64-bit, Android 10+).
+3. Tap the downloaded file and allow installs from your browser or file manager if Android asks (you can turn it back off right after).
+4. Open Onda and start listening. No account or sign-in needed.
 
-Prebuilt signed `arm64-v8a` APKs are published on [GitHub Releases](https://github.com/DiemMyCodex/Onda-Music/releases/latest).
+Updating works the same way: install the newer APK right over the old one and your library, playlists, and EQ profiles stay intact.
 
-## Quick Start
+> [!TIP]
+> Only download Onda from the Releases page of this repository. Random re-uploads or forwarded links could be modified.
 
-Requires JDK 21 and Android SDK (`compileSdk = 37`, `minSdk = 29`).
+---
+
+## What is inside
+
+- Pure `#000000` OLED monochrome look with squircle geometry, smoked glass blur, and optional AGSL artwork mesh.
+- 10 switchable Now Playing styles (`Poster`, `Flagship` curved-arc, `Classic`, `Turntable`, `Video`, `iPod`, `Timeline`, `Lyrics`, `Bedside`, and `Bedside Tiles`).
+- 10-band parametric EQ (`31Hz` to `16kHz`), preamp, loudness normalization, gapless playback, crossfade, and per-output EQ memory that remembers your curve for each Bluetooth headset, wired pair, USB DAC, or phone speaker.
+- Synced lyrics with tap-to-seek, timing offset, and a sleep timer (`15m`, `30m`, `45m`, `60m`, or end of track) with a 15-second volume fade-out before pausing.
+- Plays local audio files alongside YouTube Music, Monochrome FLAC streams, and link imports from Spotify, Apple Music, Deezer, or YouTube Music.
+- Portable ZIP backups, including direct import for `momi-export-*.zip` archives if you are coming over from MomiMusic or Mochy Music.
+
+---
+
+## FAQ
+
+Q - Do I need to log in? Is adding a cookie safe?
+
+A - No account is needed to search, play music, read lyrics, or download tracks. Adding a YouTube Music cookie is completely optional and only used to read private playlists or personal shelves. Your cookie stays in private local storage on your phone. Onda has no account system and does not run any server, and the code is right here in this repo if you want to check how it works.
+
+Q - Monochrome FLAC is not playing or fails to load
+
+A - That usually means their upstream server is down or rate-limiting. Switch off Monochrome FLAC in Settings -> Sources & Link Import, or try another track or source.
+
+Q - The app feels heavy or drains battery on an older phone
+
+A - Turning off Smoked Glass Blur and Dynamic AGSL Mesh in Settings -> Now Playing & Motion helps right away.
+
+Q - Can I bring my library over from MomiMusic or Mochy Music?
+
+A - Yes. Export your `momi-export-*.zip` backup from that app and load it inside Onda under Settings -> Storage & Transfer.
+
+Q - Does it work on Android 9 or older?
+
+A - No, minimum supported version is Android 10 (API 29).
+
+Q - Can I contribute or report a bug?
+
+A - Sure, open an [issue](https://github.com/DiemMyCodex/Onda-Music/issues) or send a pull request.
+
+---
+
+## How to build it yourself
+
+You only need this if you want to edit the code. If you just want the app, grab the APK from releases above.
+
+### What you need
+
+- A Mac, Linux, or Windows computer
+- [Android Studio](https://developer.android.com/studio) (includes JDK 21 and the Android SDK)
+- Android SDK 37
+- A phone with USB debugging enabled, or an emulator
+
+### Steps
 
 ```bash
 git clone https://github.com/DiemMyCodex/Onda-Music.git
 cd Onda-Music
-./gradlew testDebugUnitTest :app:assembleArm64Debug --no-daemon
 ```
 
-To build a release APK locally (optional keystore environment variables):
+1. Open the folder in Android Studio once and let Gradle finish syncing (or point `sdk.dir` in `local.properties` to your Android SDK).
+2. Build the debug APK and install it over ADB:
+   ```bash
+   ./gradlew :app:assembleArm64Debug --no-daemon
+   adb install -r app/build/outputs/apk/arm64/debug/app-arm64-debug.apk
+   ```
+
+Debug builds install side-by-side with `com.onda.music.debug` so they will not touch your normal Onda install.
+
+| Command | What it does |
+| --- | --- |
+| `./gradlew :app:assembleArm64Debug --no-daemon` | builds the arm64 debug APK |
+| `./gradlew :app:assembleArm64Release --no-daemon` | builds the minified arm64 release APK |
+| `./gradlew testDebugUnitTest --no-daemon` | runs JVM unit tests across modules |
+
+### Release signing (optional)
+
+Onda builds fine without signing secrets by falling back to the local debug keystore. To sign a release build with your own keystore, set these environment variables before running `:app:assembleArm64Release`:
 
 ```bash
-./gradlew :app:assembleArm64Release --no-daemon
+export ONDA_KEYSTORE_PATH=/path/to/release.jks
+export ONDA_KEYSTORE_PASSWORD=...
+export ONDA_KEY_ALIAS=...
+export ONDA_KEY_PASSWORD=...
 ```
 
-## Architecture
+Never commit keystore files or passwords.
 
-```text
-Onda-Music/
-  app/                # Application entry, adaptive launcher icons, root shell & navigation
-  core/
-    model/            # Immutable domain contracts (tracks, EQ, output profiles, lyrics, playback)
-    design/           # Monochrome OLED tokens, SmoothCornerShape, launch choreography, blur/motion primitives
-    database/         # Room database, DAOs, and DataStore preferences
-    sources/          # MediaStore scanner, YouTube Music, Monochrome FLAC, and link importer
-    lyrics/           # Synced lyrics fetching, parsing, and offset/cache persistence
-    transfer/         # Archive backup export/restore and transfer importers
-    playback/         # Media3 service, ExoPlayer DSP pipeline, output monitor, sleep fade curve
-  feature/
-    home/             # Hero carousel, editorial shelves, quick-jump grid, detail sheet
-    search/           # Instant multi-source search and link import flow
-    library/          # Overview hub, playlists, liked songs, local folders, downloads, history
-    player/           # Unified dock, full-player morph, 10 player styles, queue, share cards
-    settings/         # Searchable 5-group settings hub, 10-band EQ sheet, backup UI
-```
+### If the build fails
 
-## Configuration & CI
+- Weird Hilt or KSP `Unresolved reference` errors after pulling changes: delete module `build/` folders and run Gradle again.
+- Wrong Java version: make sure Gradle is running on JDK 21.
+- Still stuck? Open an [issue](https://github.com/DiemMyCodex/Onda-Music/issues) with the full compiler error.
 
-Continuous integration is defined in `.github/workflows/ci.yml` and runs on pushes and pull requests to `main`.
+---
 
-| Name | Kind | Required | Purpose |
-| --- | --- | --- | --- |
-| `ONDA_KEYSTORE_BASE64` | GitHub Secret | Release signing | Base64-encoded JKS release keystore |
-| `ONDA_KEYSTORE_PASSWORD` | GitHub Secret | Release signing | Keystore password passed to Gradle |
-| `ONDA_KEY_ALIAS` | GitHub Secret | Release signing | Signing key alias inside keystore |
-| `ONDA_KEY_PASSWORD` | GitHub Secret | Release signing | Key password inside keystore |
+## Disclaimer
 
-## Commands
+Onda is an independent open-source project built for personal use, with no ads or monetization. Always support the artists you listen to directly.
 
-| Command | Purpose |
-| --- | --- |
-| `./gradlew testDebugUnitTest --no-daemon` | Run pure-JVM unit tests across all modules |
-| `./gradlew :app:assembleArm64Debug --no-daemon` | Build debug APK (`arm64-v8a`) |
-| `./gradlew :app:assembleArm64Release --no-daemon` | Build minified release APK (`arm64-v8a`) |
+- Onda is not affiliated with, endorsed by, or sponsored by YouTube, Google, Spotify, Apple, or Deezer. All names and brands belong to their respective owners.
+- Onda does not host, store, or distribute any music on any server. Audio and lyrics come from third-party sources on demand or from files already stored on your device.
+- You are responsible for how you use the app, the third-party services or proxies you configure, and keeping any personal cookies private.
+
+---
+
+## Projects and APIs behind Onda
+
+- **Mochy Music** by [realidkroo](https://github.com/realidkroo/Mochy-Music) and **MomiMusic** ([Repository](https://github.com/DiemMyCodex/MomiMusic)) for UI inspiration and `momi-transfer v1` backup compatibility.
+- **InnertubeX** ([Repository](https://github.com/MetrolistGroup/innertubex)) for YouTube Music InnerTube API access.
+- **NewPipeExtractor** ([Repository](https://github.com/TeamNewPipe/NewPipeExtractor)) for stream extraction fallback.
+- **Monochrome** ([Website](https://monochrome.st)) for lossless FLAC stream resolution.
+- **LRCLIB** by [tranxuanthang](https://github.com/tranxuanthang/lrclib) ([Website](https://lrclib.net/)) for free synced LRC lyrics.
+- **AndroidX Media3** and **Jellyfin Media3 FFmpeg Decoder** for the playback pipeline and codec support.
+
+---
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=DiemMyCodex%2FOnda-Music&type=date&legend=top-left">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=DiemMyCodex/Onda-Music&type=date&theme=dark&legend=top-left" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=DiemMyCodex/Onda-Music&type=date&legend=top-left" />
+    <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=DiemMyCodex/Onda-Music&type=date&legend=top-left" />
+  </picture>
+</a>

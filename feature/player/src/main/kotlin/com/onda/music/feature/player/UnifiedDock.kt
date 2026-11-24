@@ -484,7 +484,7 @@ private fun MiniPlayerBar(
                     var axis = MiniDragAxis.NONE
                     var totalDx = 0f
                     var totalDy = 0f
-                    var startMorph = currentMorph
+                    var startMorph = currentMorphProvider()
                     var lastMorph = startMorph
 
                     try {

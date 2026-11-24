@@ -187,6 +187,7 @@ class DatabaseMappersAndPrefsTest {
         assertEquals(RepeatMode.OFF, defaults.repeatMode)
         assertFalse(defaults.shuffleEnabled)
         assertEquals("en", defaults.languageCode)
+        assertFalse(defaults.onboardingCompleted)
 
         val eq = EqConfig(
             enabled = true,
@@ -252,6 +253,21 @@ class DatabaseMappersAndPrefsTest {
         assertEquals(btProfile, preferences.currentAudioOutputProfiles()[btDevice.key])
         preferences.clearAudioOutputProfiles()
         assertTrue(preferences.currentAudioOutputProfiles().isEmpty())
+
+        preferences.completeOnboarding(
+            languageCode = "VI",
+            playerStyle = PlayerStyle.FLAGSHIP,
+            lyricsMotionEnabled = false,
+            monochromeEnabled = false,
+            hapticsEnabled = false
+        )
+        val onboarded = preferences.currentSettings()
+        assertTrue(onboarded.onboardingCompleted)
+        assertEquals("vi", onboarded.languageCode)
+        assertEquals(PlayerStyle.FLAGSHIP, onboarded.playerStyle)
+        assertFalse(onboarded.lyricsMotionEnabled)
+        assertFalse(onboarded.monochromeEnabled)
+        assertFalse(onboarded.hapticsEnabled)
 
         preferences.resetToDefaults()
         assertEquals(OndaUserSettings(), preferences.currentSettings())

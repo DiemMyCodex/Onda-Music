@@ -50,7 +50,8 @@ data class OndaUserSettings(
     val resumeOnHeadsetConnect: Boolean = false,
     val skipSilenceEnabled: Boolean = false,
     val keepPlayingOnTaskRemoved: Boolean = true,
-    val keepScreenOn: Boolean = false
+    val keepScreenOn: Boolean = false,
+    val onboardingCompleted: Boolean = false
 )
 
 @Serializable
@@ -93,6 +94,7 @@ class OndaPreferences @Inject constructor(
         val skipSilenceEnabled = booleanPreferencesKey("skip_silence_enabled")
         val keepPlayingOnTaskRemoved = booleanPreferencesKey("keep_playing_on_task_removed")
         val keepScreenOn = booleanPreferencesKey("keep_screen_on")
+        val onboardingCompleted = booleanPreferencesKey("onboarding_completed")
     }
 
     private val safePreferences: Flow<Preferences> = dataStore.data.catch { exception ->
@@ -247,6 +249,28 @@ class OndaPreferences @Inject constructor(
         dataStore.edit { it[Keys.keepScreenOn] = enabled }
     }
 
+    suspend fun setOnboardingCompleted(completed: Boolean) {
+        dataStore.edit { it[Keys.onboardingCompleted] = completed }
+    }
+
+    suspend fun completeOnboarding(
+        languageCode: String,
+        playerStyle: PlayerStyle,
+        lyricsMotionEnabled: Boolean,
+        monochromeEnabled: Boolean,
+        hapticsEnabled: Boolean
+    ) {
+        val normalizedLang = normalizeLanguageCode(languageCode)
+        dataStore.edit { prefs ->
+            prefs[Keys.languageCode] = normalizedLang
+            prefs[Keys.playerStyle] = playerStyle.name
+            prefs[Keys.lyricsMotionEnabled] = lyricsMotionEnabled
+            prefs[Keys.monochromeEnabled] = monochromeEnabled
+            prefs[Keys.hapticsEnabled] = hapticsEnabled
+            prefs[Keys.onboardingCompleted] = true
+        }
+    }
+
     suspend fun currentAudioOutputProfiles(): Map<String, AudioOutputEqProfile> {
         return audioOutputProfiles.first()
     }
@@ -309,7 +333,8 @@ class OndaPreferences @Inject constructor(
             resumeOnHeadsetConnect = prefs[Keys.resumeOnHeadsetConnect] ?: false,
             skipSilenceEnabled = prefs[Keys.skipSilenceEnabled] ?: false,
             keepPlayingOnTaskRemoved = prefs[Keys.keepPlayingOnTaskRemoved] ?: true,
-            keepScreenOn = prefs[Keys.keepScreenOn] ?: false
+            keepScreenOn = prefs[Keys.keepScreenOn] ?: false,
+            onboardingCompleted = prefs[Keys.onboardingCompleted] ?: false
         )
     }
 
@@ -355,6 +380,7 @@ class OndaPreferences @Inject constructor(
         prefs[Keys.skipSilenceEnabled] = settings.skipSilenceEnabled
         prefs[Keys.keepPlayingOnTaskRemoved] = settings.keepPlayingOnTaskRemoved
         prefs[Keys.keepScreenOn] = settings.keepScreenOn
+        prefs[Keys.onboardingCompleted] = settings.onboardingCompleted
     }
 
     private fun decodeAudioOutputProfiles(raw: String?): Map<String, AudioOutputEqProfile> {

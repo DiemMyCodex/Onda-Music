@@ -41,6 +41,7 @@ enum class SettingsEntryId {
     KEEP_SCREEN_ON,
     PROFILE_CARD,
     LANGUAGE_TOGGLE,
+    REPLAY_ONBOARDING,
     MONOCHROME_FLAC,
     YT_COOKIE,
     PROXY_URL,
@@ -238,6 +239,13 @@ fun buildSettingsSearchEntries(strings: SettingsStrings): List<SettingsSearchEnt
         title = strings.languageTitle,
         subtitle = strings.languageSubtitle,
         keywords = listOf("language", "vietnamese", "english", "vi", "en", "ngon ngu", "tieng viet", "tiếng việt")
+    ),
+    SettingsSearchEntry(
+        id = SettingsEntryId.REPLAY_ONBOARDING,
+        group = SettingsGroup.APPEARANCE_LANGUAGE,
+        title = strings.replayOnboardingTitle,
+        subtitle = strings.replayOnboardingSubtitle,
+        keywords = listOf("welcome", "onboarding", "intro", "tour", "chao mung", "gioi thieu")
     ),
     SettingsSearchEntry(
         id = SettingsEntryId.MONOCHROME_FLAC,

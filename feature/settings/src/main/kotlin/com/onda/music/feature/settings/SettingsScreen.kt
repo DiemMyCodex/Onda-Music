@@ -130,6 +130,7 @@ import kotlin.math.round
 fun SettingsRoute(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    onReplayOnboarding: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -177,8 +178,9 @@ fun SettingsRoute(
         onClearCache = viewModel::clearCache,
         onMaxCacheMbChange = viewModel::setMaxCacheMb,
         onDownloadFolderPicked = viewModel::setDownloadTreeUri,
-        onResetDefaults = viewModel::resetToDefaults,
+    onResetDefaults = viewModel::resetToDefaults,
         onClearStatusMessage = viewModel::clearStatusMessage,
+        onReplayOnboarding = onReplayOnboarding,
         modifier = modifier
     )
 }
@@ -230,7 +232,8 @@ fun SettingsScreen(
     onDownloadFolderPicked: (Uri?) -> Unit,
     onResetDefaults: () -> Unit,
     onClearStatusMessage: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onReplayOnboarding: () -> Unit = {}
 ) {
     val settings = uiState.settings
     val strings = remember(settings.languageCode) { settingsStringsFor(settings.languageCode) }
@@ -323,7 +326,8 @@ fun SettingsScreen(
             onMaxCacheMbChange = onMaxCacheMbChange,
             onPickDownloadFolder = { folderPickerLauncher.launch(null) },
             onClearDownloadFolder = { onDownloadFolderPicked(null) },
-            onOpenReset = { showResetDialog = true }
+            onOpenReset = { showResetDialog = true },
+            onReplayOnboarding = onReplayOnboarding
         )
     }
 
@@ -839,6 +843,7 @@ private fun entryIconFor(id: SettingsEntryId): ImageVector = when (id) {
     SettingsEntryId.KEEP_SCREEN_ON -> Icons.Rounded.BrightnessHigh
     SettingsEntryId.PROFILE_CARD -> Icons.Rounded.Person
     SettingsEntryId.LANGUAGE_TOGGLE -> Icons.Rounded.Translate
+    SettingsEntryId.REPLAY_ONBOARDING -> Icons.Rounded.GraphicEq
     SettingsEntryId.MONOCHROME_FLAC -> Icons.Rounded.HighQuality
     SettingsEntryId.YT_COOKIE -> Icons.Rounded.Key
     SettingsEntryId.PROXY_URL -> Icons.Rounded.Language
@@ -887,7 +892,8 @@ private fun SettingsEntryRow(
     onMaxCacheMbChange: (Int) -> Unit,
     onPickDownloadFolder: () -> Unit,
     onClearDownloadFolder: () -> Unit,
-    onOpenReset: () -> Unit
+    onOpenReset: () -> Unit,
+    onReplayOnboarding: () -> Unit = {}
 ) {
     val settings = uiState.settings
     val haptics = settings.hapticsEnabled
@@ -1260,6 +1266,14 @@ private fun SettingsEntryRow(
                     )
                 }
             }
+        }
+        SettingsEntryId.REPLAY_ONBOARDING -> {
+            SettingsActionRow(
+                icon = Icons.Rounded.GraphicEq,
+                title = entry.title,
+                subtitle = entry.subtitle,
+                onClick = onReplayOnboarding
+            )
         }
         SettingsEntryId.MONOCHROME_FLAC -> {
             SettingsToggleRow(

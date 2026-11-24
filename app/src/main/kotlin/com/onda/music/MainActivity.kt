@@ -26,6 +26,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -61,8 +63,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.lifecycleScope
 import com.onda.music.core.database.OndaPreferences
-import com.onda.music.core.database.OndaUserSettings
 import com.onda.music.core.design.AppMotion
 import com.onda.music.core.design.LocalOndaBackdropState
 import com.onda.music.core.design.LocalOndaLaunchChoreography
@@ -84,6 +86,7 @@ import com.onda.music.feature.player.FullPlayerOverlay
 import com.onda.music.feature.player.UnifiedDock
 import com.onda.music.feature.search.SearchRoute
 import com.onda.music.feature.settings.SettingsRoute
+import com.onda.music.onboarding.OndaOnboardingScreen
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 import kotlinx.coroutines.launch
@@ -97,10 +100,14 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var playbackController: PlaybackController
 
+    private var settingsReady by mutableStateOf(false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
+        splashScreen.setKeepOnScreenCondition { !settingsReady }
         super.onCreate(savedInstanceState)
         playbackController.warmUp()
+        window.decorView.postDelayed({ settingsReady = true }, 600L)
         splashScreen.setOnExitAnimationListener { provider ->
             val fadeOut = ObjectAnimator.ofFloat(provider.view, View.ALPHA, 1f, 0f)
             fadeOut.duration = 80L
@@ -119,21 +126,83 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
         )
         setContent {
-            val userSettings by ondaPreferences.settings.collectAsState(initial = OndaUserSettings())
-            LaunchedEffect(userSettings.keepScreenOn) {
-                if (userSettings.keepScreenOn) {
+            val loadedSettings by ondaPreferences.settings.collectAsState(initial = null)
+            LaunchedEffect(loadedSettings) {
+                if (loadedSettings != null) {
+                    settingsReady = true
+                }
+            }
+            var replayingOnboarding by rememberSaveable { mutableStateOf(false) }
+            var dismissedOnboardingThisSession by rememberSaveable { mutableStateOf(false) }
+            val activeSettings = loadedSettings
+
+            LaunchedEffect(activeSettings?.keepScreenOn) {
+                if (activeSettings?.keepScreenOn == true) {
                     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 } else {
                     window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 }
             }
             OndaTheme {
-                RuntimePermissionRequester()
-                OndaRootShell(
-                    languageCode = userSettings.languageCode,
-                    playLaunchIntro = playLaunchIntro,
-                    playbackController = playbackController
-                )
+                if (activeSettings == null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFF000000))
+                    )
+                } else {
+                    val showOnboarding = !activeSettings.onboardingCompleted || replayingOnboarding
+                    val reducedMotion = OndaTheme.reducedMotion
+                    AnimatedContent(
+                        targetState = showOnboarding,
+                        transitionSpec = {
+                            if (reducedMotion) {
+                                fadeIn(tween(140)) togetherWith fadeOut(tween(120))
+                            } else {
+                                (fadeIn(tween(320, easing = FastOutSlowInEasing)) +
+                                    scaleIn(
+                                        animationSpec = tween(320, easing = FastOutSlowInEasing),
+                                        initialScale = 0.96f
+                                    )) togetherWith
+                                    (fadeOut(tween(220, easing = FastOutSlowInEasing)) +
+                                        scaleOut(
+                                            animationSpec = tween(220, easing = FastOutSlowInEasing),
+                                            targetScale = 1.03f
+                                        ))
+                            }
+                        },
+                        label = "OndaFirstLaunchGate"
+                    ) { onboardingVisible ->
+                        if (onboardingVisible) {
+                            OndaOnboardingScreen(
+                                initialSettings = activeSettings,
+                                isReplay = replayingOnboarding,
+                                onComplete = { selection ->
+                                    dismissedOnboardingThisSession = true
+                                    replayingOnboarding = false
+                                    lifecycleScope.launch {
+                                        ondaPreferences.completeOnboarding(
+                                            languageCode = selection.languageCode,
+                                            playerStyle = selection.playerStyle,
+                                            lyricsMotionEnabled = selection.lyricsMotionEnabled,
+                                            monochromeEnabled = selection.monochromeEnabled,
+                                            hapticsEnabled = selection.hapticsEnabled
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            RuntimePermissionRequester()
+                            OndaRootShell(
+                                languageCode = activeSettings.languageCode,
+                                playLaunchIntro = playLaunchIntro && !dismissedOnboardingThisSession,
+                                playbackController = playbackController,
+                                onReplayOnboarding = { replayingOnboarding = true }
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -171,7 +240,8 @@ private fun RuntimePermissionRequester() {
 private fun OndaRootShell(
     languageCode: String,
     playLaunchIntro: Boolean,
-    playbackController: PlaybackController
+    playbackController: PlaybackController,
+    onReplayOnboarding: () -> Unit = {}
 ) {
     var selectedTabIndex by rememberSaveable { mutableIntStateOf(0) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
@@ -338,6 +408,10 @@ private fun OndaRootShell(
                     ) {
                         SettingsRoute(
                             onBack = { showSettings = false },
+                            onReplayOnboarding = {
+                                showSettings = false
+                                onReplayOnboarding()
+                            },
                             modifier = Modifier.fillMaxSize()
                         )
                     }

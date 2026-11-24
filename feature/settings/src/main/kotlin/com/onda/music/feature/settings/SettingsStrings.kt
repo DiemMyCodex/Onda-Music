@@ -131,7 +131,9 @@ data class SettingsStrings(
     val keepPlayingTitle: String,
     val keepPlayingSubtitle: String,
     val keepScreenOnTitle: String,
-    val keepScreenOnSubtitle: String
+    val keepScreenOnSubtitle: String,
+    val replayOnboardingTitle: String,
+    val replayOnboardingSubtitle: String
 )
 
 fun settingsStringsFor(languageCode: String): SettingsStrings {
@@ -264,7 +266,9 @@ fun settingsStringsFor(languageCode: String): SettingsStrings {
             keepPlayingTitle = "Tiếp tục phát khi vuốt tắt app",
             keepPlayingSubtitle = "Giữ dịch vụ phát nhạc chạy nền khi đóng khỏi đa nhiệm",
             keepScreenOnTitle = "Giữ màn hình luôn sáng",
-            keepScreenOnSubtitle = "Ngăn tắt màn hình khi đang xem lời bài hát hoặc bảng điều khiển"
+            keepScreenOnSubtitle = "Ngăn tắt màn hình khi đang xem lời bài hát hoặc bảng điều khiển",
+            replayOnboardingTitle = "Xem lại màn chào mừng",
+            replayOnboardingSubtitle = "Mở lại trải nghiệm khởi đầu và thiết lập nhanh của Onda"
         )
     } else {
         SettingsStrings(
@@ -395,7 +399,9 @@ fun settingsStringsFor(languageCode: String): SettingsStrings {
             keepPlayingTitle = "Keep Playing When Swiped Away",
             keepPlayingSubtitle = "Keep background playback service active when task is dismissed",
             keepScreenOnTitle = "Keep Screen On",
-            keepScreenOnSubtitle = "Prevent display sleep while viewing lyrics or telemetry"
+            keepScreenOnSubtitle = "Prevent display sleep while viewing lyrics or telemetry",
+            replayOnboardingTitle = "Replay Welcome Experience",
+            replayOnboardingSubtitle = "Revisit Onda's first-launch tour and quick setup"
         )
     }
 }

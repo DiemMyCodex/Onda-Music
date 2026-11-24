@@ -2,14 +2,45 @@ name: Onda CI
 
 on:
   workflow_dispatch:
+    inputs:
+      build_debug:
+        description: 'Also build ARM64 Debug APK'
+        required: false
+        default: false
+        type: boolean
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
 
+concurrency:
+  group: onda-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build_and_test:
-    name: Unit Tests & ARM64 Release + Debug APK
+  unit_tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Run Unit Tests
+        run: ./gradlew testDebugUnitTest --console=plain
+
+  build_arm64_release:
+    name: ARM64 Release APK
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -34,13 +65,13 @@ jobs:
             echo "$ONDA_KEYSTORE_BASE64" | base64 -d > "${{ runner.temp }}/onda-release.jks"
           fi
 
-      - name: Run Unit Tests and Build ARM64 Release & Debug APKs
+      - name: Build ARM64 Release APK
         env:
           ONDA_KEYSTORE_PATH: ${{ runner.temp }}/onda-release.jks
           ONDA_KEYSTORE_PASSWORD: ${{ secrets.ONDA_KEYSTORE_PASSWORD }}
           ONDA_KEY_ALIAS: ${{ secrets.ONDA_KEY_ALIAS }}
           ONDA_KEY_PASSWORD: ${{ secrets.ONDA_KEY_PASSWORD }}
-        run: ./gradlew testDebugUnitTest :app:assembleArm64Release :app:assembleArm64Debug --no-daemon --console=plain
+        run: ./gradlew :app:assembleArm64Release --console=plain
 
       - name: Upload ARM64 Release APK
         uses: actions/upload-artifact@v4
@@ -49,6 +80,28 @@ jobs:
           path: app/build/outputs/apk/arm64/release/*.apk
           if-no-files-found: error
           retention-days: 14
+
+  build_arm64_debug:
+    name: ARM64 Debug APK (On-Demand)
+    if: github.event_name == 'workflow_dispatch' && inputs.build_debug == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build ARM64 Debug APK
+        run: ./gradlew :app:assembleArm64Debug --console=plain
 
       - name: Upload ARM64 Debug APK
         uses: actions/upload-artifact@v4

@@ -619,7 +619,7 @@ private fun drawEditorialLyricTemplate(
     canvas.drawRoundRect(cardRect, cardRadius, cardRadius, fillPaint)
 
     val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
+        this.style = Paint.Style.STROKE
         strokeWidth = 2f
         color = style.borderArgb
     }

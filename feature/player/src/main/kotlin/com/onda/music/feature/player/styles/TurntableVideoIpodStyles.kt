@@ -1006,7 +1006,8 @@ fun VideoPlayerStyle(
                                             }
                                             smartFillEnabled = !smartFillEnabled
                                         },
-                                    contentAlignment = Alignment.Center
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
                                 ) {
                                     Row(
                                         modifier = Modifier

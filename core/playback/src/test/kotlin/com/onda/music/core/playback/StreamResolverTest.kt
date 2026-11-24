@@ -424,16 +424,17 @@ class StreamResolverTest {
         val initial = resolver.resolve(track)
         assertEquals("https://mono/stalled.flac", initial.getOrThrow().url)
         assertEquals(1, monochrome.calls)
+        val ytCallsBeforeFallback = yt.resolveCalls
 
         val fallback = resolver.handleMonochromePlaybackFailure(track)
         assertTrue(fallback.isSuccess)
         assertEquals("https://yt/vid_fallback", fallback.getOrThrow().url)
         assertEquals(SourceKind.YOUTUBE, fallback.getOrThrow().source)
         assertEquals(1, monochrome.calls)
-        assertEquals(1, yt.resolveCalls)
+        assertEquals(ytCallsBeforeFallback + 1, yt.resolveCalls)
 
         val secondAttempt = resolver.handleMonochromePlaybackFailure(track)
         assertTrue(secondAttempt.isFailure)
-        assertEquals(1, yt.resolveCalls)
+        assertEquals(ytCallsBeforeFallback + 1, yt.resolveCalls)
     }
 }

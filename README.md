@@ -6,7 +6,7 @@
   <br/>
 <p align="center">
   <a href="https://github.com/DiemMyCodex/Onda-Music/releases">
-    <img src="https://shieldcn.dev/github/downloads/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff&v=1.2.8" alt="Downloads" />
+    <img src="https://shieldcn.dev/github/downloads/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff&v=1.2.8r" alt="Downloads" />
   </a>
   <a href="https://github.com/DiemMyCodex/Onda-Music/stargazers">
     <img src="https://shieldcn.dev/github/stars/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff" alt="Stars" />
@@ -18,7 +18,7 @@
     <img src="https://shieldcn.dev/badge/Android-10%2B-1e1e1e.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logo=android&logoColor=ffffff" alt="Android 10+" />
   </a>
   <a href="https://github.com/DiemMyCodex/Onda-Music/releases/latest">
-    <img src="https://shieldcn.dev/github/release/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff&v=1.2.8" alt="Latest Release" />
+    <img src="https://shieldcn.dev/github/release/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff&v=1.2.8r" alt="Latest Release" />
   </a>
 </p>
 </div>
@@ -32,10 +32,10 @@
 
 <p>
   <a href="https://github.com/DiemMyCodex/Onda-Music/releases/latest">
-    <img src="https://shieldcn.dev/github/release/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff&v=1.2.8" alt="Latest Release" />
+    <img src="https://shieldcn.dev/github/release/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff&v=1.2.8r" alt="Latest Release" />
   </a>
   <a href="https://github.com/DiemMyCodex/Onda-Music/releases">
-    <img src="https://shieldcn.dev/github/downloads/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff&v=1.2.8" alt="Total Downloads" />
+    <img src="https://shieldcn.dev/github/downloads/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff&v=1.2.8r" alt="Total Downloads" />
   </a>
 </p>
 
@@ -159,7 +159,8 @@ Onda is an independent open-source project built for personal use, with no ads o
 - **InnertubeX** ([Repository](https://github.com/MetrolistGroup/innertubex)) for YouTube Music InnerTube API access.
 - **NewPipeExtractor** ([Repository](https://github.com/TeamNewPipe/NewPipeExtractor)) for stream extraction fallback.
 - **Monochrome** ([Website](https://monochrome.st)) for lossless FLAC stream resolution.
-- **LRCLIB** by [tranxuanthang](https://github.com/tranxuanthang/lrclib) ([Website](https://lrclib.net/)) for free synced LRC lyrics.
+- **BetterLyrics**, **SimpMusic Lyrics**, **LRCLIB** ([Website](https://lrclib.net/)), and **NetEase** for multi-source word-timed, line-synced, and bilingual lyrics.
+- **AutoEq** ([Repository](https://github.com/jaakkopasanen/AutoEq)) for headphone and IEM parametric EQ measurements (bundled offline).
 - **AndroidX Media3** and **Jellyfin Media3 FFmpeg Decoder** for the playback pipeline and codec support.
 
 ---

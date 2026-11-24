@@ -47,7 +47,7 @@ class SettingsStateTest {
         assertEquals(1, styleMatches.size)
         assertEquals(SettingsEntryId.PLAYER_STYLE_PICKER, styleMatches.first().id)
 
-        val lyricsStyleMatches = filterSettingsEntries(entries, "lyrics style")
+        val lyricsStyleMatches = filterSettingsEntries(entries, "lyrics bloom")
         assertEquals(1, lyricsStyleMatches.size)
         assertEquals(SettingsEntryId.LYRICS_STYLE_PICKER, lyricsStyleMatches.first().id)
     }

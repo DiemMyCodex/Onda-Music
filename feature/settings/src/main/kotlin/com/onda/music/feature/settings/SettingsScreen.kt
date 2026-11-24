@@ -485,11 +485,12 @@ fun SettingsScreen(
 
                                 SettingsGroup.entries.forEachIndexed { index, group ->
                                     item(key = "category_${group.id}") {
+                                        val sleepRemainingMs = uiState.sleepTimerRemainingMs
                                         val categoryBadge = if (group == SettingsGroup.AUDIO_EQ) {
                                             when {
                                                 uiState.sleepTimerEndOfTrack -> strings.sleepTimerEndOfTrackLabel
-                                                uiState.sleepTimerRemainingMs != null && uiState.sleepTimerRemainingMs > 0L -> {
-                                                    formatSettingsDurationMs(uiState.sleepTimerRemainingMs)
+                                                sleepRemainingMs != null && sleepRemainingMs > 0L -> {
+                                                    formatSettingsDurationMs(sleepRemainingMs)
                                                 }
                                                 else -> uiState.activeOutputDevice.displayName
                                             }

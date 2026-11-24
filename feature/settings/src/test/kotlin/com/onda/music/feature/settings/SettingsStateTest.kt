@@ -25,7 +25,8 @@ class SettingsStateTest {
         assertEquals(SettingsEntryId.SMART_OUTPUT_PROFILES, filterSettingsEntries(entries, "output profile").first().id)
         assertEquals(SettingsEntryId.SLEEP_TIMER, filterSettingsEntries(entries, "sleep timer").first().id)
         assertEquals(SettingsEntryId.SKIP_SILENCE, filterSettingsEntries(entries, "skip silence").first().id)
-        assertEquals(SettingsEntryId.RESUME_ON_HEADSET, filterSettingsEntries(entries, "bluetooth").first().id)
+        assertEquals(SettingsEntryId.RESUME_ON_HEADSET, filterSettingsEntries(entries, "resume headset").first().id)
+        assertTrue(filterSettingsEntries(entries, "bluetooth").any { it.id == SettingsEntryId.RESUME_ON_HEADSET })
         assertEquals(SettingsEntryId.KEEP_SCREEN_ON, filterSettingsEntries(entries, "keep screen").first().id)
     }
 

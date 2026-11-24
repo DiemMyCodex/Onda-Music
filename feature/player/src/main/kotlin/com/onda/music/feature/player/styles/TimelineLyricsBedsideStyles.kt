@@ -942,7 +942,8 @@ fun BedsidePlayerStyle(
                         .clickable(onClick = ctx.onOpenSleepTimer)
                         .padding(horizontal = 10.dp)
                 ) {
-                    val timerActive = state.sleepTimerRemainingMs != null || state.sleepTimerEndOfTrack
+                    val sleepRemainingMs = state.sleepTimerRemainingMs
+                    val timerActive = sleepRemainingMs != null || state.sleepTimerEndOfTrack
                     Icon(
                         imageVector = Icons.Rounded.Bedtime,
                         contentDescription = "Sleep timer",
@@ -952,7 +953,7 @@ fun BedsidePlayerStyle(
                     Text(
                         text = when {
                             state.sleepTimerEndOfTrack -> "End of track"
-                            state.sleepTimerRemainingMs != null -> "Sleep ${formatDurationMs(state.sleepTimerRemainingMs)}"
+                            sleepRemainingMs != null -> "Sleep ${formatDurationMs(sleepRemainingMs)}"
                             else -> "Timer"
                         },
                         style = MaterialTheme.typography.labelMedium,
@@ -1436,7 +1437,8 @@ fun BedsideTilesPlayerStyle(
                                 .clickable(onClick = ctx.onOpenSleepTimer)
                                 .padding(horizontal = 6.dp)
                         ) {
-                            val timerActive = state.sleepTimerRemainingMs != null || state.sleepTimerEndOfTrack
+                            val sleepRemainingMs = state.sleepTimerRemainingMs
+                            val timerActive = sleepRemainingMs != null || state.sleepTimerEndOfTrack
                             Icon(
                                 imageVector = Icons.Rounded.Bedtime,
                                 contentDescription = "Sleep timer",
@@ -1446,7 +1448,7 @@ fun BedsideTilesPlayerStyle(
                             Text(
                                 text = when {
                                     state.sleepTimerEndOfTrack -> "EOT"
-                                    state.sleepTimerRemainingMs != null -> formatDurationMs(state.sleepTimerRemainingMs)
+                                    sleepRemainingMs != null -> formatDurationMs(sleepRemainingMs)
                                     else -> "Timer"
                                 },
                                 style = MaterialTheme.typography.labelMedium,

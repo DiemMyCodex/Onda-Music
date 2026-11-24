@@ -1602,51 +1602,11 @@ private fun OnboardingBottomBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Box(
-            modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
-            contentAlignment = Alignment.CenterStart
-        ) {
-            AnimatedVisibility(
-                visible = pagerState.currentPage > 0,
-                enter = fadeIn(tween(if (reducedMotion) 60 else 180)),
-                exit = fadeOut(tween(if (reducedMotion) 60 else 140))
-            ) {
-                val backInteraction = remember { MutableInteractionSource() }
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .pressBounce(backInteraction, pressedScale = 0.90f)
-                        .clip(CircleShape)
-                        .background(OnboardingSurface)
-                        .border(1.dp, OnboardingBorder, CircleShape)
-                        .clickable(
-                            interactionSource = backInteraction,
-                            indication = RoundedHighlight(cornerRadius = 24.dp),
-                            role = Role.Button,
-                            onClick = onBack
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Canvas(modifier = Modifier.size(14.dp)) {
-                        val midY = size.height * 0.5f
-                        drawLine(
-                            color = Color.White,
-                            start = Offset(size.width * 0.68f, size.height * 0.14f),
-                            end = Offset(size.width * 0.28f, midY),
-                            strokeWidth = 2.dp.toPx(),
-                            cap = StrokeCap.Round
-                        )
-                        drawLine(
-                            color = Color.White,
-                            start = Offset(size.width * 0.28f, midY),
-                            end = Offset(size.width * 0.68f, size.height * 0.86f),
-                            strokeWidth = 2.dp.toPx(),
-                            cap = StrokeCap.Round
-                        )
-                    }
-                }
-            }
-        }
+        OnboardingBackButtonSlot(
+            visible = pagerState.currentPage > 0,
+            reducedMotion = reducedMotion,
+            onBack = onBack
+        )
 
         OndaPagerIndicator(
             count = 4,
@@ -1705,6 +1665,59 @@ private fun OnboardingBottomBar(
                     color = ctaFg,
                     maxLines = 1
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun OnboardingBackButtonSlot(
+    visible: Boolean,
+    reducedMotion: Boolean,
+    onBack: () -> Unit
+) {
+    Box(
+        modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(tween(if (reducedMotion) 60 else 180)),
+            exit = fadeOut(tween(if (reducedMotion) 60 else 140))
+        ) {
+            val backInteraction = remember { MutableInteractionSource() }
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .pressBounce(backInteraction, pressedScale = 0.90f)
+                    .clip(CircleShape)
+                    .background(OnboardingSurface)
+                    .border(1.dp, OnboardingBorder, CircleShape)
+                    .clickable(
+                        interactionSource = backInteraction,
+                        indication = RoundedHighlight(cornerRadius = 24.dp),
+                        role = Role.Button,
+                        onClick = onBack
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Canvas(modifier = Modifier.size(14.dp)) {
+                    val midY = size.height * 0.5f
+                    drawLine(
+                        color = Color.White,
+                        start = Offset(size.width * 0.68f, size.height * 0.14f),
+                        end = Offset(size.width * 0.28f, midY),
+                        strokeWidth = 2.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                    drawLine(
+                        color = Color.White,
+                        start = Offset(size.width * 0.28f, midY),
+                        end = Offset(size.width * 0.68f, size.height * 0.86f),
+                        strokeWidth = 2.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                }
             }
         }
     }

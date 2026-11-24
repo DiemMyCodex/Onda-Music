@@ -37,7 +37,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: Run Unit Tests
-        run: ./gradlew testDebugUnitTest --console=plain
+        run: ./gradlew testDebugUnitTest :app:testArm64DebugUnitTest --console=plain
 
   build_arm64_release:
     name: ARM64 Release APK

@@ -1,3 +1,4 @@
+-dontoptimize
 -keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod,SourceFile,LineNumberTable
 -keep class com.onda.music.core.model.** { *; }
 -keep class com.onda.music.core.database.** { *; }

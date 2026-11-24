@@ -34,17 +34,17 @@ class LyricsParserTest {
     @Test
     fun parsesSyncedLinesWithoutSubseconds() {
         val lrc = """
-            [00:05]First line
-            [00:09]Second line
+            [00:02]First line
+            [00:06]Second line
         """.trimIndent()
 
         val doc = parser.parse(trackId = "t_sec", rawContent = lrc, source = LyricsSource.LRCLIB)
         assertTrue(doc.isSynced)
         assertFalse(doc.hasWordTiming)
         assertEquals(2, doc.lines.size)
-        assertEquals(5_000L, doc.lines[0].startTimeMs)
-        assertEquals(9_000L, doc.lines[0].endTimeMs)
-        assertEquals(9_000L, doc.lines[1].startTimeMs)
+        assertEquals(2_000L, doc.lines[0].startTimeMs)
+        assertEquals(6_000L, doc.lines[0].endTimeMs)
+        assertEquals(6_000L, doc.lines[1].startTimeMs)
     }
 
     @Test

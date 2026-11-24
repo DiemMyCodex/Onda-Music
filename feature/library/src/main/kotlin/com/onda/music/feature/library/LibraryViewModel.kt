@@ -43,7 +43,8 @@ class LibraryViewModel @Inject constructor(
     private val playbackController: PlaybackController
 ) : ViewModel() {
 
-    private val selectedTab = MutableStateFlow(LibraryTab.PLAYLISTS)
+    private val selectedTab = MutableStateFlow(LibraryTab.OVERVIEW)
+    private val searchQuery = MutableStateFlow("")
     private val selectedPlaylistId = MutableStateFlow<String?>(null)
     private val localFolders = MutableStateFlow<List<LocalMediaFolder>>(emptyList())
     private val selectedLocalFolderPath = MutableStateFlow<String?>(null)
@@ -75,6 +76,26 @@ class LibraryViewModel @Inject constructor(
         list.map { it.toModel() }
     }
 
+    private val playlistCoversByIdFlow: Flow<Map<String, List<String>>> = playlistsFlow.flatMapLatest { playlists ->
+        if (playlists.isEmpty()) {
+            flowOf(emptyMap())
+        } else {
+            combine(
+                playlists.map { playlist ->
+                    playlistDao.observeSongsInPlaylist(playlist.id).map { songs ->
+                        val urls = (listOfNotNull(playlist.artworkUrl) + songs.mapNotNull { it.artworkUrl })
+                            .filter { it.isNotBlank() }
+                            .distinct()
+                            .take(4)
+                        playlist.id to urls
+                    }
+                }
+            ) { entries ->
+                entries.toMap()
+            }
+        }
+    }
+
     private val selectedPlaylistFlow: Flow<Playlist?> = selectedPlaylistId.flatMapLatest { id ->
         if (id == null) flowOf(null) else playlistDao.observeById(id).map { it?.toModel() }
     }
@@ -100,6 +121,11 @@ class LibraryViewModel @Inject constructor(
         list.map { it.toModel() }
     }
 
+    private data class HeaderSlice(
+        val selectedTab: LibraryTab,
+        val searchQuery: String
+    )
+
     private data class SongsSlice(
         val liked: List<Track>,
         val library: List<Track>,
@@ -109,6 +135,7 @@ class LibraryViewModel @Inject constructor(
 
     private data class PlaylistSlice(
         val playlists: List<Playlist>,
+        val coversById: Map<String, List<String>>,
         val selectedId: String?,
         val selectedPlaylist: Playlist?,
         val selectedTracks: List<Track>
@@ -132,6 +159,13 @@ class LibraryViewModel @Inject constructor(
         val isPlaying: Boolean
     )
 
+    private val headerSliceFlow = combine(
+        selectedTab,
+        searchQuery
+    ) { tab, query ->
+        HeaderSlice(selectedTab = tab, searchQuery = query)
+    }
+
     private val songsSliceFlow = combine(
         likedSongsFlow,
         librarySongsFlow,
@@ -143,12 +177,14 @@ class LibraryViewModel @Inject constructor(
 
     private val playlistSliceFlow = combine(
         playlistsFlow,
+        playlistCoversByIdFlow,
         selectedPlaylistId,
         selectedPlaylistFlow,
         selectedPlaylistTracksFlow
-    ) { playlists, selectedId, selected, tracks ->
+    ) { playlists, coversById, selectedId, selected, tracks ->
         PlaylistSlice(
             playlists = playlists,
+            coversById = coversById,
             selectedId = selectedId,
             selectedPlaylist = selected,
             selectedTracks = tracks
@@ -190,15 +226,17 @@ class LibraryViewModel @Inject constructor(
     }
 
     val uiState: StateFlow<LibraryUiState> = combine(
-        selectedTab,
+        headerSliceFlow,
         songsSliceFlow,
         playlistSliceFlow,
         localScanSliceFlow,
         statsAndPlaybackFlow
-    ) { tab, songs, playlists, localScan, stats ->
+    ) { header, songs, playlists, localScan, stats ->
         LibraryUiState(
-            selectedTab = tab,
+            selectedTab = header.selectedTab,
+            searchQuery = header.searchQuery,
             playlists = playlists.playlists,
+            playlistCoversById = playlists.coversById,
             selectedPlaylistId = playlists.selectedId,
             selectedPlaylist = playlists.selectedPlaylist,
             selectedPlaylistTracks = playlists.selectedTracks,
@@ -235,15 +273,21 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
+    fun updateSearchQuery(query: String) {
+        searchQuery.value = query
+    }
+
     fun selectTab(tab: LibraryTab) {
-        selectedTab.value = tab
-        if (tab != LibraryTab.PLAYLISTS) {
+        if (selectedTab.value != tab) {
             selectedPlaylistId.value = null
         }
+        selectedTab.value = tab
     }
 
     fun openPlaylist(playlistId: String) {
-        selectedTab.value = LibraryTab.PLAYLISTS
+        if (selectedTab.value != LibraryTab.OVERVIEW && selectedTab.value != LibraryTab.PLAYLISTS) {
+            selectedTab.value = LibraryTab.PLAYLISTS
+        }
         selectedPlaylistId.value = playlistId
     }
 

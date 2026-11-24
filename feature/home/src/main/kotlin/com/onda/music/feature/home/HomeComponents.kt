@@ -1,21 +1,22 @@
 package com.onda.music.feature.home
 
+import android.os.Build
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.foundation.Canvas
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.snapping.SnapPosition
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,6 +31,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -42,42 +48,69 @@ import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.util.lerp
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import com.onda.music.core.design.BlurDirection
 import com.onda.music.core.design.DockMetrics
 import com.onda.music.core.design.GlassTokens
-import com.onda.music.core.design.morphingCornerClip
+import com.onda.music.core.design.OndaBackdropState
+import com.onda.music.core.design.OndaMonogramMark
+import com.onda.music.core.design.OndaTheme
+import com.onda.music.core.design.ProgressiveBlurBackground
+import com.onda.music.core.design.SmoothCornerShape
+import com.onda.music.core.design.damageBoundary
 import com.onda.music.core.model.Album
+import com.onda.music.core.model.HomeShelf
 import com.onda.music.core.model.MoodCategory
 import com.onda.music.core.model.Track
-import kotlin.math.PI
-import kotlin.math.sin
 
 internal val OledBlack = Color(0xFF000000)
 internal val OledFallbackSurface = Color(0xFF0D0D0D)
 internal val OledSubtleSurface = Color(0xFF141414)
+internal val OledCardSurface = Color(0xFF141416)
+internal val OledCardBorder = Color(0x14FFFFFF)
 internal val OledMutedText = Color(0xFF9A9A9A)
 internal val OledChevronTint = Color(0xFF9E9E9E)
+internal val ShelfHorizontalPadding = PaddingValues(horizontal = 24.dp)
+
+@Composable
+internal fun rememberHomeHeroHeight(): Dp {
+    return (LocalConfiguration.current.screenHeightDp * 0.58f).dp.coerceIn(430.dp, 530.dp)
+}
 
 @Composable
 internal fun MinimalFloatingTopBar(
@@ -86,32 +119,58 @@ internal fun MinimalFloatingTopBar(
     settingsDescription: String,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
-    scrollProgress: () -> Float = { 0f }
+    scrollProgress: () -> Float = { 0f },
+    backdropState: OndaBackdropState? = null,
+    blurEnabled: Boolean = true,
+    title: String = ""
 ) {
+    val reducedMotion = OndaTheme.reducedMotion
+    val density = LocalDensity.current
+    val scrollAlpha = { homeSmoothstep(0.15f, 0.65f, scrollProgress().coerceIn(0f, 1f)) }
+    val showBackdrop by remember {
+        derivedStateOf { scrollProgress() > 0.01f }
+    }
+    val isMorphedTitle by remember(title) {
+        derivedStateOf { title.isNotBlank() && scrollProgress() > 0.52f }
+    }
+    val morph by animateFloatAsState(
+        targetValue = if (isMorphedTitle) 1f else 0f,
+        animationSpec = if (reducedMotion) {
+            snap()
+        } else {
+            tween(durationMillis = 280, easing = FastOutSlowInEasing)
+        },
+        label = "MinimalTopBarBrandMorph"
+    )
+    val brandTranslatePx = with(density) { 6.dp.toPx() }
+    val plateShape = remember { SmoothCornerShape(9.dp) }
+
     Box(modifier = modifier.fillMaxWidth()) {
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .graphicsLayer {
-                    alpha = homeSmoothstep(0.15f, 0.65f, scrollProgress())
-                }
-                .background(
-                    Brush.verticalGradient(
-                        colorStops = arrayOf(
-                            0.0f to Color(0xEC000000),
-                            0.72f to Color(0xCC000000),
-                            1.0f to Color.Transparent
-                        )
-                    )
+        if (showBackdrop) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .graphicsLayer {
+                        alpha = scrollAlpha()
+                    }
+            ) {
+                ProgressiveBlurBackground(
+                    backdropState = backdropState,
+                    direction = BlurDirection.BOTTOM_TO_TOP,
+                    maxBlurRadius = { 28f * scrollAlpha() },
+                    foundationColor = Color.Black,
+                    blurEnabled = blurEnabled,
+                    modifier = Modifier.fillMaxSize()
                 )
-        )
+            }
+        }
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .height(0.75.dp)
+                .height(0.5.dp)
                 .graphicsLayer {
-                    alpha = homeSmoothstep(0.25f, 0.75f, scrollProgress()) * 0.55f
+                    alpha = homeSmoothstep(0.30f, 0.80f, scrollProgress()) * 0.45f
                 }
                 .background(Color.White.copy(alpha = 0.14f))
         )
@@ -119,64 +178,82 @@ internal fun MinimalFloatingTopBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(start = 24.dp, end = 16.dp, top = 8.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            MinimalOndaWaveIcon(modifier = Modifier.size(30.dp))
+            Box(
+                modifier = Modifier.weight(1f),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                val brandAlpha = (1f - morph * 1.25f).coerceIn(0f, 1f)
+                if (brandAlpha > 0.01f) {
+                    Box(
+                        modifier = Modifier
+                            .size(30.dp)
+                            .graphicsLayer {
+                                val s = lerp(1f, 0.72f, morph)
+                                scaleX = s
+                                scaleY = s
+                                alpha = brandAlpha
+                                if (!reducedMotion) {
+                                    translationY = -morph * brandTranslatePx
+                                    if (blurEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                        renderEffect = HomeBlurCache.blur(morph * 12f)
+                                    } else {
+                                        renderEffect = null
+                                    }
+                                }
+                            }
+                            .clip(plateShape)
+                            .background(Color(0xFF1A1A1A)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        OndaMonogramMark(
+                            modifier = Modifier.size(30.dp),
+                            tint = Color.White,
+                            cutoutColor = Color(0xFF1A1A1A),
+                            filled = true
+                        )
+                    }
+                }
+
+                if (title.isNotBlank() && morph > 0.01f) {
+                    Text(
+                        text = title,
+                        fontSize = 26.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = (-0.5).sp,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.graphicsLayer {
+                            val s = lerp(0.88f, 1f, morph)
+                            scaleX = s
+                            scaleY = s
+                            transformOrigin = TransformOrigin(0f, 0.5f)
+                            alpha = ((morph - 0.10f) / 0.90f).coerceIn(0f, 1f)
+                            if (!reducedMotion) {
+                                translationY = (1f - morph) * brandTranslatePx
+                                if (blurEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                    renderEffect = HomeBlurCache.blur((1f - morph) * 12f)
+                                } else {
+                                    renderEffect = null
+                                }
+                            }
+                        }
+                    )
+                }
+            }
 
             UserAvatarSettingsButton(
                 avatarPath = avatarPath,
                 username = username,
                 contentDescription = settingsDescription,
+                visualScale = { lerp(1f, 0.90f, morph) },
                 onClick = onOpenSettings
             )
         }
-    }
-}
-
-@Composable
-internal fun MinimalOndaWaveIcon(
-    modifier: Modifier = Modifier
-) {
-    Canvas(modifier = modifier) {
-        val w = size.width
-        val h = size.height
-        val strokeWidth = w * 0.085f
-
-        val playPath = Path().apply {
-            moveTo(w * 0.16f, h * 0.22f)
-            lineTo(w * 0.44f, h * 0.50f)
-            lineTo(w * 0.16f, h * 0.78f)
-            close()
-        }
-        drawPath(
-            path = playPath,
-            color = Color.White
-        )
-
-        val wavePath = Path()
-        val startX = w * 0.52f
-        val endX = w * 0.94f
-        val midY = h * 0.50f
-        val amp = h * 0.24f
-        val steps = 16
-        for (i in 0..steps) {
-            val t = i.toFloat() / steps
-            val x = startX + (endX - startX) * t
-            val envelope = sin(t * PI.toFloat())
-            val y = midY - sin(t * 2.2f * PI.toFloat()) * amp * (0.45f + 0.55f * envelope)
-            if (i == 0) wavePath.moveTo(x, y) else wavePath.lineTo(x, y)
-        }
-        drawPath(
-            path = wavePath,
-            color = Color.White,
-            style = Stroke(
-                width = strokeWidth,
-                cap = StrokeCap.Round,
-                join = StrokeJoin.Round
-            )
-        )
     }
 }
 
@@ -185,6 +262,7 @@ private fun UserAvatarSettingsButton(
     avatarPath: String?,
     username: String,
     contentDescription: String,
+    visualScale: () -> Float,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -206,6 +284,11 @@ private fun UserAvatarSettingsButton(
         Box(
             modifier = Modifier
                 .size(34.dp)
+                .graphicsLayer {
+                    val s = visualScale()
+                    scaleX = s
+                    scaleY = s
+                }
                 .clip(CircleShape)
                 .background(Color(0x88000000))
                 .border(width = 1.dp, color = Color(0x33FFFFFF), shape = CircleShape),
@@ -254,12 +337,7 @@ internal fun FullBleedHeroSection(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val heroHeight = (LocalConfiguration.current.screenHeightDp * 0.46f).dp.coerceIn(380.dp, 420.dp)
-    val headline = if (subtitle.isNotBlank()) {
-        "${track.title} - $subtitle"
-    } else {
-        track.title
-    }
+    val heroHeight = rememberHomeHeroHeight()
 
     Box(
         modifier = modifier
@@ -294,10 +372,10 @@ internal fun FullBleedHeroSection(
                 .background(
                     Brush.verticalGradient(
                         colorStops = arrayOf(
-                            0.00f to Color(0x66000000),
-                            0.25f to Color.Transparent,
-                            0.42f to Color.Transparent,
-                            0.78f to Color(0xCC000000),
+                            0.00f to Color(0x52000000),
+                            0.24f to Color.Transparent,
+                            0.56f to Color(0x38000000),
+                            0.82f to Color(0xCC000000),
                             1.00f to Color(0xFF000000)
                         )
                     )
@@ -308,51 +386,65 @@ internal fun FullBleedHeroSection(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(horizontal = 24.dp, vertical = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(
-                text = strings.continueListening,
-                fontSize = 14.sp,
+                text = strings.continueListening.uppercase(),
+                fontFamily = FontFamily.Monospace,
+                fontSize = 11.sp,
+                letterSpacing = 1.1.sp,
                 fontWeight = FontWeight.Medium,
-                color = Color(0xFFD0D0D0),
+                color = Color.White.copy(alpha = 0.68f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
 
             Text(
-                text = headline,
-                fontSize = 25.sp,
-                lineHeight = 30.sp,
-                fontWeight = FontWeight.ExtraBold,
+                text = track.title,
+                fontSize = 28.sp,
+                lineHeight = 33.sp,
+                letterSpacing = (-0.6).sp,
+                fontWeight = FontWeight.Bold,
                 color = Color.White,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
 
-            Spacer(modifier = Modifier.height(2.dp))
+            if (subtitle.isNotBlank()) {
+                Text(
+                    text = subtitle,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Normal,
+                    color = Color.White.copy(alpha = 0.76f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
 
             Row(
                 modifier = Modifier
-                    .height(40.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(Color(0xB3C4C4C4))
+                    .height(36.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(Color.White)
                     .clickable(onClick = onPlayClick)
-                    .padding(horizontal = 20.dp),
+                    .padding(horizontal = 18.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Icon(
                     imageVector = if (isActiveTrack && isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                     contentDescription = null,
-                    tint = Color(0xFF121212),
-                    modifier = Modifier.size(20.dp)
+                    tint = Color.Black,
+                    modifier = Modifier.size(18.dp)
                 )
                 Text(
                     text = if (isActiveTrack && isPlaying) strings.pauseAction else strings.playAction,
-                    fontSize = 15.sp,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFF121212),
+                    color = Color.Black,
                     maxLines = 1
                 )
             }
@@ -366,12 +458,14 @@ internal fun OfflineFallbackBanner(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val bannerShape = remember { SmoothCornerShape(16.dp) }
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(OledSubtleSurface)
+            .padding(horizontal = 24.dp)
+            .clip(bannerShape)
+            .background(OledCardSurface, bannerShape)
+            .border(0.5.dp, OledCardBorder, bannerShape)
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -419,7 +513,7 @@ internal fun SectionHeader(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 24.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
         Row(
@@ -428,9 +522,10 @@ internal fun SectionHeader(
         ) {
             Text(
                 text = title,
-                fontSize = 19.sp,
+                fontSize = 17.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.White,
+                letterSpacing = (-0.3).sp,
+                color = Color.White.copy(alpha = 0.72f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false)
@@ -439,8 +534,8 @@ internal fun SectionHeader(
             Icon(
                 imageVector = Icons.Rounded.ChevronRight,
                 contentDescription = null,
-                tint = OledChevronTint,
-                modifier = Modifier.size(18.dp)
+                tint = Color.White.copy(alpha = 0.44f),
+                modifier = Modifier.size(16.dp)
             )
         }
         if (!subtitle.isNullOrBlank()) {
@@ -455,6 +550,140 @@ internal fun SectionHeader(
     }
 }
 
+@Composable
+internal fun QuickJumpGrid(
+    tracks: List<Track>,
+    strings: HomeStrings,
+    activeTrackId: String?,
+    isPlaying: Boolean,
+    onPlayTrack: (Track) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val rows = remember(tracks) { tracks.take(4).chunked(2) }
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        rows.forEach { pair ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                pair.forEach { track ->
+                    QuickJumpCard(
+                        track = track,
+                        isActive = track.id == activeTrackId,
+                        isPlaying = isPlaying,
+                        onClick = { onPlayTrack(track) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                if (pair.size == 1) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuickJumpCard(
+    track: Track,
+    isActive: Boolean,
+    isPlaying: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val interactionSource = remember { MutableInteractionSource() }
+    val cardShape = remember { SmoothCornerShape(14.dp) }
+    val artShape = remember { SmoothCornerShape(9.dp) }
+
+    Row(
+        modifier = modifier
+            .height(58.dp)
+            .homePressBounce(interactionSource, pressedScale = 0.96f)
+            .clip(cardShape)
+            .background(OledCardSurface, cardShape)
+            .border(0.5.dp, OledCardBorder, cardShape)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = HomeHighlightIndication(cornerRadius = 14.dp),
+                onClick = onClick
+            )
+            .padding(start = 7.dp, end = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(artShape)
+                .background(OledFallbackSurface),
+            contentAlignment = Alignment.Center
+        ) {
+            if (!track.artworkUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(track.artworkUrl)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = track.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Rounded.MusicNote,
+                    contentDescription = track.title,
+                    tint = OledMutedText,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            if (isActive) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0x99000000))
+                        .damageBoundary(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isPlaying) {
+                        HomePlayingIndicator(
+                            color = Color.White,
+                            isPlaying = true,
+                            barWidth = 2.dp,
+                            spacing = 1.5.dp,
+                            modifier = Modifier.height(13.dp)
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Rounded.Pause,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        Text(
+            text = track.title,
+            fontSize = 13.sp,
+            lineHeight = 16.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 internal fun TrackSquareCard(
@@ -466,28 +695,27 @@ internal fun TrackSquareCard(
     sharedTransitionScope: SharedTransitionScope?,
     animatedVisibilityScope: AnimatedVisibilityScope?,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    cardSize: Dp = 140.dp,
+    cornerRadius: Dp = 22.dp
 ) {
     val context = LocalContext.current
     val interactionSource = remember { MutableInteractionSource() }
+    val cardShape = remember(cornerRadius) { SmoothCornerShape(cornerRadius) }
 
     Column(
         modifier = modifier
-            .width(148.dp)
+            .width(cardSize)
             .homePressBounce(interactionSource, pressedScale = 0.96f)
             .clickable(
                 interactionSource = interactionSource,
-                indication = HomeHighlightIndication(cornerRadius = 26.dp, spillX = 4.dp, spillY = 4.dp),
+                indication = HomeHighlightIndication(cornerRadius = cornerRadius, spillX = 4.dp, spillY = 4.dp),
                 onClick = onClick
             )
     ) {
         val artModifier = Modifier
-            .size(148.dp)
-            .morphingCornerClip(
-                startRadius = 24.dp,
-                endRadius = GlassTokens.RadiusXl,
-                fractionProvider = { detailFraction }
-            )
+            .size(cardSize)
+            .clip(cardShape)
             .let { base ->
                 if (sharedTransitionScope != null && animatedVisibilityScope != null) {
                     with(sharedTransitionScope) {
@@ -520,7 +748,7 @@ internal fun TrackSquareCard(
                     imageVector = Icons.Rounded.MusicNote,
                     contentDescription = track.title,
                     tint = OledMutedText,
-                    modifier = Modifier.size(34.dp)
+                    modifier = Modifier.size(32.dp)
                 )
             }
 
@@ -531,7 +759,8 @@ internal fun TrackSquareCard(
                         .padding(8.dp)
                         .size(28.dp)
                         .clip(CircleShape)
-                        .background(Color(0xCC000000)),
+                        .background(Color(0xCC000000))
+                        .damageBoundary(),
                     contentAlignment = Alignment.Center
                 ) {
                     if (isPlaying) {
@@ -587,30 +816,29 @@ internal fun AlbumSquareCard(
     sharedTransitionScope: SharedTransitionScope?,
     animatedVisibilityScope: AnimatedVisibilityScope?,
     onClick: (Rect?) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    cardSize: Dp = 152.dp,
+    cornerRadius: Dp = 22.dp
 ) {
     val context = LocalContext.current
     val interactionSource = remember { MutableInteractionSource() }
     var cardBounds by remember { mutableStateOf<Rect?>(null) }
+    val cardShape = remember(cornerRadius) { SmoothCornerShape(cornerRadius) }
 
     Column(
         modifier = modifier
-            .width(148.dp)
+            .width(cardSize)
             .onGloballyPositioned { cardBounds = it.boundsInRoot() }
             .homePressBounce(interactionSource, pressedScale = 0.96f)
             .clickable(
                 interactionSource = interactionSource,
-                indication = HomeHighlightIndication(cornerRadius = 26.dp, spillX = 4.dp, spillY = 4.dp),
+                indication = HomeHighlightIndication(cornerRadius = cornerRadius, spillX = 4.dp, spillY = 4.dp),
                 onClick = { onClick(cardBounds) }
             )
     ) {
         val artModifier = Modifier
-            .size(148.dp)
-            .morphingCornerClip(
-                startRadius = 24.dp,
-                endRadius = GlassTokens.RadiusXl,
-                fractionProvider = { detailFraction }
-            )
+            .size(cardSize)
+            .clip(cardShape)
             .let { base ->
                 if (sharedTransitionScope != null && animatedVisibilityScope != null) {
                     with(sharedTransitionScope) {
@@ -664,7 +892,7 @@ internal fun AlbumSquareCard(
         val subtitle = buildString {
             append(album.artist.ifBlank { strings.unknownArtist })
             if (album.year != null) {
-                append(" • ")
+                append(" · ")
                 append(album.year)
             }
         }
@@ -676,6 +904,498 @@ internal fun AlbumSquareCard(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+internal fun SnappingTrackColumnGrid(
+    tracks: List<Track>,
+    strings: HomeStrings,
+    activeTrackId: String?,
+    isPlaying: Boolean,
+    showRanks: Boolean,
+    onPlayTrack: (Track) -> Unit,
+    onToggleLike: ((Track) -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
+    val columns = remember(tracks) { tracks.chunked(3) }
+    val listState = rememberLazyListState()
+    val snapFling = rememberSnapFlingBehavior(
+        lazyListState = listState,
+        snapPosition = SnapPosition.Start
+    )
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp
+    val columnWidth = if (columns.size <= 1) {
+        (screenWidthDp.dp - 48.dp).coerceAtLeast(220.dp)
+    } else {
+        ((screenWidthDp.dp - 48.dp) * 0.86f).coerceAtLeast(220.dp)
+    }
+
+    LazyRow(
+        state = listState,
+        flingBehavior = snapFling,
+        contentPadding = ShelfHorizontalPadding,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        itemsIndexed(
+            items = columns,
+            key = { colIdx, col -> "col_${colIdx}_${col.firstOrNull()?.id.orEmpty()}" }
+        ) { colIdx, columnTracks ->
+            Column(
+                modifier = Modifier.width(columnWidth),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                columnTracks.forEachIndexed { rowIdx, track ->
+                    val rank = colIdx * 3 + rowIdx + 1
+                    SnappingTrackRow(
+                        track = track,
+                        strings = strings,
+                        rank = if (showRanks) rank else null,
+                        isActive = track.id == activeTrackId,
+                        isPlaying = isPlaying,
+                        onPlay = { onPlayTrack(track) },
+                        onToggleLike = onToggleLike?.let { callback -> { callback(track) } }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SnappingTrackRow(
+    track: Track,
+    strings: HomeStrings,
+    rank: Int?,
+    isActive: Boolean,
+    isPlaying: Boolean,
+    onPlay: () -> Unit,
+    onToggleLike: (() -> Unit)?,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val interactionSource = remember { MutableInteractionSource() }
+    val likeInteraction = remember { MutableInteractionSource() }
+    val artShape = remember { SmoothCornerShape(10.dp) }
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(58.dp)
+            .homePressBounce(interactionSource, pressedScale = 0.98f)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = HomeHighlightIndication(cornerRadius = 12.dp, spillX = 6.dp, spillY = 2.dp),
+                onClick = onPlay
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        if (rank != null) {
+            Text(
+                text = "%02d".format(rank),
+                style = TextStyle(
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    fontFeatureSettings = "tnum"
+                ),
+                color = if (isActive) Color.White else Color.White.copy(alpha = 0.42f),
+                maxLines = 1,
+                modifier = Modifier.width(26.dp)
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(artShape)
+                .background(OledFallbackSurface),
+            contentAlignment = Alignment.Center
+        ) {
+            if (!track.artworkUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(track.artworkUrl)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = track.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Rounded.MusicNote,
+                    contentDescription = track.title,
+                    tint = OledMutedText,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = track.title,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = track.artist.ifBlank { strings.unknownArtist },
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Normal,
+                color = OledMutedText,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        if (isActive) {
+            Box(
+                modifier = Modifier.damageBoundary(),
+                contentAlignment = Alignment.Center
+            ) {
+                if (isPlaying) {
+                    HomePlayingIndicator(
+                        color = Color.White,
+                        isPlaying = true,
+                        barWidth = 2.2.dp,
+                        spacing = 1.5.dp,
+                        modifier = Modifier.height(14.dp)
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Rounded.Pause,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
+
+        if (onToggleLike != null) {
+            Box(
+                modifier = Modifier
+                    .defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
+                    .size(44.dp)
+                    .homePressBounce(likeInteraction, pressedScale = 0.88f)
+                    .clip(CircleShape)
+                    .clickable(
+                        interactionSource = likeInteraction,
+                        indication = HomeHighlightIndication(cornerRadius = 22.dp),
+                        onClick = onToggleLike
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (track.liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                    contentDescription = track.title,
+                    tint = if (track.liked) GlassTokens.ErrorCoral else OledMutedText,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+    }
+}
+
+@Immutable
+internal sealed interface EditorialShowcaseItem {
+    val id: String
+    val tag: String
+    val title: String
+    val countLabel: String
+    val artworkUrl: String?
+
+    @Immutable
+    data class AlbumEntry(
+        val album: Album,
+        override val tag: String,
+        override val countLabel: String
+    ) : EditorialShowcaseItem {
+        override val id: String = "showcase_album_${album.id}"
+        override val title: String = album.title
+        override val artworkUrl: String? = album.artworkUrl
+    }
+
+    @Immutable
+    data class ShelfMixEntry(
+        val shelf: HomeShelf,
+        override val tag: String,
+        override val countLabel: String,
+        override val artworkUrl: String?
+    ) : EditorialShowcaseItem {
+        override val id: String = "showcase_shelf_${shelf.id}"
+        override val title: String = shelf.title
+    }
+}
+
+internal fun buildEditorialShowcaseItems(
+    uiState: HomeUiState,
+    strings: HomeStrings
+): List<EditorialShowcaseItem> {
+    val items = mutableListOf<EditorialShowcaseItem>()
+    val seenIds = HashSet<String>()
+
+    (uiState.chartShelves + uiState.shelves).forEach { shelf ->
+        shelf.albums.forEach { album ->
+            if (seenIds.add("a_${album.id}")) {
+                val countLabel = if (album.trackCount > 0) {
+                    "${album.trackCount} ${strings.tracksSuffix}"
+                } else {
+                    album.artist.ifBlank { strings.unknownArtist }
+                }
+                items += EditorialShowcaseItem.AlbumEntry(
+                    album = album,
+                    tag = "ONDA · ${shelf.title.ifBlank { strings.charts }.uppercase()}",
+                    countLabel = countLabel
+                )
+            }
+        }
+    }
+
+    uiState.chartShelves.forEach { shelf ->
+        if (shelf.tracks.isNotEmpty() && seenIds.add("s_${shelf.id}")) {
+            val leadArt = shelf.tracks.firstOrNull { !it.artworkUrl.isNullOrBlank() }?.artworkUrl
+            if (!leadArt.isNullOrBlank()) {
+                items += EditorialShowcaseItem.ShelfMixEntry(
+                    shelf = shelf,
+                    tag = "ONDA · ${strings.charts.uppercase()}",
+                    countLabel = "${shelf.tracks.size} ${strings.tracksSuffix}",
+                    artworkUrl = leadArt
+                )
+            }
+        }
+    }
+
+    uiState.shelves.forEach { shelf ->
+        if (shelf.tracks.size >= 3 && seenIds.add("s_${shelf.id}")) {
+            val leadArt = shelf.tracks.firstOrNull { !it.artworkUrl.isNullOrBlank() }?.artworkUrl
+            if (!leadArt.isNullOrBlank()) {
+                items += EditorialShowcaseItem.ShelfMixEntry(
+                    shelf = shelf,
+                    tag = "ONDA · SELECTION",
+                    countLabel = "${shelf.tracks.size} ${strings.tracksSuffix}",
+                    artworkUrl = leadArt
+                )
+            }
+        }
+    }
+
+    return items.take(10)
+}
+
+@Composable
+internal fun EditorialShowcaseShelf(
+    items: List<EditorialShowcaseItem>,
+    onOpenAlbum: (Album, Rect?) -> Unit,
+    onPlayShelf: (HomeShelf) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LazyRow(
+        contentPadding = ShelfHorizontalPadding,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        items(
+            items = items,
+            key = { item -> item.id }
+        ) { item ->
+            EditorialShowcaseCard(
+                item = item,
+                onClick = { bounds ->
+                    when (item) {
+                        is EditorialShowcaseItem.AlbumEntry -> onOpenAlbum(item.album, bounds)
+                        is EditorialShowcaseItem.ShelfMixEntry -> onPlayShelf(item.shelf)
+                    }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun EditorialShowcaseCard(
+    item: EditorialShowcaseItem,
+    onClick: (Rect?) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val reducedMotion = OndaTheme.reducedMotion
+    val interactionSource = remember { MutableInteractionSource() }
+    var cardBounds by remember { mutableStateOf<Rect?>(null) }
+    val cardShape = remember { SmoothCornerShape(24.dp) }
+    var extractedTone by remember(item.artworkUrl) {
+        mutableStateOf(item.artworkUrl?.let(HomeGlowColorCache::cached))
+    }
+
+    LaunchedEffect(item.artworkUrl) {
+        val url = item.artworkUrl
+        if (!url.isNullOrBlank() && extractedTone == null) {
+            extractedTone = HomeGlowColorCache.load(context, url)
+        }
+    }
+
+    val tintColor by animateColorAsState(
+        targetValue = extractedTone ?: OledCardSurface,
+        animationSpec = if (reducedMotion) snap() else tween(420),
+        label = "EditorialCardTint"
+    )
+
+    Box(
+        modifier = modifier
+            .width(232.dp)
+            .height(268.dp)
+            .onGloballyPositioned { cardBounds = it.boundsInRoot() }
+            .homePressBounce(interactionSource, pressedScale = 0.96f)
+            .clip(cardShape)
+            .background(OledCardSurface, cardShape)
+            .border(0.5.dp, Color(0x1FFFFFFF), cardShape)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = HomeHighlightIndication(cornerRadius = 24.dp),
+                onClick = { onClick(cardBounds) }
+            )
+    ) {
+        if (!item.artworkUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(item.artworkUrl)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = item.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Rounded.QueueMusic,
+                contentDescription = item.title,
+                tint = OledMutedText,
+                modifier = Modifier
+                    .size(44.dp)
+                    .align(Alignment.Center)
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0.00f to tintColor.copy(alpha = 0.14f),
+                            0.44f to Color(0x330A0A0D),
+                            0.74f to Color(0xBF0B0B0E),
+                            1.00f to Color(0xF208080A)
+                        )
+                    )
+                )
+        )
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0.55f to Color.Transparent,
+                            1.00f to tintColor.copy(alpha = 0.36f)
+                        )
+                    )
+                )
+        )
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = item.tag,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 10.sp,
+                letterSpacing = 1.0.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color.White.copy(alpha = 0.72f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = item.title,
+                fontSize = 17.sp,
+                lineHeight = 21.sp,
+                letterSpacing = (-0.3).sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = item.countLabel,
+                style = TextStyle(
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 12.sp,
+                    fontFeatureSettings = "tnum"
+                ),
+                color = Color.White.copy(alpha = 0.64f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+internal fun MoodTwoRowGrid(
+    moods: List<MoodCategory>,
+    onOpenMood: (MoodCategory, Rect?) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val topRow = remember(moods) { moods.filterIndexed { index, _ -> index % 2 == 0 } }
+    val bottomRow = remember(moods) { moods.filterIndexed { index, _ -> index % 2 == 1 } }
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp)
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                topRow.forEach { mood ->
+                    MoodPillCard(
+                        mood = mood,
+                        onClick = { bounds -> onOpenMood(mood, bounds) }
+                    )
+                }
+            }
+            if (bottomRow.isNotEmpty()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    bottomRow.forEach { mood ->
+                        MoodPillCard(
+                            mood = mood,
+                            onClick = { bounds -> onOpenMood(mood, bounds) }
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -695,7 +1415,8 @@ internal fun MoodPillCard(
             .onGloballyPositioned { cardBounds = it.boundsInRoot() }
             .homePressBounce(interactionSource, pressedScale = 0.96f)
             .clip(RoundedCornerShape(999.dp))
-            .background(OledSubtleSurface)
+            .background(OledCardSurface)
+            .border(0.5.dp, Color(0x16FFFFFF), RoundedCornerShape(999.dp))
             .clickable(
                 interactionSource = interactionSource,
                 indication = HomeHighlightIndication(cornerRadius = 999.dp),
@@ -722,7 +1443,7 @@ internal fun MoodPillCard(
         Icon(
             imageVector = Icons.Rounded.ChevronRight,
             contentDescription = null,
-            tint = OledChevronTint,
+            tint = Color.White.copy(alpha = 0.44f),
             modifier = Modifier.size(16.dp)
         )
     }
@@ -741,6 +1462,7 @@ internal fun QuickPickCompactRow(
     val context = LocalContext.current
     val interactionSource = remember { MutableInteractionSource() }
     val likeInteraction = remember { MutableInteractionSource() }
+    val artShape = remember { SmoothCornerShape(10.dp) }
 
     Row(
         modifier = modifier
@@ -752,14 +1474,14 @@ internal fun QuickPickCompactRow(
                 indication = HomeHighlightIndication(cornerRadius = 16.dp),
                 onClick = onPlay
             )
-            .padding(horizontal = 16.dp, vertical = 6.dp),
+            .padding(horizontal = 24.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Box(
             modifier = Modifier
                 .size(48.dp)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(artShape)
                 .background(OledFallbackSurface),
             contentAlignment = Alignment.Center
         ) {
@@ -806,21 +1528,26 @@ internal fun QuickPickCompactRow(
         }
 
         if (isActive) {
-            if (isPlaying) {
-                HomePlayingIndicator(
-                    color = Color.White,
-                    isPlaying = true,
-                    barWidth = 2.2.dp,
-                    spacing = 1.5.dp,
-                    modifier = Modifier.height(14.dp)
-                )
-            } else {
-                Icon(
-                    imageVector = Icons.Rounded.Pause,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(18.dp)
-                )
+            Box(
+                modifier = Modifier.damageBoundary(),
+                contentAlignment = Alignment.Center
+            ) {
+                if (isPlaying) {
+                    HomePlayingIndicator(
+                        color = Color.White,
+                        isPlaying = true,
+                        barWidth = 2.2.dp,
+                        spacing = 1.5.dp,
+                        modifier = Modifier.height(14.dp)
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Rounded.Pause,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
         }
 
@@ -846,5 +1573,3 @@ internal fun QuickPickCompactRow(
         }
     }
 }
-
-internal val ShelfHorizontalPadding = PaddingValues(horizontal = 16.dp)

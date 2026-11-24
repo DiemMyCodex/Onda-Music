@@ -5,6 +5,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
@@ -18,6 +19,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
@@ -35,12 +37,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -75,9 +77,9 @@ import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -86,8 +88,12 @@ import coil3.SingletonImageLoader
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import com.onda.music.core.design.GlassTokens
 import com.onda.music.core.design.OndaTheme
+import com.onda.music.core.design.SmoothCornerShape
+import com.onda.music.core.design.damageBoundary
 import com.onda.music.core.model.Album
+import com.onda.music.core.model.SourceKind
 import com.onda.music.core.model.Track
 import kotlinx.coroutines.delay
 import kotlin.math.abs
@@ -107,44 +113,52 @@ private val WipeFeatherEase = floatArrayOf(0f, 0.104f, 0.352f, 0.648f, 0.896f, 1
 @Immutable
 internal sealed interface HeroCarouselCard {
     val id: String
-    val eyebrow: String
+    val telemetryTag: String
     val seedTitle: String?
     val seedArtworkUrl: String?
-    val headline: String
+    val title: String
+    val subtitle: String
     val artworkUrl: String?
 
     @Immutable
     data class TrackCard(
         val track: Track,
-        override val eyebrow: String,
+        override val telemetryTag: String,
         override val seedTitle: String? = null,
         override val seedArtworkUrl: String? = null,
+        override val subtitle: String,
         val queue: List<Track>
     ) : HeroCarouselCard {
         override val id: String = "hero_track_${track.id}"
-        override val headline: String = if (track.artist.isNotBlank()) {
-            "${track.title} - ${track.artist}"
-        } else {
-            track.title
-        }
+        override val title: String = track.title
         override val artworkUrl: String? = track.artworkUrl
     }
 
     @Immutable
     data class AlbumCard(
         val album: Album,
-        override val eyebrow: String
+        override val telemetryTag: String,
+        override val subtitle: String
     ) : HeroCarouselCard {
         override val id: String = "hero_album_${album.id}"
         override val seedTitle: String? = null
         override val seedArtworkUrl: String? = null
-        override val headline: String = if (album.artist.isNotBlank()) {
-            "${album.title} - ${album.artist}"
-        } else {
-            album.title
-        }
+        override val title: String = album.title
         override val artworkUrl: String? = album.artworkUrl
     }
+}
+
+private fun formatTrackTelemetryTag(
+    eyebrow: String,
+    track: Track,
+    strings: HomeStrings
+): String {
+    val sourceLabel = when (track.source) {
+        SourceKind.LOCAL -> strings.sourceLocal
+        SourceKind.MONOCHROME -> strings.sourceLossless
+        SourceKind.YOUTUBE -> "ONDA"
+    }
+    return "${eyebrow.uppercase()} · ${sourceLabel.uppercase()}"
 }
 
 internal fun buildHeroCarouselCards(
@@ -166,7 +180,8 @@ internal fun buildHeroCarouselCards(
             .distinctBy { it.id }
         cards += HeroCarouselCard.TrackCard(
             track = hero,
-            eyebrow = eyebrow,
+            telemetryTag = formatTrackTelemetryTag(eyebrow, hero, strings),
+            subtitle = hero.artist.ifBlank { strings.unknownArtist },
             queue = queue
         )
     }
@@ -177,15 +192,17 @@ internal fun buildHeroCarouselCards(
         .forEachIndexed { idx, pick ->
             usedTrackIds.add(pick.id)
             val useSeed = idx == 0 && seedTrack != null && seedTrack.id != pick.id
+            val eyebrow = if (useSeed) {
+                if (uiState.languageCode == "vi") "Từ lần nghe" else "Inspired by"
+            } else {
+                strings.quickPicks
+            }
             cards += HeroCarouselCard.TrackCard(
                 track = pick,
-                eyebrow = if (useSeed) {
-                    if (uiState.languageCode == "vi") "Từ lần nghe" else "Inspired by"
-                } else {
-                    strings.quickPicks
-                },
+                telemetryTag = if (useSeed) eyebrow.uppercase() else formatTrackTelemetryTag(eyebrow, pick, strings),
                 seedTitle = if (useSeed) seedTrack?.title else null,
                 seedArtworkUrl = if (useSeed) seedTrack?.artworkUrl else null,
+                subtitle = pick.artist.ifBlank { strings.unknownArtist },
                 queue = uiState.quickPicks
             )
         }
@@ -193,9 +210,22 @@ internal fun buildHeroCarouselCards(
     uiState.newReleases
         .firstOrNull { !it.artworkUrl.isNullOrBlank() }
         ?.let { release ->
+            val albumMeta = if (release.trackCount > 0) {
+                "${release.trackCount} ${strings.tracksSuffix}"
+            } else {
+                "ALBUM"
+            }
+            val albumSubtitle = buildString {
+                append(release.artist.ifBlank { strings.unknownArtist })
+                if (release.year != null) {
+                    append(" · ")
+                    append(release.year)
+                }
+            }
             cards += HeroCarouselCard.AlbumCard(
                 album = release,
-                eyebrow = strings.newReleases
+                telemetryTag = "${strings.newReleases.uppercase()} · ${albumMeta.uppercase()}",
+                subtitle = albumSubtitle
             )
         }
 
@@ -208,7 +238,8 @@ internal fun buildHeroCarouselCards(
             usedTrackIds.add(track.id)
             cards += HeroCarouselCard.TrackCard(
                 track = track,
-                eyebrow = shelfTitle.ifBlank { strings.charts },
+                telemetryTag = formatTrackTelemetryTag(shelfTitle.ifBlank { strings.charts }, track, strings),
+                subtitle = track.artist.ifBlank { strings.unknownArtist },
                 queue = listOf(track) + uiState.quickPicks
             )
         }
@@ -221,7 +252,8 @@ internal fun buildHeroCarouselCards(
                 usedTrackIds.add(track.id)
                 cards += HeroCarouselCard.TrackCard(
                     track = track,
-                    eyebrow = strings.mostPlayed,
+                    telemetryTag = formatTrackTelemetryTag(strings.mostPlayed, track, strings),
+                    subtitle = track.artist.ifBlank { strings.unknownArtist },
                     queue = uiState.mostPlayed
                 )
             }
@@ -243,11 +275,12 @@ internal fun HomeHeroCarousel(
     onPlayTrack: (Track, List<Track>) -> Unit,
     onPlayHero: () -> Unit,
     onOpenAlbum: (Album, Rect?) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onToggleLike: ((Track) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val reducedMotion = OndaTheme.reducedMotion
-    val heroHeight = (LocalConfiguration.current.screenHeightDp * 0.46f).dp.coerceIn(380.dp, 420.dp)
+    val heroHeight = rememberHomeHeroHeight()
     val isSingle = cards.size <= 1
     val loopMultiplier = 200
     val initialPage = if (isSingle) 0 else (loopMultiplier / 2) * cards.size
@@ -303,7 +336,11 @@ internal fun HomeHeroCarousel(
             .height(heroHeight)
             .background(OledFallbackSurface)
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .damageBoundary()
+        ) {
             HorizontalPager(
                 state = pagerState,
                 userScrollEnabled = !isSingle,
@@ -339,6 +376,11 @@ internal fun HomeHeroCarousel(
                             }
                         }
                     },
+                    onToggleLike = if (card is HeroCarouselCard.TrackCard && onToggleLike != null) {
+                        { onToggleLike(card.track) }
+                    } else {
+                        null
+                    },
                     modifier = Modifier
                         .fillMaxSize()
                         .onGloballyPositioned { cardBounds = it.boundsInRoot() }
@@ -350,19 +392,24 @@ internal fun HomeHeroCarousel(
                 Row(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(end = 16.dp, bottom = 26.dp),
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        .padding(end = 24.dp, bottom = 44.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     cards.forEachIndexed { idx, _ ->
                         val selected = idx == activeIndex
+                        val segmentWidth by animateDpAsState(
+                            targetValue = if (selected) 16.dp else 6.dp,
+                            animationSpec = if (reducedMotion) snap() else tween(200),
+                            label = "heroSegmentWidth"
+                        )
                         Box(
                             modifier = Modifier
-                                .height(4.dp)
-                                .width(if (selected) 16.dp else 5.dp)
-                                .clip(CircleShape)
+                                .height(2.dp)
+                                .width(segmentWidth)
+                                .clip(RoundedCornerShape(50))
                                 .background(
-                                    if (selected) Color.White else Color.White.copy(alpha = 0.35f)
+                                    if (selected) Color.White else Color(0x44FFFFFF)
                                 )
                         )
                     }
@@ -381,10 +428,12 @@ private fun HeroCarouselPage(
     wipeCurve: () -> Float,
     blurEnabled: Boolean,
     onPrimaryClick: () -> Unit,
+    onToggleLike: (() -> Unit)?,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val reducedMotion = OndaTheme.reducedMotion
+    val seedArtShape = remember { SmoothCornerShape(4.dp) }
 
     HeroWipeContainer(
         pageOffset = pageOffset,
@@ -412,14 +461,14 @@ private fun HeroCarouselPage(
                         .data(card.artworkUrl)
                         .crossfade(true)
                         .build(),
-                    contentDescription = card.headline,
+                    contentDescription = card.title,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
                 )
             } else {
                 Icon(
                     imageVector = Icons.Rounded.MusicNote,
-                    contentDescription = card.headline,
+                    contentDescription = card.title,
                     tint = Color(0x2EFFFFFF),
                     modifier = Modifier
                         .size(56.dp)
@@ -434,10 +483,10 @@ private fun HeroCarouselPage(
                 .background(
                     Brush.verticalGradient(
                         colorStops = arrayOf(
-                            0.00f to Color(0x66000000),
-                            0.25f to Color.Transparent,
-                            0.42f to Color.Transparent,
-                            0.78f to Color(0xCC000000),
+                            0.00f to Color(0x52000000),
+                            0.24f to Color.Transparent,
+                            0.56f to Color(0x38000000),
+                            0.82f to Color(0xCC000000),
                             1.00f to Color(0xFF000000)
                         )
                     )
@@ -448,7 +497,7 @@ private fun HeroCarouselPage(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .padding(start = 16.dp, end = 88.dp, bottom = 20.dp, top = 16.dp)
+                .padding(start = 24.dp, end = 24.dp, bottom = 24.dp, top = 16.dp)
                 .graphicsLayer {
                     val d = pageOffset()
                     if (!reducedMotion) {
@@ -456,17 +505,19 @@ private fun HeroCarouselPage(
                     }
                     alpha = (1f - abs(d) * 1.9f).coerceIn(0f, 1f)
                 },
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(
-                    text = card.eyebrow,
-                    fontSize = 14.sp,
+                    text = card.telemetryTag,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    letterSpacing = 1.1.sp,
                     fontWeight = FontWeight.Medium,
-                    color = Color(0xFFD0D0D0),
+                    color = Color.White.copy(alpha = 0.68f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -479,16 +530,18 @@ private fun HeroCarouselPage(
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
-                            .size(16.dp)
-                            .clip(RoundedCornerShape(4.dp))
+                            .size(14.dp)
+                            .clip(seedArtShape)
                     )
                 }
                 if (!card.seedTitle.isNullOrBlank()) {
                     Text(
-                        text = card.seedTitle!!,
-                        fontSize = 14.sp,
+                        text = card.seedTitle!!.uppercase(),
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        letterSpacing = 0.8.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = Color.White.copy(alpha = 0.88f),
+                        color = Color.White.copy(alpha = 0.82f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false)
@@ -497,35 +550,61 @@ private fun HeroCarouselPage(
             }
 
             AnimatedContent(
-                targetState = card.headline,
+                targetState = card.title,
                 transitionSpec = { heroTitleSwap(reducedMotion) },
                 label = "heroHeadline"
-            ) { headlineText ->
+            ) { titleText ->
                 Text(
-                    text = headlineText,
-                    fontSize = 25.sp,
-                    lineHeight = 30.sp,
-                    fontWeight = FontWeight.ExtraBold,
+                    text = titleText,
+                    fontSize = 28.sp,
+                    lineHeight = 33.sp,
+                    letterSpacing = (-0.6).sp,
+                    fontWeight = FontWeight.Bold,
                     color = Color.White,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
             }
 
-            Spacer(modifier = Modifier.height(2.dp))
+            if (card.subtitle.isNotBlank()) {
+                Text(
+                    text = card.subtitle,
+                    fontSize = 14.sp,
+                    lineHeight = 19.sp,
+                    fontWeight = FontWeight.Normal,
+                    color = Color.White.copy(alpha = 0.76f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
 
             val pillKind = when {
                 card is HeroCarouselCard.AlbumCard -> HeroActionKind.VIEW
                 isThisPlaying -> HeroActionKind.PAUSE
                 else -> HeroActionKind.PLAY
             }
-            HeroActionPill(
-                kind = pillKind,
-                playLabel = strings.playAction,
-                pauseLabel = strings.pauseAction,
-                viewLabel = if (strings.playAction == "Phát") "Xem" else "View",
-                onClick = onPrimaryClick
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                HeroActionPill(
+                    kind = pillKind,
+                    playLabel = strings.playAction,
+                    pauseLabel = strings.pauseAction,
+                    viewLabel = if (strings.playAction == "Phát") "Xem" else "View",
+                    onClick = onPrimaryClick
+                )
+
+                if (card is HeroCarouselCard.TrackCard && onToggleLike != null) {
+                    HeroFavoritePill(
+                        liked = card.track.liked,
+                        contentDescription = card.track.title,
+                        onClick = onToggleLike
+                    )
+                }
+            }
         }
     }
 }
@@ -545,59 +624,102 @@ private fun HeroActionPill(
     Box(
         modifier = Modifier
             .defaultMinSize(minWidth = 88.dp, minHeight = 44.dp)
-            .homePressBounce(interactionSource, pressedScale = 0.92f)
-            .clip(RoundedCornerShape(999.dp))
-            .background(Color(0xB3C4C4C4))
             .clickable(
                 interactionSource = interactionSource,
-                indication = HomeHighlightIndication(cornerRadius = 999.dp),
+                indication = null,
                 onClick = onClick
-            )
-            .padding(horizontal = 20.dp, vertical = 10.dp),
-        contentAlignment = Alignment.Center
+            ),
+        contentAlignment = Alignment.CenterStart
     ) {
-        AnimatedContent(
-            targetState = kind,
-            transitionSpec = { heroGlyphSwap(reducedMotion) },
-            label = "heroPillAction"
-        ) { current ->
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                when (current) {
-                    HeroActionKind.PLAY, HeroActionKind.PAUSE -> {
-                        Icon(
-                            imageVector = if (current == HeroActionKind.PAUSE) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                            contentDescription = null,
-                            tint = Color(0xFF121212),
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Text(
-                            text = if (current == HeroActionKind.PAUSE) pauseLabel else playLabel,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFF121212),
-                            maxLines = 1
-                        )
-                    }
-                    HeroActionKind.VIEW -> {
-                        Text(
-                            text = viewLabel,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFF121212),
-                            maxLines = 1
-                        )
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
-                            contentDescription = null,
-                            tint = Color(0xFF121212),
-                            modifier = Modifier.size(18.dp)
-                        )
+        Box(
+            modifier = Modifier
+                .height(36.dp)
+                .homePressBounce(interactionSource, pressedScale = 0.92f)
+                .clip(RoundedCornerShape(50))
+                .background(Color.White)
+                .padding(horizontal = 18.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            AnimatedContent(
+                targetState = kind,
+                transitionSpec = { heroGlyphSwap(reducedMotion) },
+                label = "heroPillAction"
+            ) { current ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    when (current) {
+                        HeroActionKind.PLAY, HeroActionKind.PAUSE -> {
+                            Icon(
+                                imageVector = if (current == HeroActionKind.PAUSE) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                                contentDescription = null,
+                                tint = Color.Black,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = if (current == HeroActionKind.PAUSE) pauseLabel else playLabel,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.Black,
+                                maxLines = 1
+                            )
+                        }
+                        HeroActionKind.VIEW -> {
+                            Text(
+                                text = viewLabel,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.Black,
+                                maxLines = 1
+                            )
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
+                                contentDescription = null,
+                                tint = Color.Black,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun HeroFavoritePill(
+    liked: Boolean,
+    contentDescription: String,
+    onClick: () -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    Box(
+        modifier = Modifier
+            .defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .height(36.dp)
+                .width(42.dp)
+                .homePressBounce(interactionSource, pressedScale = 0.88f)
+                .clip(RoundedCornerShape(50))
+                .background(Color(0x99141416))
+                .border(0.5.dp, Color(0x2EFFFFFF), RoundedCornerShape(50)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                contentDescription = contentDescription,
+                tint = if (liked) GlassTokens.ErrorCoral else Color.White,
+                modifier = Modifier.size(18.dp)
+            )
         }
     }
 }

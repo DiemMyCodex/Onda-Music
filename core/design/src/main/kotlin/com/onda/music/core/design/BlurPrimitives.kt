@@ -18,6 +18,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -189,6 +190,8 @@ class OndaBackdropState {
 fun rememberOndaBackdropState(): OndaBackdropState {
     return remember { OndaBackdropState() }
 }
+
+val LocalOndaBackdropState = staticCompositionLocalOf<OndaBackdropState?> { null }
 
 @RequiresApi(Build.VERSION_CODES.Q)
 private fun backdropNodeFor(existing: Any?, width: Int, height: Int): Any {
@@ -688,5 +691,89 @@ fun ProgressiveBlurBackground(
                     }
                 }
         )
+    }
+}
+
+@Composable
+fun OndaSampledGlassBackdrop(
+    backdropState: OndaBackdropState?,
+    modifier: Modifier = Modifier,
+    blurRadiusPx: Float = 42f,
+    tintColor: Color = Color(0xFF141416),
+    tintAlpha: Float = 0.74f,
+    fallbackAlpha: Float = 0.94f,
+    foundationColor: Color = GlassTokens.AmoledBlack,
+    sheenAlpha: Float = 0.08f,
+    blurEnabled: Boolean = true
+) {
+    var surfacePos by remember { mutableStateOf(Offset.Zero) }
+
+    Box(
+        modifier = modifier
+            .onGloballyPositioned { surfacePos = it.positionInWindow() }
+            .clipToBounds()
+    ) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && backdropState != null && blurEnabled) {
+            val sheenBrush = remember(sheenAlpha) {
+                if (sheenAlpha > 0f) {
+                    Brush.verticalGradient(
+                        0f to Color.White.copy(alpha = sheenAlpha),
+                        0.38f to Color.Transparent
+                    )
+                } else {
+                    null
+                }
+            }
+            Spacer(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        renderEffect = BlurEffectCache.get(blurRadiusPx)
+                        clip = true
+                    }
+                    .drawBehind {
+                        drawRect(color = foundationColor)
+                        val node = backdropState.renderNode
+                        if (node != null && backdropHasDisplayList(node)) {
+                            val relX = surfacePos.x - backdropState.rootPosition.x
+                            val relY = surfacePos.y - backdropState.rootPosition.y
+                            translate(left = -relX, top = -relY) {
+                                drawIntoCanvas { it.nativeCanvas.drawBackdrop(node) }
+                            }
+                        }
+                    }
+            )
+            Spacer(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .drawBehind {
+                        drawRect(color = tintColor.copy(alpha = tintAlpha))
+                        if (sheenBrush != null) {
+                            drawRect(brush = sheenBrush)
+                        }
+                    }
+            )
+        } else {
+            val sheenBrush = remember(sheenAlpha) {
+                if (sheenAlpha > 0f) {
+                    Brush.verticalGradient(
+                        0f to Color.White.copy(alpha = sheenAlpha * 0.75f),
+                        0.35f to Color.Transparent
+                    )
+                } else {
+                    null
+                }
+            }
+            Spacer(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .drawBehind {
+                        drawRect(color = tintColor.copy(alpha = fallbackAlpha))
+                        if (sheenBrush != null) {
+                            drawRect(brush = sheenBrush)
+                        }
+                    }
+            )
+        }
     }
 }

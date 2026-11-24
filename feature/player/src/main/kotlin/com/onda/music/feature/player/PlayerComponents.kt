@@ -1141,7 +1141,7 @@ fun PlayerTransportControls(
 }
 
 @Composable
-private fun OndaAnimatedPlayGlyph(
+internal fun OndaAnimatedPlayGlyph(
     isPlaying: Boolean,
     reducedMotion: Boolean,
     tint: Color,

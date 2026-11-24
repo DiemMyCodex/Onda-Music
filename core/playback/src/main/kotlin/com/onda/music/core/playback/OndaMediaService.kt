@@ -13,6 +13,7 @@ import android.view.SurfaceView
 import android.view.TextureView
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.Format
 import androidx.media3.common.HeartRating
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -20,6 +21,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.Rating
+import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
@@ -48,12 +50,16 @@ import com.onda.music.core.database.PlaybackCheckpoint
 import com.onda.music.core.database.SongDao
 import com.onda.music.core.database.toEntity
 import com.onda.music.core.database.toModel
+import com.onda.music.core.model.AudioOutputDevice
+import com.onda.music.core.model.AudioSignalInfo
 import com.onda.music.core.model.PlaybackStatus
 import com.onda.music.core.model.RepeatMode
 import com.onda.music.core.model.SourceKind
+import com.onda.music.core.model.StreamOption
 import com.onda.music.core.model.Track
 import dagger.hilt.android.AndroidEntryPoint
 import java.io.IOException
+import java.util.Locale
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -117,6 +123,7 @@ class OndaMediaService : MediaLibraryService() {
         audioOutputProfileManager.startMonitoring {
             handleHeadsetConnectedAutoResume()
         }
+        observeOutputDevice()
         observeSettings()
         observeNotificationControls()
         restoreCheckpointIfNeeded()
@@ -223,7 +230,7 @@ class OndaMediaService : MediaLibraryService() {
                 enableAudioTrackPlaybackParams: Boolean
             ): AudioSink {
                 return DefaultAudioSink.Builder(context)
-                    .setEnableFloatOutput(enableFloatOutput)
+                    .setEnableFloatOutput(true)
                     .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
                     .setAudioProcessors(arrayOf(audioEffectsEngine.eqProcessor))
                     .build()
@@ -316,13 +323,23 @@ class OndaMediaService : MediaLibraryService() {
                 if (player.shuffleModeEnabled != userSettings.shuffleEnabled) {
                     player.shuffleModeEnabled = userSettings.shuffleEnabled
                 }
-                val targetSpeed = userSettings.playbackSpeed.coerceIn(0.5f, 2.0f)
-                val targetPitch = userSettings.playbackPitch.coerceIn(0.5f, 2.0f)
-                if (abs(player.playbackParameters.speed - targetSpeed) > 0.005f ||
-                    abs(player.playbackParameters.pitch - targetPitch) > 0.005f
-                ) {
-                    player.playbackParameters = PlaybackParameters(targetSpeed, targetPitch)
+                if (userSettings.persistPlaybackSpeedGlobally) {
+                    val targetSpeed = userSettings.playbackSpeed.coerceIn(0.5f, 2.0f)
+                    val targetPitch = userSettings.playbackPitch.coerceIn(0.5f, 2.0f)
+                    if (abs(player.playbackParameters.speed - targetSpeed) > 0.005f ||
+                        abs(player.playbackParameters.pitch - targetPitch) > 0.005f
+                    ) {
+                        player.playbackParameters = PlaybackParameters(targetSpeed, targetPitch)
+                    }
                 }
+            }
+        }
+    }
+
+    private fun observeOutputDevice() {
+        serviceScope.launch {
+            audioOutputProfileManager.activeOutputDevice.collect {
+                syncPlayerStateToStore()
             }
         }
     }
@@ -722,6 +739,10 @@ class OndaMediaService : MediaLibraryService() {
             syncPlayerStateToStore()
         }
 
+        override fun onTracksChanged(tracks: Tracks) {
+            syncPlayerStateToStore()
+        }
+
         private fun pauseAndClearEndOfTrackTimer() {
             if (!sessionStore.playbackState.value.sleepTimerEndOfTrack) return
             player.pause()
@@ -918,6 +939,15 @@ class OndaMediaService : MediaLibraryService() {
             else -> RepeatMode.OFF
         }
         val activeStream = currentTrack?.id?.let { sessionStore.getResolvedStream(it) }
+        val audioSignal = if (currentTrack != null) {
+            buildAudioSignalInfo(
+                format = player.audioFormat,
+                activeStream = activeStream,
+                outputDevice = audioOutputProfileManager.activeOutputDevice.value
+            )
+        } else {
+            null
+        }
         sessionStore.updateState { existing ->
             existing.copy(
                 currentTrack = currentTrack,
@@ -930,11 +960,87 @@ class OndaMediaService : MediaLibraryService() {
                 repeatMode = repeatMode,
                 shuffleEnabled = player.shuffleModeEnabled,
                 activeStream = activeStream,
+                audioSignal = audioSignal,
                 errorMessage = if (status == PlaybackStatus.ERROR) existing.errorMessage else null,
                 playbackSpeed = player.playbackParameters.speed,
                 playbackPitch = player.playbackParameters.pitch
             )
         }
+    }
+
+    private fun buildAudioSignalInfo(
+        format: Format?,
+        activeStream: StreamOption?,
+        outputDevice: AudioOutputDevice
+    ): AudioSignalInfo {
+        val codec = resolveCodecLabel(format, activeStream)
+        val sampleRateHz = format?.sampleRate?.takeIf { it != Format.NO_VALUE && it > 0 } ?: 0
+        val bitDepth = resolveBitDepth(format, activeStream, codec)
+        val bitrateKbps = when {
+            format != null && format.bitrate != Format.NO_VALUE && format.bitrate > 0 -> format.bitrate / 1000
+            activeStream != null && activeStream.bitrateKbps > 0 -> activeStream.bitrateKbps
+            else -> 0
+        }
+        val channelCount = format?.channelCount?.takeIf { it != Format.NO_VALUE && it > 0 } ?: 0
+        val isLossless = codec in LOSSLESS_CODECS ||
+            (activeStream?.qualityLabel?.contains("lossless", ignoreCase = true) == true) ||
+            (activeStream?.qualityLabel?.contains("hi-res", ignoreCase = true) == true)
+        return AudioSignalInfo(
+            codec = codec,
+            sampleRateHz = sampleRateHz,
+            bitDepth = bitDepth,
+            bitrateKbps = bitrateKbps,
+            channelCount = channelCount,
+            outputDeviceName = outputDevice.displayName,
+            outputKind = outputDevice.kind,
+            isLossless = isLossless
+        )
+    }
+
+    private fun resolveCodecLabel(format: Format?, activeStream: StreamOption?): String {
+        val mime = format?.sampleMimeType?.lowercase(Locale.ROOT).orEmpty()
+        val fromMime = when {
+            mime.contains("flac") -> "FLAC"
+            mime.contains("alac") -> "ALAC"
+            mime.contains("opus") -> "OPUS"
+            mime.contains("vorbis") -> "VORBIS"
+            mime.contains("mp4a") || mime.contains("aac") -> "AAC"
+            mime.contains("mpeg") || mime.contains("mp3") -> "MP3"
+            mime.contains("ac3") -> "AC3"
+            mime.contains("eac3") -> "EAC3"
+            mime.contains("raw") || mime.contains("pcm") -> "PCM"
+            else -> ""
+        }
+        if (fromMime.isNotEmpty()) return fromMime
+        val fromCodecs = format?.codecs?.trim()?.lowercase(Locale.ROOT).orEmpty()
+        val mappedCodec = when {
+            fromCodecs.startsWith("fLaC", ignoreCase = true) -> "FLAC"
+            fromCodecs.startsWith("mp4a") -> "AAC"
+            fromCodecs.startsWith("opus") -> "OPUS"
+            fromCodecs.startsWith("alac") -> "ALAC"
+            else -> ""
+        }
+        if (mappedCodec.isNotEmpty()) return mappedCodec
+        return activeStream?.codec?.trim()?.uppercase(Locale.US)?.takeIf { it.isNotEmpty() } ?: "PCM"
+    }
+
+    private fun resolveBitDepth(format: Format?, activeStream: StreamOption?, codec: String): Int {
+        val fromPcm = when (format?.pcmEncoding) {
+            C.ENCODING_PCM_8BIT -> 8
+            C.ENCODING_PCM_16BIT -> 16
+            C.ENCODING_PCM_24BIT, C.ENCODING_PCM_24BIT_BIG_ENDIAN -> 24
+            C.ENCODING_PCM_32BIT, C.ENCODING_PCM_32BIT_BIG_ENDIAN, C.ENCODING_PCM_FLOAT -> 32
+            else -> 0
+        }
+        if (fromPcm > 0) return fromPcm
+        val qualityLabel = activeStream?.qualityLabel.orEmpty()
+        if (qualityLabel.contains("24-bit", ignoreCase = true) || qualityLabel.contains("hi-res", ignoreCase = true)) {
+            return 24
+        }
+        if (qualityLabel.contains("16-bit", ignoreCase = true) || codec in LOSSLESS_CODECS) {
+            return 16
+        }
+        return 0
     }
 
     private fun prefetchNextTrackInQueue() {
@@ -1054,6 +1160,7 @@ class OndaMediaService : MediaLibraryService() {
         private const val CHECKPOINT_INTERVAL_MS = 5_000L
         private const val NOTIFICATION_ID = 7001
         private const val NOTIFICATION_CHANNEL_ID = "onda_playback"
+        private val LOSSLESS_CODECS = setOf("FLAC", "ALAC", "WAV", "PCM")
 
         fun trackToMediaItem(track: Track): MediaItem {
             val upgradedArtworkUrl = upgradeNotificationArtworkUrl(track.artworkUrl)

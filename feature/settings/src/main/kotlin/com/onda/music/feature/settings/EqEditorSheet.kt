@@ -33,15 +33,21 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.Headphones
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -80,9 +86,12 @@ import com.onda.music.core.design.RoundedHighlight
 import com.onda.music.core.design.SmoothCornerShape
 import com.onda.music.core.design.damageBoundary
 import com.onda.music.core.design.pressBounce
+import com.onda.music.core.model.AudioOutputDevice
+import com.onda.music.core.model.AutoEqProfile
 import com.onda.music.core.model.EqBand
 import com.onda.music.core.model.EqConfig
 import com.onda.music.core.model.EqPreset
+import java.util.Locale
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.round
@@ -95,7 +104,13 @@ fun EqEditorSheet(
     onEqConfigChange: (EqConfig) -> Unit,
     onSelectPreset: (EqPreset) -> Unit,
     onBandGainChange: (Int, Float) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    activeOutputDevice: AudioOutputDevice = AudioOutputDevice(),
+    autoEqQuery: String = "",
+    autoEqResults: List<AutoEqProfile> = emptyList(),
+    autoEqTotalCount: Int = 0,
+    onAutoEqQueryChange: (String) -> Unit = {},
+    onApplyAutoEqProfile: (AutoEqProfile) -> Unit = {}
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val bands = remember(eqConfig.bands) {
@@ -158,11 +173,15 @@ fun EqEditorSheet(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                    val activePresetTitle = remember(eqConfig.activePresetId, strings.eqCustomLabel) {
+                        formatActiveEqPresetName(eqConfig.activePresetId, strings.eqCustomLabel)
+                    }
                     Text(
-                        text = EqConfig.builtInPresets.firstOrNull { it.id == eqConfig.activePresetId }?.name
-                            ?: strings.eqCustomLabel,
+                        text = activePresetTitle,
                         style = MaterialTheme.typography.bodySmall,
-                        color = SettingsOledColors.TextSecondary
+                        color = SettingsOledColors.TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
                 OndaSwitch(
@@ -354,6 +373,188 @@ fun EqEditorSheet(
                 cornerRadius = 24,
                 modifier = Modifier.padding(horizontal = 20.dp)
             ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(SettingsOledColors.MatteCard),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Headphones,
+                                contentDescription = null,
+                                tint = SettingsOledColors.TextPrimary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = strings.eqAutoEqTitle,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = SettingsOledColors.TextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = String.format(
+                                    Locale.US,
+                                    strings.eqAutoEqSubtitleFormat,
+                                    autoEqTotalCount,
+                                    activeOutputDevice.displayName
+                                ),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = SettingsOledColors.TextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = autoEqQuery,
+                        onValueChange = onAutoEqQueryChange,
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = {
+                            Text(
+                                text = strings.eqAutoEqSearchPlaceholder,
+                                color = SettingsOledColors.TextMuted,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Rounded.Search,
+                                contentDescription = null,
+                                tint = SettingsOledColors.TextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        trailingIcon = if (autoEqQuery.isNotEmpty()) {
+                            {
+                                Box(
+                                    modifier = Modifier
+                                        .size(DockMetrics.MinTapTarget)
+                                        .clip(CircleShape)
+                                        .clickable(
+                                            role = Role.Button,
+                                            onClick = { onAutoEqQueryChange("") }
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Close,
+                                        contentDescription = strings.clearSearchLabel,
+                                        tint = SettingsOledColors.TextSecondary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        } else {
+                            null
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = SettingsOledColors.TextPrimary,
+                            unfocusedBorderColor = SettingsOledColors.InsetDivider,
+                            focusedTextColor = SettingsOledColors.TextPrimary,
+                            unfocusedTextColor = SettingsOledColors.TextPrimary,
+                            cursorColor = SettingsOledColors.TextPrimary,
+                            focusedContainerColor = SettingsOledColors.MatteCard,
+                            unfocusedContainerColor = SettingsOledColors.MatteCard
+                        )
+                    )
+
+                    val visibleProfiles = remember(autoEqResults, autoEqQuery) {
+                        autoEqResults.take(if (autoEqQuery.isBlank()) 5 else 8)
+                    }
+
+                    if (visibleProfiles.isEmpty()) {
+                        Text(
+                            text = strings.eqAutoEqEmptyResults,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = SettingsOledColors.TextMuted,
+                            modifier = Modifier.padding(vertical = 6.dp)
+                        )
+                    } else {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(SettingsOledColors.MatteCard)
+                        ) {
+                            visibleProfiles.forEachIndexed { idx, profile ->
+                                if (idx > 0) {
+                                    HorizontalDivider(
+                                        thickness = 0.75.dp,
+                                        color = SettingsOledColors.InsetDivider
+                                    )
+                                }
+                                val isActiveProfile = eqConfig.activePresetId == "${AutoEqProfile.AUTO_EQ_PREFIX}${profile.id}"
+                                val formLabel = when (profile.formFactor) {
+                                    "I" -> "IEM"
+                                    "T" -> "TWS"
+                                    "N" -> "On-Ear"
+                                    else -> "Over-Ear"
+                                }
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .defaultMinSize(minHeight = 48.dp)
+                                        .clickable { onApplyAutoEqProfile(profile) }
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = profile.displayName,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = if (isActiveProfile) FontWeight.SemiBold else FontWeight.Medium,
+                                            color = SettingsOledColors.TextPrimary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = "$formLabel · ${formatDb(profile.preampDb)}",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                                            color = SettingsOledColors.TextSecondary,
+                                            maxLines = 1
+                                        )
+                                    }
+                                    if (isActiveProfile) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Check,
+                                            contentDescription = null,
+                                            tint = SettingsOledColors.TextPrimary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            SettingsMatteCard(
+                backgroundColor = SettingsOledColors.IconBadge,
+                cornerRadius = 24,
+                modifier = Modifier.padding(horizontal = 20.dp)
+            ) {
                 SettingsToggleRow(
                     icon = Icons.Rounded.VolumeUp,
                     title = strings.normalizeTitle,
@@ -374,6 +575,17 @@ fun EqEditorSheet(
             }
         }
     }
+}
+
+internal fun formatActiveEqPresetName(presetId: String, customFallback: String): String {
+    if (presetId.startsWith(AutoEqProfile.AUTO_EQ_PREFIX)) {
+        val slug = presetId.removePrefix(AutoEqProfile.AUTO_EQ_PREFIX)
+        val pretty = slug.split('_').filter { it.isNotBlank() }.joinToString(" ") { part ->
+            part.replaceFirstChar { ch -> ch.titlecase(Locale.US) }
+        }.ifBlank { "AutoEq" }
+        return "AutoEq · $pretty"
+    }
+    return EqConfig.builtInPresets.firstOrNull { it.id == presetId }?.name ?: customFallback
 }
 
 @Composable

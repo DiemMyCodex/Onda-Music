@@ -47,6 +47,8 @@ data class OndaUserSettings(
     val avatarPath: String? = null,
     val playbackSpeed: Float = 1.0f,
     val playbackPitch: Float = 1.0f,
+    val persistPlaybackSpeedGlobally: Boolean = true,
+    val oledAdaptiveAccentEnabled: Boolean = false,
     val studioConfig: PlayerStudioConfig = PlayerStudioConfig(),
     val smartOutputProfilesEnabled: Boolean = true,
     val resumeOnHeadsetConnect: Boolean = false,
@@ -90,6 +92,8 @@ class OndaPreferences @Inject constructor(
         val playbackCheckpointJson = stringPreferencesKey("playback_checkpoint_json")
         val playbackSpeed = floatPreferencesKey("playback_speed")
         val playbackPitch = floatPreferencesKey("playback_pitch")
+        val persistPlaybackSpeedGlobally = booleanPreferencesKey("persist_playback_speed_globally")
+        val oledAdaptiveAccentEnabled = booleanPreferencesKey("oled_adaptive_accent_enabled")
         val studioConfigJson = stringPreferencesKey("studio_config_json")
         val smartOutputProfilesEnabled = booleanPreferencesKey("smart_output_profiles_enabled")
         val audioOutputProfilesJson = stringPreferencesKey("audio_output_profiles_json")
@@ -232,6 +236,20 @@ class OndaPreferences @Inject constructor(
         }
     }
 
+    suspend fun setPersistPlaybackSpeedGlobally(enabled: Boolean) {
+        dataStore.edit { prefs ->
+            prefs[Keys.persistPlaybackSpeedGlobally] = enabled
+            if (!enabled) {
+                prefs[Keys.playbackSpeed] = 1.0f
+                prefs[Keys.playbackPitch] = 1.0f
+            }
+        }
+    }
+
+    suspend fun setOledAdaptiveAccentEnabled(enabled: Boolean) {
+        dataStore.edit { it[Keys.oledAdaptiveAccentEnabled] = enabled }
+    }
+
     suspend fun setStudioConfig(config: PlayerStudioConfig) {
         dataStore.edit { it[Keys.studioConfigJson] = databaseJson.encodeToString(config.sanitized()) }
     }
@@ -339,6 +357,8 @@ class OndaPreferences @Inject constructor(
             avatarPath = prefs[Keys.avatarPath],
             playbackSpeed = clampPlaybackFactor(prefs[Keys.playbackSpeed] ?: 1.0f),
             playbackPitch = clampPlaybackFactor(prefs[Keys.playbackPitch] ?: 1.0f),
+            persistPlaybackSpeedGlobally = prefs[Keys.persistPlaybackSpeedGlobally] ?: true,
+            oledAdaptiveAccentEnabled = prefs[Keys.oledAdaptiveAccentEnabled] ?: false,
             studioConfig = decodeStudioConfig(prefs[Keys.studioConfigJson]),
             smartOutputProfilesEnabled = prefs[Keys.smartOutputProfilesEnabled] ?: true,
             resumeOnHeadsetConnect = prefs[Keys.resumeOnHeadsetConnect] ?: false,
@@ -386,6 +406,8 @@ class OndaPreferences @Inject constructor(
         }
         prefs[Keys.playbackSpeed] = clampPlaybackFactor(settings.playbackSpeed)
         prefs[Keys.playbackPitch] = clampPlaybackFactor(settings.playbackPitch)
+        prefs[Keys.persistPlaybackSpeedGlobally] = settings.persistPlaybackSpeedGlobally
+        prefs[Keys.oledAdaptiveAccentEnabled] = settings.oledAdaptiveAccentEnabled
         prefs[Keys.studioConfigJson] = databaseJson.encodeToString(settings.studioConfig.sanitized())
         prefs[Keys.smartOutputProfilesEnabled] = settings.smartOutputProfilesEnabled
         prefs[Keys.resumeOnHeadsetConnect] = settings.resumeOnHeadsetConnect

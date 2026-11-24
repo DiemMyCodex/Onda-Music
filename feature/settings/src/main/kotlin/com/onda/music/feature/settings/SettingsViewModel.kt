@@ -13,12 +13,14 @@ import com.onda.music.core.database.PlaylistSongEntity
 import com.onda.music.core.database.SongDao
 import com.onda.music.core.database.toEntity
 import com.onda.music.core.model.AudioOutputDevice
+import com.onda.music.core.model.AutoEqProfile
 import com.onda.music.core.model.EqConfig
 import com.onda.music.core.model.EqPreset
 import com.onda.music.core.model.LyricsMotionStyle
 import com.onda.music.core.model.MergePolicy
 import com.onda.music.core.model.PlayerStyle
 import com.onda.music.core.model.Playlist
+import com.onda.music.core.playback.AutoEqRepository
 import com.onda.music.core.playback.DownloadManager
 import com.onda.music.core.playback.PlaybackController
 import com.onda.music.core.playback.StreamResolver
@@ -39,6 +41,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.Locale
 import java.util.UUID
 import java.util.zip.ZipInputStream
 import javax.inject.Inject
@@ -49,6 +52,7 @@ class SettingsViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val preferences: OndaPreferences,
     private val playbackController: PlaybackController,
+    private val autoEqRepository: AutoEqRepository,
     private val streamResolver: StreamResolver,
     private val downloadManager: DownloadManager,
     private val ytMusicClient: YtMusicClient,
@@ -117,6 +121,54 @@ class SettingsViewModel @Inject constructor(
             }
         }
         refreshStorageStats()
+        viewModelScope.launch(Dispatchers.IO) {
+            val total = autoEqRepository.getAllProfiles().size
+            val initial = autoEqRepository.search("", limit = 24)
+            localState.update {
+                it.copy(
+                    autoEqTotalCount = total,
+                    autoEqResults = initial
+                )
+            }
+        }
+    }
+
+    fun setAutoEqQuery(query: String) {
+        localState.update { it.copy(autoEqQuery = query) }
+        viewModelScope.launch(Dispatchers.IO) {
+            val matches = autoEqRepository.search(query, limit = 40)
+            localState.update { state ->
+                if (state.autoEqQuery == query) {
+                    state.copy(autoEqResults = matches)
+                } else {
+                    state
+                }
+            }
+        }
+    }
+
+    fun applyAutoEqProfile(profile: AutoEqProfile) {
+        val current = _uiState.value.settings.eqConfig
+        val updated = profile.toEqConfig(current)
+        updateEqConfig(updated)
+        val strings = settingsStringsFor(_uiState.value.settings.languageCode)
+        val deviceName = _uiState.value.activeOutputDevice.displayName
+        localState.update {
+            it.copy(
+                statusMessage = String.format(
+                    Locale.US,
+                    strings.eqAutoEqAppliedFormat,
+                    profile.displayName,
+                    deviceName
+                )
+            )
+        }
+    }
+
+    fun setOledAdaptiveAccentEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            preferences.setOledAdaptiveAccentEnabled(enabled)
+        }
     }
 
     fun setSearchQuery(query: String) {

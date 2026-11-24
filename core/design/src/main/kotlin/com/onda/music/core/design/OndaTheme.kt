@@ -214,30 +214,62 @@ fun rememberSystemReducedMotion(): Boolean {
     return reducedMotion
 }
 
+fun computeOledAdaptiveAccent(source: Color): Color {
+    val muted = Color(
+        red = source.red * 0.48f + 0.52f,
+        green = source.green * 0.48f + 0.52f,
+        blue = source.blue * 0.48f + 0.52f,
+        alpha = 1f
+    )
+    return GlassTokens.ensureContrastOnDark(
+        color = muted,
+        background = GlassTokens.AmoledBlack,
+        minRatio = 4.5
+    )
+}
+
+fun computeOledAdaptivePalette(source: OndaArtworkPalette): OndaArtworkPalette {
+    if (source == OndaArtworkPalette.Default) return source
+    val adaptivePrimary = computeOledAdaptiveAccent(source.primary)
+    val adaptiveSecondary = computeOledAdaptiveAccent(source.secondary).copy(alpha = 0.85f)
+    return source.copy(
+        primary = adaptivePrimary,
+        secondary = adaptiveSecondary,
+        onAccent = GlassTokens.AmoledBlack
+    )
+}
+
 @Composable
 fun OndaTheme(
     artworkPalette: OndaArtworkPalette = OndaArtworkPalette.Default,
+    adaptiveAccentEnabled: Boolean = false,
     reducedMotion: Boolean = rememberSystemReducedMotion(),
     content: @Composable () -> Unit
 ) {
-    val ondaColors = remember(artworkPalette) {
+    val effectivePalette = remember(artworkPalette, adaptiveAccentEnabled) {
+        if (adaptiveAccentEnabled) computeOledAdaptivePalette(artworkPalette) else artworkPalette
+    }
+
+    val ondaColors = remember(effectivePalette) {
         OndaColors(
-            accent = artworkPalette.primary,
-            accentSoft = artworkPalette.secondary
+            background = GlassTokens.AmoledBlack,
+            surface = GlassTokens.ObsidianSurface,
+            accent = effectivePalette.primary,
+            accentSoft = effectivePalette.secondary
         )
     }
 
-    val colorScheme = remember(artworkPalette, ondaColors) {
+    val colorScheme = remember(effectivePalette, ondaColors) {
         darkColorScheme(
-            primary = artworkPalette.primary,
-            onPrimary = artworkPalette.onAccent,
-            primaryContainer = artworkPalette.tertiary,
+            primary = effectivePalette.primary,
+            onPrimary = effectivePalette.onAccent,
+            primaryContainer = effectivePalette.tertiary,
             onPrimaryContainer = GlassTokens.TextPrimary,
-            secondary = artworkPalette.secondary,
+            secondary = effectivePalette.secondary,
             onSecondary = GlassTokens.AmoledBlack,
-            secondaryContainer = artworkPalette.muted,
+            secondaryContainer = effectivePalette.muted,
             onSecondaryContainer = GlassTokens.TextPrimary,
-            tertiary = artworkPalette.tertiary,
+            tertiary = effectivePalette.tertiary,
             onTertiary = GlassTokens.TextPrimary,
             background = GlassTokens.AmoledBlack,
             onBackground = GlassTokens.TextPrimary,
@@ -255,7 +287,7 @@ fun OndaTheme(
 
     CompositionLocalProvider(
         LocalOndaColors provides ondaColors,
-        LocalOndaPalette provides artworkPalette,
+        LocalOndaPalette provides effectivePalette,
         LocalReducedMotion provides reducedMotion
     ) {
         MaterialTheme(

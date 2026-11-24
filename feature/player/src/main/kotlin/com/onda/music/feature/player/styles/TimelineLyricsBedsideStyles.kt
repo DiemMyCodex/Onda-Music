@@ -1366,6 +1366,30 @@ fun BedsideTilesPlayerStyle(
     val currentOnSkipNext by rememberUpdatedState(ctx.onSkipNext)
     val currentOnSkipPrevious by rememberUpdatedState(ctx.onSkipPrevious)
 
+    val burnInGuard = ctx.settings.studioConfig.bedsideBurnInGuard
+    var tilesDriftStep by remember { mutableIntStateOf(0) }
+    LaunchedEffect(burnInGuard, reducedMotion) {
+        if (!burnInGuard || reducedMotion) {
+            tilesDriftStep = 0
+            return@LaunchedEffect
+        }
+        while (true) {
+            delay(60_000L)
+            tilesDriftStep = (tilesDriftStep + 1) % BURN_IN_DRIFT_OFFSETS.size
+        }
+    }
+    val tilesTargetDrift = BURN_IN_DRIFT_OFFSETS[tilesDriftStep]
+    val tilesDriftXDp by animateFloatAsState(
+        targetValue = if (burnInGuard && !reducedMotion) tilesTargetDrift.first else 0f,
+        animationSpec = if (reducedMotion) snap() else tween(4_000),
+        label = "BedsideTilesDriftX"
+    )
+    val tilesDriftYDp by animateFloatAsState(
+        targetValue = if (burnInGuard && !reducedMotion) tilesTargetDrift.second else 0f,
+        animationSpec = if (reducedMotion) snap() else tween(4_000),
+        label = "BedsideTilesDriftY"
+    )
+
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
@@ -1750,7 +1774,12 @@ fun BedsideTilesPlayerStyle(
 
         if (wideLayout) {
             Row(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        translationX = tilesDriftXDp.dp.toPx()
+                        translationY = tilesDriftYDp.dp.toPx()
+                    },
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 clockInfoTile(Modifier.weight(1f).fillMaxHeight())
@@ -1758,7 +1787,12 @@ fun BedsideTilesPlayerStyle(
             }
         } else {
             Column(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        translationX = tilesDriftXDp.dp.toPx()
+                        translationY = tilesDriftYDp.dp.toPx()
+                    },
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 clockInfoTile(Modifier.weight(0.95f).fillMaxWidth())

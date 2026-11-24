@@ -1,7 +1,11 @@
 package com.onda.music.core.model
 
 import androidx.compose.runtime.Immutable
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import java.io.InputStream
+import java.util.zip.GZIPInputStream
 
 @Immutable
 @Serializable
@@ -20,6 +24,55 @@ data class EqPreset(
     val gainsDb: List<Float>,
     val isBuiltIn: Boolean = false
 )
+
+@Immutable
+@Serializable
+data class AutoEqProfile(
+    val id: String,
+    @SerialName("b") val brand: String,
+    @SerialName("m") val model: String,
+    @SerialName("t") val formFactor: String = "Over-Ear",
+    @SerialName("p") val preampDb: Float = 0f,
+    @SerialName("g") val gainsDb: List<Float> = emptyList(),
+    @SerialName("q") val qValues: List<Float> = emptyList()
+) {
+    val displayName: String
+        get() = "$brand $model".trim()
+
+    fun toEqConfig(base: EqConfig = EqConfig()): EqConfig {
+        val bands = EqConfig.standardFrequenciesHz.mapIndexed { index, freq ->
+            EqBand(
+                index = index,
+                frequencyHz = freq,
+                gainDb = gainsDb.getOrElse(index) { 0f }.coerceIn(-12f, 12f),
+                q = qValues.getOrElse(index) { 1.41f }.coerceIn(0.2f, 12f)
+            )
+        }
+        return base.copy(
+            enabled = true,
+            activePresetId = "$AUTO_EQ_PREFIX$id",
+            bands = bands,
+            preampDb = preampDb.coerceIn(-12f, 12f)
+        )
+    }
+
+    companion object {
+        const val AUTO_EQ_PREFIX = "autoeq:"
+    }
+}
+
+object AutoEqCodec {
+    private val json = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+    }
+
+    fun decodeGzip(inputStream: InputStream): List<AutoEqProfile> {
+        return GZIPInputStream(inputStream).bufferedReader(Charsets.UTF_8).use { reader ->
+            json.decodeFromString<List<AutoEqProfile>>(reader.readText())
+        }
+    }
+}
 
 @Immutable
 @Serializable

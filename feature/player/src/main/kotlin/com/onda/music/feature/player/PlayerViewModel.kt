@@ -367,6 +367,10 @@ class PlayerViewModel @Inject constructor(
         playbackController.setPlaybackSpeedAndPitch(speed, pitch)
     }
 
+    fun setPersistPlaybackSpeedGlobally(enabled: Boolean) {
+        playbackController.setPersistPlaybackSpeedGlobally(enabled)
+    }
+
     fun resetPlaybackSpeedAndPitch() {
         playbackController.resetPlaybackSpeedAndPitch()
     }

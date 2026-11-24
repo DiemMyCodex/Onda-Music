@@ -243,6 +243,9 @@ class DatabaseMappersAndPrefsTest {
         preferences.setSkipSilenceEnabled(true)
         preferences.setKeepPlayingOnTaskRemoved(false)
         preferences.setKeepScreenOn(true)
+        preferences.setOledAdaptiveAccentEnabled(true)
+        preferences.setPlaybackSpeedAndPitch(1.25f, 1.10f)
+        preferences.setPersistPlaybackSpeedGlobally(false)
 
         val updatedFlags = preferences.currentSettings()
         assertFalse(updatedFlags.smartOutputProfilesEnabled)
@@ -250,6 +253,10 @@ class DatabaseMappersAndPrefsTest {
         assertTrue(updatedFlags.skipSilenceEnabled)
         assertFalse(updatedFlags.keepPlayingOnTaskRemoved)
         assertTrue(updatedFlags.keepScreenOn)
+        assertTrue(updatedFlags.oledAdaptiveAccentEnabled)
+        assertFalse(updatedFlags.persistPlaybackSpeedGlobally)
+        assertEquals(1.0f, updatedFlags.playbackSpeed, 0.001f)
+        assertEquals(1.0f, updatedFlags.playbackPitch, 0.001f)
 
         val btDevice = AudioOutputDevice("bt:xm5", "Sony XM5", AudioOutputKind.BLUETOOTH)
         val btProfile = AudioOutputEqProfile.fromEqConfig(btDevice, eq, updatedAtMs = 5_000L)

@@ -92,7 +92,9 @@ import com.onda.music.core.design.OndaArtworkPalette
 import com.onda.music.core.design.OndaMonogramMark
 import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.design.SmoothCornerShape
+import com.onda.music.core.design.computeOledAdaptivePalette
 import com.onda.music.core.design.pressBounce
+import com.onda.music.core.model.AudioSignalInfo
 import com.onda.music.core.model.PlayerStyle
 import com.onda.music.core.model.StudioBackdropMode
 import com.onda.music.core.model.Track
@@ -236,10 +238,13 @@ fun FullPlayerOverlay(
     }
 
     val baseColors = OndaTheme.colors
-    val dynamicColors = remember(baseColors, palette) {
+    val effectivePalette = remember(palette, settings.oledAdaptiveAccentEnabled) {
+        if (settings.oledAdaptiveAccentEnabled) computeOledAdaptivePalette(palette) else palette
+    }
+    val dynamicColors = remember(baseColors, effectivePalette) {
         baseColors.copy(
-            accent = palette.primary,
-            accentSoft = palette.secondary
+            accent = effectivePalette.primary,
+            accentSoft = effectivePalette.secondary
         )
     }
 
@@ -394,35 +399,71 @@ fun FullPlayerOverlay(
                                 .background(Color(0x38FFFFFF))
                         )
 
-                        Box(
+                        Row(
                             modifier = Modifier
                                 .align(Alignment.TopStart)
                                 .statusBarsPadding()
-                                .padding(top = 6.dp, start = 12.dp)
-                                .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
-                                .clip(SmoothCornerShape(999.dp))
-                                .clickable { showStudioOverlay = true },
-                            contentAlignment = Alignment.Center
+                                .padding(top = 6.dp, start = 12.dp, end = 108.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Row(
+                            Box(
                                 modifier = Modifier
+                                    .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
                                     .clip(SmoothCornerShape(999.dp))
-                                    .background(Color(0x24FFFFFF))
-                                    .border(0.75.dp, Color(0x26FFFFFF), SmoothCornerShape(999.dp))
-                                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                    .clickable { showStudioOverlay = true },
+                                contentAlignment = Alignment.Center
                             ) {
-                                OndaMonogramMark(
-                                    modifier = Modifier.size(14.dp),
-                                    tint = Color.White,
-                                    filled = false
-                                )
-                                Text(
-                                    text = "Studio",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                                    color = Color.White
-                                )
+                                Row(
+                                    modifier = Modifier
+                                        .clip(SmoothCornerShape(999.dp))
+                                        .background(Color(0x24FFFFFF))
+                                        .border(0.75.dp, Color(0x26FFFFFF), SmoothCornerShape(999.dp))
+                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                ) {
+                                    OndaMonogramMark(
+                                        modifier = Modifier.size(14.dp),
+                                        tint = Color.White,
+                                        filled = false
+                                    )
+                                    Text(
+                                        text = "Studio",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                        color = Color.White
+                                    )
+                                }
+                            }
+
+                            val immersiveSignal = playbackState.audioSignal
+                            if (immersiveSignal != null) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f, fill = false)
+                                        .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
+                                        .clip(SmoothCornerShape(999.dp))
+                                        .clickable { showStreamInfoSheet = true },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = immersiveSignal.formatBadgeText(),
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Medium,
+                                            fontFeatureSettings = "tnum",
+                                            fontSize = 10.sp
+                                        ),
+                                        color = Color.White.copy(alpha = 0.88f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier
+                                            .clip(SmoothCornerShape(999.dp))
+                                            .background(Color(0x66000000))
+                                            .border(0.75.dp, Color(0x26FFFFFF), SmoothCornerShape(999.dp))
+                                            .padding(horizontal = 9.dp, vertical = 5.dp)
+                                    )
+                                }
                             }
                         }
 
@@ -509,6 +550,7 @@ fun FullPlayerOverlay(
                     ) {
                         FullPlayerTopHeader(
                             activeStyle = settings.playerStyle,
+                            audioSignal = playbackState.audioSignal,
                             playbackSpeed = playbackState.playbackSpeed,
                             playbackPitch = playbackState.playbackPitch,
                             sleepTimerActive = playbackState.sleepTimerRemainingMs != null || playbackState.sleepTimerEndOfTrack,
@@ -517,6 +559,7 @@ fun FullPlayerOverlay(
                                 onCollapse()
                             },
                             onOpenStudio = { showStudioOverlay = true },
+                            onOpenStreamInfo = { showStreamInfoSheet = true },
                             onOpenSpeedSheet = { showSpeedSheet = true },
                             onOpenQueue = { showQueueSheet = true },
                             onOpenSleepTimer = { showSleepTimerSheet = true },
@@ -749,6 +792,9 @@ fun FullPlayerOverlay(
                     speed = playbackState.playbackSpeed,
                     pitch = playbackState.playbackPitch,
                     hapticsEnabled = settings.hapticsEnabled,
+                    persistGlobally = settings.persistPlaybackSpeedGlobally,
+                    languageCode = settings.languageCode,
+                    onPersistGloballyChange = viewModel::setPersistPlaybackSpeedGlobally,
                     onSetSpeedAndPitch = viewModel::setPlaybackSpeedAndPitch,
                     onReset = {
                         viewModel.resetPlaybackSpeedAndPitch()
@@ -1063,11 +1109,13 @@ private fun Modifier.verticalCollapseDrag(
 @Composable
 private fun FullPlayerTopHeader(
     activeStyle: PlayerStyle,
+    audioSignal: AudioSignalInfo?,
     playbackSpeed: Float,
     playbackPitch: Float,
     sleepTimerActive: Boolean,
     onCollapse: () -> Unit,
     onOpenStudio: () -> Unit,
+    onOpenStreamInfo: () -> Unit,
     onOpenSpeedSheet: () -> Unit,
     onOpenQueue: () -> Unit,
     onOpenSleepTimer: () -> Unit,
@@ -1283,6 +1331,48 @@ private fun FullPlayerTopHeader(
                         contentDescription = "Player actions",
                         tint = Color.White,
                         modifier = Modifier.size(21.dp)
+                    )
+                }
+            }
+        }
+
+        if (audioSignal != null) {
+            val badgeText = remember(audioSignal) { audioSignal.formatBadgeText() }
+            if (badgeText.isNotEmpty()) {
+                val signalInteraction = remember { MutableInteractionSource() }
+                Box(
+                    modifier = Modifier
+                        .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
+                        .pressBounce(
+                            interactionSource = signalInteraction,
+                            pressedScale = 0.95f,
+                            enabled = !reducedMotion
+                        )
+                        .clip(RoundedCornerShape(GlassTokens.RadiusPill))
+                        .clickable(
+                            interactionSource = signalInteraction,
+                            indication = null,
+                            onClick = onOpenStreamInfo
+                        )
+                        .padding(horizontal = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = badgeText,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Medium,
+                            fontFeatureSettings = "tnum",
+                            fontSize = 10.sp
+                        ),
+                        color = Color(0xFFBDBDBD),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(GlassTokens.RadiusPill))
+                            .background(Color(0xFF141414))
+                            .border(0.75.dp, Color(0x1EFFFFFF), RoundedCornerShape(GlassTokens.RadiusPill))
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
                     )
                 }
             }

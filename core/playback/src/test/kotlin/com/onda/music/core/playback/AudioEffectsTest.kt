@@ -1,8 +1,18 @@
 package com.onda.music.core.playback
 
+import androidx.annotation.OptIn
+import androidx.media3.common.C
+import androidx.media3.common.audio.AudioProcessor
+import androidx.media3.common.util.UnstableApi
 import com.onda.music.core.model.AudioOutputEqProfile
 import com.onda.music.core.model.AudioOutputKind
 import com.onda.music.core.model.EqConfig
+import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.sin
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -133,6 +143,91 @@ class AudioEffectsTest {
         assertTrue(applied.normalizeLoudness)
         assertEquals(6, applied.crossfadeSeconds)
         assertTrue(applied.gaplessEnabled)
+    }
+
+    @OptIn(UnstableApi::class)
+    @Test
+    fun eqAudioProcessorProcesses16Bit24BitAndFloatPcmWithoutBypass() {
+        val boostConfig = EqConfig(
+            enabled = true,
+            activePresetId = "custom",
+            bands = EqConfig.defaultBands(listOf(0f, 0f, 0f, 0f, 0f, 6.0f, 0f, 0f, 0f, 0f)),
+            preampDb = 0f
+        )
+
+        val encodings = listOf(
+            C.ENCODING_PCM_16BIT to 2,
+            C.ENCODING_PCM_24BIT to 3,
+            C.ENCODING_PCM_FLOAT to 4
+        )
+        val frames = 128
+        val channels = 2
+
+        encodings.forEach { (encoding, bytesPerSample) ->
+            val processor = EqAudioProcessor()
+            processor.updateConfig(boostConfig)
+            val configured = processor.configure(AudioProcessor.AudioFormat(48_000, channels, encoding))
+            assertEquals(encoding, configured.encoding)
+            processor.flush()
+
+            val input = ByteBuffer.allocateDirect(frames * channels * bytesPerSample).order(ByteOrder.LITTLE_ENDIAN)
+            for (frame in 0 until frames) {
+                val s = (sin(2.0 * PI * 1000.0 * frame / 48_000.0) * 0.25).toFloat()
+                repeat(channels) {
+                    when (encoding) {
+                        C.ENCODING_PCM_16BIT -> input.putShort((s * 32767f).toInt().toShort())
+                        C.ENCODING_PCM_24BIT -> {
+                            val v = (s * 8_388_607f).toInt()
+                            input.put((v and 0xFF).toByte())
+                            input.put(((v shr 8) and 0xFF).toByte())
+                            input.put(((v shr 16) and 0xFF).toByte())
+                        }
+                        C.ENCODING_PCM_FLOAT -> input.putFloat(s)
+                    }
+                }
+            }
+            input.flip()
+            val inputCopy = ByteArray(input.remaining())
+            input.duplicate().get(inputCopy)
+
+            processor.queueInput(input)
+            val output = processor.output
+            assertEquals(inputCopy.size, output.remaining())
+            val outputCopy = ByteArray(output.remaining())
+            output.get(outputCopy)
+            assertFalse("Expected EQ to modify PCM for encoding $encoding", inputCopy.contentEquals(outputCopy))
+
+            if (encoding == C.ENCODING_PCM_FLOAT) {
+                val outFloats = ByteBuffer.wrap(outputCopy).order(ByteOrder.LITTLE_ENDIAN)
+                var maxAbs = 0f
+                while (outFloats.remaining() >= 4) {
+                    val sample = outFloats.float
+                    assertTrue(sample.isFinite())
+                    maxAbs = maxOf(maxAbs, abs(sample))
+                }
+                assertTrue(maxAbs > 0.25f && maxAbs <= 1.0f)
+            }
+        }
+    }
+
+    @Test
+    fun bundledAutoEqGzipIndexLoadsOverThousandProfilesAndMatchesHeadphoneQueries() {
+        val rawFile = File("src/main/res/raw/autoeq_index.gz").takeIf { it.exists() }
+            ?: File("core/playback/src/main/res/raw/autoeq_index.gz")
+        assertTrue("Expected bundled AutoEq index at ${rawFile.absolutePath}", rawFile.exists())
+
+        val profiles = rawFile.inputStream().use { AutoEqRepository.loadFromStream(it) }
+        assertTrue("Expected >= 1000 AutoEq profiles, got ${profiles.size}", profiles.size >= 1000)
+
+        val sonyMatches = AutoEqRepository.searchProfiles(profiles, "sony xm5", limit = 10)
+        assertTrue("Expected Sony XM5 match", sonyMatches.any { it.displayName.contains("XM5", ignoreCase = true) })
+
+        val sennMatches = AutoEqRepository.searchProfiles(profiles, "hd 600", limit = 10)
+        assertTrue("Expected HD 600 match", sennMatches.any { it.displayName.contains("600", ignoreCase = true) })
+
+        val moondropMatches = AutoEqRepository.searchProfiles(profiles, "moondrop", limit = 10)
+        assertTrue("Expected Moondrop match", moondropMatches.isNotEmpty())
+        assertEquals(10, moondropMatches.first().gainsDb.size)
     }
 
     private fun assertEqualsFloat(expected: Float, actual: Float) {

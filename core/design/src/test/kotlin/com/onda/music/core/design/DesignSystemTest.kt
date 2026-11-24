@@ -237,4 +237,18 @@ class DesignSystemTest {
         assertTrue(maxGlow > 0.75f)
         assertTrue(maxSwell > 0.50f)
     }
+
+    @Test
+    fun oledAdaptiveAccentMaintainsWcagAaContrastOnPureBlack() {
+        val deepBlue = computeOledAdaptiveAccent(Color(0xFF0A1230))
+        val brightCrimson = computeOledAdaptiveAccent(Color(0xFFD92038))
+        val pureBlack = computeOledAdaptiveAccent(Color(0xFF000000))
+
+        assertTrue(GlassTokens.meetsWcagAa(deepBlue, GlassTokens.AmoledBlack))
+        assertTrue(GlassTokens.meetsWcagAa(brightCrimson, GlassTokens.AmoledBlack))
+        assertTrue(GlassTokens.meetsWcagAa(pureBlack, GlassTokens.AmoledBlack))
+
+        val defaultPalette = computeOledAdaptivePalette(OndaArtworkPalette.Default)
+        assertEquals(OndaArtworkPalette.Default, defaultPalette)
+    }
 }

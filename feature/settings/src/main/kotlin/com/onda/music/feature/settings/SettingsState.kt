@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.compose.runtime.Immutable
 import com.onda.music.core.database.OndaUserSettings
 import com.onda.music.core.model.AudioOutputDevice
+import com.onda.music.core.model.AutoEqProfile
 import com.onda.music.core.model.LinkEntityKind
 import com.onda.music.core.model.LinkProvider
 import com.onda.music.core.model.MergePolicy
@@ -33,6 +34,7 @@ enum class SettingsEntryId {
     RESUME_ON_HEADSET,
     KEEP_PLAYING_ON_SWIPE,
     PLAYER_STYLE_PICKER,
+    OLED_ADAPTIVE_ACCENT,
     GLASS_BLUR,
     DYNAMIC_MESH,
     LYRICS_STYLE_PICKER,
@@ -106,6 +108,9 @@ data class SettingsUiState(
     val statusMessage: String? = null,
     val activeOutputDevice: AudioOutputDevice = AudioOutputDevice(),
     val savedOutputProfileCount: Int = 0,
+    val autoEqQuery: String = "",
+    val autoEqResults: List<AutoEqProfile> = emptyList(),
+    val autoEqTotalCount: Int = 0,
     val sleepTimerRemainingMs: Long? = null,
     val sleepTimerEndOfTrack: Boolean = false,
     val sleepTimerFading: Boolean = false
@@ -184,6 +189,13 @@ fun buildSettingsSearchEntries(strings: SettingsStrings): List<SettingsSearchEnt
             "player", "style", "flagship", "classic", "poster", "turntable",
             "video", "ipod", "timeline", "lyrics", "bedside", "tiles", "giao dien phat"
         )
+    ),
+    SettingsSearchEntry(
+        id = SettingsEntryId.OLED_ADAPTIVE_ACCENT,
+        group = SettingsGroup.NOW_PLAYING_MOTION,
+        title = strings.oledAdaptiveAccentTitle,
+        subtitle = strings.oledAdaptiveAccentSubtitle,
+        keywords = listOf("adaptive accent", "oled accent", "accent tint", "artwork tint", "sac nhan", "mau nhan")
     ),
     SettingsSearchEntry(
         id = SettingsEntryId.GLASS_BLUR,

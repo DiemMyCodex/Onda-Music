@@ -50,6 +50,10 @@ class SettingsStateTest {
         val lyricsStyleMatches = filterSettingsEntries(entries, "lyrics bloom")
         assertEquals(1, lyricsStyleMatches.size)
         assertEquals(SettingsEntryId.LYRICS_STYLE_PICKER, lyricsStyleMatches.first().id)
+
+        val accentMatches = filterSettingsEntries(entries, "adaptive accent")
+        assertEquals(1, accentMatches.size)
+        assertEquals(SettingsEntryId.OLED_ADAPTIVE_ACCENT, accentMatches.first().id)
     }
 
     @Test

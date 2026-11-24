@@ -119,6 +119,7 @@ import com.onda.music.core.design.pressBounce
 import com.onda.music.core.design.rememberOndaBackdropState
 import com.onda.music.core.design.rememberRevealSeenState
 import com.onda.music.core.design.revealOnAppear
+import com.onda.music.core.model.AutoEqProfile
 import com.onda.music.core.model.EqConfig
 import com.onda.music.core.model.EqPreset
 import com.onda.music.core.model.LyricsMotionStyle
@@ -144,6 +145,8 @@ fun SettingsRoute(
         onEqConfigChange = viewModel::updateEqConfig,
         onSelectEqPreset = viewModel::selectEqPreset,
         onEqBandGainChange = viewModel::updateEqBandGain,
+        onAutoEqQueryChange = viewModel::setAutoEqQuery,
+        onApplyAutoEqProfile = viewModel::applyAutoEqProfile,
         onNormalizeChange = viewModel::setNormalizeLoudness,
         onGaplessChange = viewModel::setGaplessEnabled,
         onSmartOutputProfilesChange = viewModel::setSmartOutputProfilesEnabled,
@@ -155,6 +158,7 @@ fun SettingsRoute(
         onKeepPlayingChange = viewModel::setKeepPlayingOnTaskRemoved,
         onKeepScreenOnChange = viewModel::setKeepScreenOn,
         onPlayerStyleChange = viewModel::setPlayerStyle,
+        onOledAdaptiveAccentChange = viewModel::setOledAdaptiveAccentEnabled,
         onGlassBlurChange = viewModel::setGlassBlurEnabled,
         onDynamicMeshChange = viewModel::setDynamicMeshEnabled,
         onLyricsMotionStyleChange = viewModel::setLyricsMotionStyle,
@@ -197,6 +201,8 @@ fun SettingsScreen(
     onEqConfigChange: (EqConfig) -> Unit,
     onSelectEqPreset: (EqPreset) -> Unit,
     onEqBandGainChange: (Int, Float) -> Unit,
+    onAutoEqQueryChange: (String) -> Unit = {},
+    onApplyAutoEqProfile: (AutoEqProfile) -> Unit = {},
     onNormalizeChange: (Boolean) -> Unit,
     onGaplessChange: (Boolean) -> Unit,
     onSmartOutputProfilesChange: (Boolean) -> Unit,
@@ -208,6 +214,7 @@ fun SettingsScreen(
     onKeepPlayingChange: (Boolean) -> Unit,
     onKeepScreenOnChange: (Boolean) -> Unit,
     onPlayerStyleChange: (PlayerStyle) -> Unit,
+    onOledAdaptiveAccentChange: (Boolean) -> Unit = {},
     onGlassBlurChange: (Boolean) -> Unit,
     onDynamicMeshChange: (Boolean) -> Unit,
     onLyricsMotionStyleChange: (LyricsMotionStyle) -> Unit,
@@ -312,6 +319,7 @@ fun SettingsScreen(
             onKeepPlayingChange = onKeepPlayingChange,
             onKeepScreenOnChange = onKeepScreenOnChange,
             onOpenPlayerStyle = { showPlayerStyleSheet = true },
+            onOledAdaptiveAccentChange = onOledAdaptiveAccentChange,
             onOpenLyricsStyle = { showLyricsStyleSheet = true },
             onGlassBlurChange = onGlassBlurChange,
             onDynamicMeshChange = onDynamicMeshChange,
@@ -713,7 +721,13 @@ fun SettingsScreen(
             onEqConfigChange = onEqConfigChange,
             onSelectPreset = onSelectEqPreset,
             onBandGainChange = onEqBandGainChange,
-            onDismiss = { showEqSheet = false }
+            onDismiss = { showEqSheet = false },
+            activeOutputDevice = uiState.activeOutputDevice,
+            autoEqQuery = uiState.autoEqQuery,
+            autoEqResults = uiState.autoEqResults,
+            autoEqTotalCount = uiState.autoEqTotalCount,
+            onAutoEqQueryChange = onAutoEqQueryChange,
+            onApplyAutoEqProfile = onApplyAutoEqProfile
         )
     }
 
@@ -853,6 +867,7 @@ private fun entryIconFor(id: SettingsEntryId): ImageVector = when (id) {
     SettingsEntryId.RESUME_ON_HEADSET -> Icons.Rounded.Bluetooth
     SettingsEntryId.KEEP_PLAYING_ON_SWIPE -> Icons.Rounded.PlayCircle
     SettingsEntryId.PLAYER_STYLE_PICKER -> Icons.Rounded.Palette
+    SettingsEntryId.OLED_ADAPTIVE_ACCENT -> Icons.Rounded.Palette
     SettingsEntryId.GLASS_BLUR -> Icons.Rounded.BlurOn
     SettingsEntryId.DYNAMIC_MESH -> Icons.Rounded.Gradient
     SettingsEntryId.LYRICS_STYLE_PICKER -> Icons.Rounded.Lyrics
@@ -892,6 +907,7 @@ private fun SettingsEntryRow(
     onKeepPlayingChange: (Boolean) -> Unit,
     onKeepScreenOnChange: (Boolean) -> Unit,
     onOpenPlayerStyle: () -> Unit,
+    onOledAdaptiveAccentChange: (Boolean) -> Unit,
     onOpenLyricsStyle: () -> Unit,
     onGlassBlurChange: (Boolean) -> Unit,
     onDynamicMeshChange: (Boolean) -> Unit,
@@ -919,9 +935,7 @@ private fun SettingsEntryRow(
     val haptics = settings.hapticsEnabled
     when (entry.id) {
         SettingsEntryId.EQUALIZER_EDITOR -> {
-            val presetLabel = EqConfig.builtInPresets.firstOrNull {
-                it.id == settings.eqConfig.activePresetId
-            }?.name ?: strings.eqCustomLabel
+            val presetLabel = formatActiveEqPresetName(settings.eqConfig.activePresetId, strings.eqCustomLabel)
             SettingsActionRow(
                 icon = Icons.Rounded.Equalizer,
                 title = entry.title,
@@ -1109,6 +1123,16 @@ private fun SettingsEntryRow(
                 badgeText = settings.playerStyle.label,
                 badgeAccent = true,
                 onClick = onOpenPlayerStyle
+            )
+        }
+        SettingsEntryId.OLED_ADAPTIVE_ACCENT -> {
+            SettingsToggleRow(
+                icon = Icons.Rounded.Palette,
+                title = entry.title,
+                subtitle = entry.subtitle,
+                checked = settings.oledAdaptiveAccentEnabled,
+                onCheckedChange = onOledAdaptiveAccentChange,
+                hapticsEnabled = haptics
             )
         }
         SettingsEntryId.GLASS_BLUR -> {

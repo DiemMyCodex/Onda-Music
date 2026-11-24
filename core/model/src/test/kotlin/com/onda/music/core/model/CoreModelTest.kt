@@ -79,4 +79,51 @@ class CoreModelTest {
         assertTrue(LyricsMotionStyle.KINETIC_CLEAN.risesLetters && !LyricsMotionStyle.KINETIC_CLEAN.glowEnabled && LyricsMotionStyle.KINETIC_CLEAN.cascadesRows)
         assertTrue(!LyricsMotionStyle.PURE_SWEEP.risesLetters && !LyricsMotionStyle.PURE_SWEEP.glowEnabled && !LyricsMotionStyle.PURE_SWEEP.cascadesRows)
     }
+
+    @Test
+    fun autoEqProfileMapsToTenBandEqConfigAndAudioSignalFormatsBadge() {
+        val profile = AutoEqProfile(
+            id = "sony_wh_1000xm5",
+            brand = "Sony",
+            model = "WH-1000XM5",
+            formFactor = "O",
+            preampDb = -6.2f,
+            gainsDb = listOf(-4.5f, -3.2f, -1.8f, 0.5f, 1.2f, 2.0f, 3.1f, 2.4f, 1.0f, 0.0f),
+            qValues = listOf(1.2f, 1.4f, 1.4f, 1.4f, 1.4f, 1.6f, 1.8f, 1.4f, 1.4f, 1.2f)
+        )
+        assertEquals("Sony WH-1000XM5", profile.displayName)
+        val base = EqConfig(crossfadeSeconds = 5, gaplessEnabled = true)
+        val applied = profile.toEqConfig(base)
+        assertTrue(applied.enabled)
+        assertEquals("autoeq:sony_wh_1000xm5", applied.activePresetId)
+        assertEquals(-6.2f, applied.preampDb, 0.001f)
+        assertEquals(10, applied.bands.size)
+        assertEquals(-4.5f, applied.bands[0].gainDb, 0.001f)
+        assertEquals(1.8f, applied.bands[6].q, 0.001f)
+        assertEquals(5, applied.crossfadeSeconds)
+
+        val flacSignal = AudioSignalInfo(
+            codec = "FLAC",
+            sampleRateHz = 96_000,
+            bitDepth = 24,
+            bitrateKbps = 2800,
+            channelCount = 2,
+            outputDeviceName = "FiiO KA13",
+            outputKind = AudioOutputKind.USB_AUDIO,
+            isLossless = true
+        )
+        assertEquals("FLAC · 24-bit/96kHz · USB DAC", flacSignal.formatBadgeText())
+
+        val opusSignal = AudioSignalInfo(
+            codec = "OPUS",
+            sampleRateHz = 48_000,
+            bitDepth = 0,
+            bitrateKbps = 128,
+            channelCount = 2,
+            outputDeviceName = "Sony XM5",
+            outputKind = AudioOutputKind.BLUETOOTH,
+            isLossless = false
+        )
+        assertEquals("OPUS · 48kHz · 128k · BT", opusSignal.formatBadgeText())
+    }
 }

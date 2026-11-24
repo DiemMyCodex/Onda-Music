@@ -64,12 +64,16 @@ import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
+import coil3.SingletonImageLoader
 import com.onda.music.core.database.OndaPreferences
 import com.onda.music.core.design.AppMotion
+import com.onda.music.core.design.ArtworkUrlResolver
 import com.onda.music.core.design.LocalOndaBackdropState
 import com.onda.music.core.design.LocalOndaLaunchChoreography
 import com.onda.music.core.design.LocalOndaToastState
+import com.onda.music.core.design.OndaArtworkPalette
 import com.onda.music.core.design.OndaLaunchSplashOverlay
+import com.onda.music.core.design.OndaPaletteExtractor
 import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.design.OndaTopToastHost
 import com.onda.music.core.design.homeRecede
@@ -89,7 +93,11 @@ import com.onda.music.feature.settings.SettingsRoute
 import com.onda.music.onboarding.OndaOnboardingScreen
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -143,7 +151,35 @@ class MainActivity : ComponentActivity() {
                     window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 }
             }
-            OndaTheme {
+            val adaptiveAccentEnabled = activeSettings?.oledAdaptiveAccentEnabled == true
+            val activeArtworkUrl by remember(playbackController) {
+                playbackController.playbackState
+                    .map { it.currentTrack?.artworkUrl }
+                    .distinctUntilChanged()
+            }.collectAsState(initial = null)
+            var adaptivePalette by remember { mutableStateOf(OndaArtworkPalette.Default) }
+
+            LaunchedEffect(adaptiveAccentEnabled, activeArtworkUrl) {
+                if (!adaptiveAccentEnabled || activeArtworkUrl.isNullOrBlank()) {
+                    adaptivePalette = OndaArtworkPalette.Default
+                } else {
+                    val artwork = activeArtworkUrl ?: return@LaunchedEffect
+                    adaptivePalette = withContext(Dispatchers.IO) {
+                        val loader = SingletonImageLoader.get(applicationContext)
+                        val upgraded = ArtworkUrlResolver.upgradeHighRes(artwork) ?: artwork
+                        OndaPaletteExtractor.extractFromData(
+                            context = applicationContext,
+                            imageLoader = loader,
+                            data = upgraded
+                        )
+                    }
+                }
+            }
+
+            OndaTheme(
+                artworkPalette = adaptivePalette,
+                adaptiveAccentEnabled = adaptiveAccentEnabled
+            ) {
                 if (activeSettings == null) {
                     Box(
                         modifier = Modifier

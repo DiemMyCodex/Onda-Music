@@ -233,8 +233,20 @@ class PlaybackController @Inject constructor(
             it.copy(playbackSpeed = safeSpeed, playbackPitch = safePitch)
         }
         scope.launch {
-            ondaPreferences.setPlaybackSpeedAndPitch(safeSpeed, safePitch)
+            if (ondaPreferences.currentSettings().persistPlaybackSpeedGlobally) {
+                ondaPreferences.setPlaybackSpeedAndPitch(safeSpeed, safePitch)
+            }
             ensureController()?.playbackParameters = PlaybackParameters(safeSpeed, safePitch)
+        }
+    }
+
+    fun setPersistPlaybackSpeedGlobally(enabled: Boolean) {
+        scope.launch {
+            ondaPreferences.setPersistPlaybackSpeedGlobally(enabled)
+            if (enabled) {
+                val state = playbackState.value
+                ondaPreferences.setPlaybackSpeedAndPitch(state.playbackSpeed, state.playbackPitch)
+            }
         }
     }
 

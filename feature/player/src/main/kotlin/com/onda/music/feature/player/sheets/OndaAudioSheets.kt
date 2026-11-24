@@ -98,6 +98,7 @@ import com.onda.music.core.design.OndaSwitch
 import com.onda.music.core.design.RoundedHighlight
 import com.onda.music.core.design.SmoothCornerShape
 import com.onda.music.core.design.pressBounce
+import com.onda.music.core.model.AutoEqProfile
 import com.onda.music.core.model.DownloadItem
 import com.onda.music.core.model.DownloadStatus
 import com.onda.music.core.model.EqConfig
@@ -501,13 +502,44 @@ fun OndaStreamTelemetrySheet(
     }
 
     val stream = playbackState.activeStream
+    val signal = playbackState.audioSignal
     val activePresetName = remember(eqConfig.activePresetId) {
-        EqConfig.builtInPresets.firstOrNull { it.id == eqConfig.activePresetId }?.name
-            ?: eqConfig.activePresetId.replace('_', ' ').uppercase(Locale.US)
+        if (eqConfig.activePresetId.startsWith(AutoEqProfile.AUTO_EQ_PREFIX)) {
+            val slug = eqConfig.activePresetId.removePrefix(AutoEqProfile.AUTO_EQ_PREFIX)
+            val label = slug.split('_').filter { it.isNotBlank() }.joinToString(" ") { part ->
+                part.replaceFirstChar { ch -> ch.titlecase(Locale.US) }
+            }.ifBlank { "AutoEq" }
+            "AutoEq · $label"
+        } else {
+            EqConfig.builtInPresets.firstOrNull { it.id == eqConfig.activePresetId }?.name
+                ?: eqConfig.activePresetId.replace('_', ' ').uppercase(Locale.US)
+        }
     }
 
-    val nodes = remember(track, playbackState, eqConfig, activePresetName, outputRoute) {
+    val nodes = remember(track, playbackState, signal, eqConfig, activePresetName, outputRoute) {
         val preampSign = if (eqConfig.preampDb >= 0f) "+" else ""
+        val decodedCodec = signal?.codec?.takeIf { it.isNotBlank() }
+            ?: stream?.codec?.uppercase(Locale.US)
+            ?: "PCM / PASS"
+        val sampleRateLabel = signal?.formatSampleRateLabel().orEmpty()
+        val resolutionLabel = when {
+            signal != null && signal.bitDepth > 0 && sampleRateLabel.isNotEmpty() ->
+                "${signal.bitDepth}-bit / $sampleRateLabel"
+            sampleRateLabel.isNotEmpty() -> sampleRateLabel
+            signal != null && signal.bitDepth > 0 -> "${signal.bitDepth}-bit"
+            else -> "--"
+        }
+        val effectiveBitrate = signal?.bitrateKbps?.takeIf { it > 0 }
+            ?: stream?.bitrateKbps?.takeIf { it > 0 }
+            ?: 0
+        val channelsLabel = when (signal?.channelCount ?: 0) {
+            1 -> "Mono (1.0)"
+            2 -> "Stereo (2.0)"
+            in 3..16 -> "${signal?.channelCount} ch"
+            else -> "--"
+        }
+        val effectiveRouteLabel = signal?.formatRouteLabel() ?: outputRoute.first
+        val effectiveDeviceLabel = signal?.outputDeviceName?.takeIf { it.isNotBlank() } ?: outputRoute.second
         listOf(
             SignalNodeData(
                 stage = "SOURCE",
@@ -515,24 +547,26 @@ fun OndaStreamTelemetrySheet(
                 details = listOf(
                     "TRACK" to (track?.title ?: "None"),
                     "STATE" to playbackState.status.name,
-                    "QUALITY" to (stream?.qualityLabel ?: "AUTO")
+                    "QUALITY" to (stream?.qualityLabel ?: if (signal?.isLossless == true) "LOSSLESS" else "AUTO")
                 ),
                 active = track != null
             ),
             SignalNodeData(
-                stage = "FORMAT",
-                title = stream?.codec?.uppercase(Locale.US) ?: "PCM / PASS",
+                stage = "DECODER",
+                title = decodedCodec,
                 details = listOf(
-                    "CODEC" to (stream?.codec?.uppercase(Locale.US) ?: "--"),
-                    "BITRATE" to if (stream != null && stream.bitrateKbps > 0) "${stream.bitrateKbps} kbps" else "--",
+                    "RESOLUTION" to resolutionLabel,
+                    "BITRATE" to if (effectiveBitrate > 0) "$effectiveBitrate kbps" else "--",
+                    "CHANNELS" to channelsLabel,
                     "MIME" to (stream?.mimeType ?: "--")
                 ),
-                active = stream != null
+                active = signal != null || stream != null
             ),
             SignalNodeData(
                 stage = "DSP ENGINE",
                 title = if (eqConfig.enabled) "ACTIVE ($activePresetName)" else "BYPASS ($activePresetName)",
                 details = listOf(
+                    "PIPELINE" to "32-bit Float Parametric EQ",
                     "PREAMP" to "$preampSign${String.format(Locale.US, "%.1f dB", eqConfig.preampDb)}",
                     "CROSSFADE" to if (eqConfig.crossfadeSeconds > 0) "${eqConfig.crossfadeSeconds}s" else "OFF",
                     "GAPLESS" to if (eqConfig.gaplessEnabled) "ON" else "OFF",
@@ -550,10 +584,10 @@ fun OndaStreamTelemetrySheet(
             ),
             SignalNodeData(
                 stage = "OUTPUT",
-                title = outputRoute.first,
+                title = effectiveRouteLabel,
                 details = listOf(
-                    "ROUTE" to outputRoute.first,
-                    "DEVICE" to outputRoute.second
+                    "ROUTE" to effectiveRouteLabel,
+                    "DEVICE" to effectiveDeviceLabel
                 ),
                 active = true
             )
@@ -831,12 +865,16 @@ fun OndaPlaybackSpeedSheet(
     speed: Float,
     pitch: Float,
     hapticsEnabled: Boolean,
+    persistGlobally: Boolean = true,
+    languageCode: String = "en",
+    onPersistGloballyChange: (Boolean) -> Unit = {},
     onSetSpeedAndPitch: (Float, Float) -> Unit,
     onReset: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val haptics = LocalHapticFeedback.current
+    val isVi = languageCode.startsWith("vi", ignoreCase = true)
 
     var localSpeed by remember { mutableFloatStateOf(quantizeSpeedStep(speed)) }
     var localPitch by remember { mutableFloatStateOf(quantizeSpeedStep(pitch)) }
@@ -991,6 +1029,67 @@ fun OndaPlaybackSpeedSheet(
                             }
                         }
                     )
+                }
+            }
+
+            Surface(
+                color = SheetCardSurface,
+                shape = SmoothCornerShape(20.dp),
+                border = BorderStroke(1.dp, SheetDivider)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = if (isVi) "Phạm vi lưu tốc độ & cao độ" else "Persistence Scope",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = Color.White
+                    )
+                    Text(
+                        text = if (persistGlobally) {
+                            if (isVi) "Giữ nguyên tốc độ và cao độ qua các lần mở lại app"
+                            else "Keep speed and pitch across app restarts"
+                        } else {
+                            if (isVi) "Chỉ áp dụng cho phiên hiện tại, đặt lại 1.00x khi khởi động lại"
+                            else "Apply to current session only, reset to 1.00x on restart"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = SheetMutedText
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            SheetPillChip(
+                                label = if (isVi) "Phiên hiện tại" else "Per-Session",
+                                selected = !persistGlobally,
+                                fillWidth = true,
+                                onClick = {
+                                    if (hapticsEnabled) {
+                                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    }
+                                    onPersistGloballyChange(false)
+                                }
+                            )
+                        }
+                        Box(modifier = Modifier.weight(1f)) {
+                            SheetPillChip(
+                                label = if (isVi) "Toàn cục" else "Global",
+                                selected = persistGlobally,
+                                fillWidth = true,
+                                onClick = {
+                                    if (hapticsEnabled) {
+                                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    }
+                                    onPersistGloballyChange(true)
+                                }
+                            )
+                        }
+                    }
                 }
             }
 

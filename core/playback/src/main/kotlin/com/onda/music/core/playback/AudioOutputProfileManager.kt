@@ -12,6 +12,7 @@ import com.onda.music.core.database.OndaPreferences
 import com.onda.music.core.model.AudioOutputDevice
 import com.onda.music.core.model.AudioOutputEqProfile
 import com.onda.music.core.model.AudioOutputKind
+import com.onda.music.core.model.AutoEqProfile
 import com.onda.music.core.model.EqConfig
 import com.onda.music.core.model.OutputProfileSwitchEvent
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -83,6 +84,12 @@ object AudioOutputResolver {
 
     fun presetDisplayName(presetId: String, eqEnabled: Boolean): String {
         if (!eqEnabled) return "Flat"
+        if (presetId.startsWith(AutoEqProfile.AUTO_EQ_PREFIX)) {
+            val slug = presetId.removePrefix(AutoEqProfile.AUTO_EQ_PREFIX)
+            return slug.split('_').filter { it.isNotBlank() }.joinToString(" ") { part ->
+                part.replaceFirstChar { ch -> ch.titlecase(Locale.US) }
+            }.ifBlank { "AutoEq" }
+        }
         return EqConfig.builtInPresets.firstOrNull { it.id == presetId }?.name
             ?: if (presetId == "custom") "Custom EQ" else presetId
     }

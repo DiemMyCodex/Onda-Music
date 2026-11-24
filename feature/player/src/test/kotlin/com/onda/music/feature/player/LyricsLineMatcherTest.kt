@@ -179,5 +179,16 @@ class LyricsLineMatcherTest {
             preferExplicit = false
         )
         assertTrue(cjk.size >= 3)
+
+        val punctuated = synthesizeWordTimings(
+            line = LyricsLine(startTimeMs = 1_000L, endTimeMs = 5_000L, text = "Wait, stay! Go"),
+            nextLineStartMs = 5_000L,
+            preferExplicit = true
+        )
+        assertEquals(3, punctuated.size)
+        val waitDur = punctuated[0].endTimeMs - punctuated[0].startTimeMs
+        val stayDur = punctuated[1].endTimeMs - punctuated[1].startTimeMs
+        val goDur = punctuated[2].endTimeMs - punctuated[2].startTimeMs
+        assertTrue(stayDur > waitDur && waitDur > goDur)
     }
 }

@@ -32,6 +32,22 @@ class LyricsParserTest {
     }
 
     @Test
+    fun parsesSyncedLinesWithoutSubseconds() {
+        val lrc = """
+            [00:05]First line
+            [00:09]Second line
+        """.trimIndent()
+
+        val doc = parser.parse(trackId = "t_sec", rawContent = lrc, source = LyricsSource.LRCLIB)
+        assertTrue(doc.isSynced)
+        assertFalse(doc.hasWordTiming)
+        assertEquals(2, doc.lines.size)
+        assertEquals(5_000L, doc.lines[0].startTimeMs)
+        assertEquals(9_000L, doc.lines[0].endTimeMs)
+        assertEquals(9_000L, doc.lines[1].startTimeMs)
+    }
+
+    @Test
     fun parsesEnhancedWordLevelTimings() {
         val enhancedLrc = """
             [00:10.00]<00:10.00>We <00:10.40>are <00:10.80>the <00:11.20>music <00:11.80>makers

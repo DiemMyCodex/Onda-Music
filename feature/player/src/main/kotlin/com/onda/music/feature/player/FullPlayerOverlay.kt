@@ -392,168 +392,174 @@ fun FullPlayerOverlay(
                             modifier = Modifier
                                 .align(Alignment.TopCenter)
                                 .fillMaxWidth()
-                                .fillMaxHeight(0.13f)
+                                .fillMaxHeight(0.14f)
                                 .background(
                                     Brush.verticalGradient(
                                         colorStops = arrayOf(
-                                            0.0f to Color(0xFF000000).copy(alpha = 0.46f),
-                                            0.55f to Color(0xFF000000).copy(alpha = 0.22f),
+                                            0.0f to Color(0xFF000000).copy(alpha = 0.56f),
+                                            0.55f to Color(0xFF000000).copy(alpha = 0.26f),
                                             1.0f to Color.Transparent
                                         )
                                     )
                                 )
                         )
 
-                        Box(
+                        Column(
                             modifier = Modifier
                                 .align(Alignment.TopCenter)
+                                .fillMaxWidth()
                                 .statusBarsPadding()
-                                .padding(top = 10.dp)
-                                .width(42.dp)
-                                .height(4.dp)
-                                .clip(RoundedCornerShape(999.dp))
-                                .background(Color(0x38FFFFFF))
-                        )
-
-                        Row(
-                            modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .statusBarsPadding()
-                                .padding(top = 6.dp, start = 12.dp, end = 108.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                .padding(horizontal = 12.dp, vertical = 4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
-                                    .clip(SmoothCornerShape(999.dp))
-                                    .clickable { showStudioOverlay = true },
-                                contentAlignment = Alignment.Center
+                                    .padding(top = 4.dp, bottom = 4.dp)
+                                    .width(42.dp)
+                                    .height(4.dp)
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .background(Color(0x38FFFFFF))
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Row(
-                                    modifier = Modifier
-                                        .clip(SmoothCornerShape(999.dp))
-                                        .background(Color(0x24FFFFFF))
-                                        .border(0.75.dp, Color(0x26FFFFFF), SmoothCornerShape(999.dp))
-                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                    modifier = Modifier.weight(1f),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                ) {
-                                    OndaMonogramMark(
-                                        modifier = Modifier.size(14.dp),
-                                        tint = Color.White,
-                                        filled = false
-                                    )
-                                    Text(
-                                        text = "Studio",
-                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                                        color = Color.White
-                                    )
-                                }
-                            }
-
-                            val immersiveSignal = playbackState.audioSignal
-                            if (immersiveSignal != null) {
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f, fill = false)
-                                        .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
-                                        .clip(SmoothCornerShape(999.dp))
-                                        .clickable { showStreamInfoSheet = true },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = immersiveSignal.formatBadgeText(),
-                                        style = MaterialTheme.typography.labelSmall.copy(
-                                            fontFamily = FontFamily.Monospace,
-                                            fontWeight = FontWeight.Medium,
-                                            fontFeatureSettings = "tnum",
-                                            fontSize = 10.sp
-                                        ),
-                                        color = Color.White.copy(alpha = 0.88f),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier
-                                            .clip(SmoothCornerShape(999.dp))
-                                            .background(Color(0x66000000))
-                                            .border(0.75.dp, Color(0x26FFFFFF), SmoothCornerShape(999.dp))
-                                            .padding(horizontal = 9.dp, vertical = 5.dp)
-                                    )
-                                }
-                            }
-                        }
-
-                        Row(
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .statusBarsPadding()
-                                .padding(top = 6.dp, end = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            IconButton(
-                                onClick = { showActionSheet = true },
-                                modifier = Modifier.defaultMinSize(
-                                    minWidth = DockMetrics.MinTapTarget,
-                                    minHeight = DockMetrics.MinTapTarget
-                                )
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(32.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0x24FFFFFF)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.MoreVert,
-                                        contentDescription = "Player actions",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-
-                            IconButton(
-                                onClick = {
-                                    MorphGestureArbitrator.claim()
-                                    onCollapse()
-                                },
-                                modifier = Modifier.defaultMinSize(
-                                    minWidth = DockMetrics.MinTapTarget,
-                                    minHeight = DockMetrics.MinTapTarget
-                                )
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(32.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0x24FFFFFF)),
-                                    contentAlignment = Alignment.Center
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Box(
                                         modifier = Modifier
-                                            .size(14.dp)
-                                            .drawWithCache {
-                                                val chevronPath = Path().apply {
-                                                    moveTo(size.width * 0.18f, size.height * 0.34f)
-                                                    lineTo(size.width * 0.50f, size.height * 0.68f)
-                                                    lineTo(size.width * 0.82f, size.height * 0.34f)
-                                                }
-                                                val chevronStroke = Stroke(
-                                                    width = 1.85.dp.toPx(),
-                                                    cap = StrokeCap.Round,
-                                                    join = StrokeJoin.Round
-                                                )
-                                                onDrawBehind {
-                                                    drawPath(
-                                                        path = chevronPath,
-                                                        color = Color.White,
-                                                        style = chevronStroke
-                                                    )
-                                                }
-                                            }
-                                    )
+                                            .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
+                                            .clip(SmoothCornerShape(999.dp))
+                                            .clickable { showStudioOverlay = true },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .clip(SmoothCornerShape(999.dp))
+                                                .background(Color(0x24FFFFFF))
+                                                .border(0.75.dp, Color(0x26FFFFFF), SmoothCornerShape(999.dp))
+                                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                        ) {
+                                            OndaMonogramMark(
+                                                modifier = Modifier.size(14.dp),
+                                                tint = Color.White,
+                                                filled = false
+                                            )
+                                            Text(
+                                                text = "Studio",
+                                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                                color = Color.White
+                                            )
+                                        }
+                                    }
+
+                                    val immersiveSignal = playbackState.audioSignal
+                                    if (immersiveSignal != null) {
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f, fill = false)
+                                                .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
+                                                .clip(SmoothCornerShape(999.dp))
+                                                .clickable { showStreamInfoSheet = true },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = immersiveSignal.formatBadgeText(),
+                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontWeight = FontWeight.Medium,
+                                                    fontFeatureSettings = "tnum",
+                                                    fontSize = 10.sp
+                                                ),
+                                                color = Color.White.copy(alpha = 0.88f),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier
+                                                    .clip(SmoothCornerShape(999.dp))
+                                                    .background(Color(0x66000000))
+                                                    .border(0.75.dp, Color(0x26FFFFFF), SmoothCornerShape(999.dp))
+                                                    .padding(horizontal = 9.dp, vertical = 5.dp)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    IconButton(
+                                        onClick = { showActionSheet = true },
+                                        modifier = Modifier.defaultMinSize(
+                                            minWidth = DockMetrics.MinTapTarget,
+                                            minHeight = DockMetrics.MinTapTarget
+                                        )
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(32.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0x24FFFFFF)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.MoreVert,
+                                                contentDescription = "Player actions",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+
+                                    IconButton(
+                                        onClick = {
+                                            MorphGestureArbitrator.claim()
+                                            onCollapse()
+                                        },
+                                        modifier = Modifier.defaultMinSize(
+                                            minWidth = DockMetrics.MinTapTarget,
+                                            minHeight = DockMetrics.MinTapTarget
+                                        )
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(32.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0x24FFFFFF)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(14.dp)
+                                                    .drawWithCache {
+                                                        val chevronPath = Path().apply {
+                                                            moveTo(size.width * 0.18f, size.height * 0.34f)
+                                                            lineTo(size.width * 0.50f, size.height * 0.68f)
+                                                            lineTo(size.width * 0.82f, size.height * 0.34f)
+                                                        }
+                                                        val chevronStroke = Stroke(
+                                                            width = 1.85.dp.toPx(),
+                                                            cap = StrokeCap.Round,
+                                                            join = StrokeJoin.Round
+                                                        )
+                                                        onDrawBehind {
+                                                            drawPath(
+                                                                path = chevronPath,
+                                                                color = Color.White,
+                                                                style = chevronStroke
+                                                            )
+                                                        }
+                                                    }
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }

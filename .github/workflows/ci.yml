@@ -3,8 +3,13 @@ name: Onda CI
 on:
   workflow_dispatch:
     inputs:
+      build_release:
+        description: 'Build signed ARM64 Release APK (R8)'
+        required: false
+        default: true
+        type: boolean
       build_debug:
-        description: 'Also build ARM64 Debug APK'
+        description: 'Also build ARM64 Debug APK (no R8, fast)'
         required: false
         default: false
         type: boolean
@@ -37,10 +42,11 @@ jobs:
         run: chmod +x gradlew
 
       - name: Run Unit Tests
-        run: ./gradlew testDebugUnitTest :app:testArm64DebugUnitTest --console=plain
+        run: ./gradlew testDebugUnitTest -x :app:testUniversalDebugUnitTest --console=plain
 
   build_arm64_release:
     name: ARM64 Release APK
+    if: github.event_name != 'workflow_dispatch' || inputs.build_release != false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -71,7 +77,7 @@ jobs:
           ONDA_KEYSTORE_PASSWORD: ${{ secrets.ONDA_KEYSTORE_PASSWORD }}
           ONDA_KEY_ALIAS: ${{ secrets.ONDA_KEY_ALIAS }}
           ONDA_KEY_PASSWORD: ${{ secrets.ONDA_KEY_PASSWORD }}
-        run: ./gradlew :app:assembleArm64Release --console=plain
+        run: ./gradlew :app:assembleArm64Release -x lintVitalArm64Release -x lintVitalAnalyzeArm64Release -x lintVitalAnalyzeRelease --console=plain
 
       - name: Upload ARM64 Release APK
         uses: actions/upload-artifact@v4

@@ -239,6 +239,26 @@ class DesignSystemTest {
     }
 
     @Test
+    fun computeOndaTimedRangesSynthesizesWeightedWordsWithPunctuationAndNaturalCap() {
+        val text = "Hello, world! Stay here"
+        val timed = computeOndaTimedRanges(
+            text = text,
+            words = emptyList(),
+            fallbackStartMs = 1_000L,
+            fallbackEndMs = 20_000L
+        )
+        assertEquals(4, timed.size)
+        assertEquals(1.0, timed.first().startTimeSec, 0.001)
+        assertTrue(timed.last().endTimeSec - timed.first().startTimeSec <= 6.801)
+        val commaSpan = timed[0].endTimeSec - timed[0].startTimeSec
+        val plainSpan = timed[2].endTimeSec - timed[2].startTimeSec
+        assertTrue(commaSpan > plainSpan)
+        for (i in 1 until timed.size) {
+            assertTrue(timed[i].startTimeSec >= timed[i - 1].endTimeSec - 0.0001)
+        }
+    }
+
+    @Test
     fun oledAdaptiveAccentMaintainsWcagAaContrastOnPureBlack() {
         val deepBlue = computeOledAdaptiveAccent(Color(0xFF0A1230))
         val brightCrimson = computeOledAdaptiveAccent(Color(0xFFD92038))

@@ -375,6 +375,7 @@ class LyricsParser @Inject constructor() {
         val min = minutes.toLongOrNull() ?: 0L
         val sec = seconds.toLongOrNull() ?: 0L
         val fracMs = when (fraction.length) {
+            0 -> 0L
             1 -> (fraction.toLongOrNull() ?: 0L) * 100L
             2 -> (fraction.toLongOrNull() ?: 0L) * 10L
             else -> fraction.take(3).toLongOrNull() ?: 0L
@@ -453,7 +454,7 @@ class LyricsParser @Inject constructor() {
         private const val DEFAULT_TAIL_DURATION_MS = 5_000L
         private const val DEFAULT_WORD_TAIL_MS = 450L
 
-        private val LINE_TIMESTAMP_REGEX = Regex("""\[(\d{1,3}):(\d{2})[.:](\d{1,3})]""")
+        private val LINE_TIMESTAMP_REGEX = Regex("""\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?]""")
         private val WORD_TIMING_REGEX = Regex("""<(\d{1,3}):(\d{2})[.:](\d{1,3})>\s*([^<\r\n]+)""")
         private val WORD_TAG_REGEX = Regex("""<\d{1,3}:\d{2}[.:]\d{1,3}>""")
         private val METADATA_TAG_REGEX = Regex("""^\[[a-zA-Z]+:.*]$""")

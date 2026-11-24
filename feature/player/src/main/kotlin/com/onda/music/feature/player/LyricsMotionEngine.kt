@@ -25,12 +25,12 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
+import com.onda.music.core.design.synthesizeOndaWordTimings
 import com.onda.music.core.model.LyricsLine
 import com.onda.music.core.model.LyricsWord
 import kotlinx.coroutines.isActive
 import kotlin.math.PI
 import kotlin.math.abs
-import kotlin.math.max
 import kotlin.math.sin
 
 fun lyricSmoothstep(edge0: Float, edge1: Float, value: Float): Float {
@@ -67,105 +67,20 @@ fun computeWordLiftEnvelope(progress: Float): Float {
     return (1f - release * 0.85f - u * 0.15f).coerceIn(0f, 1f)
 }
 
-private val LYRIC_WHITESPACE_REGEX = Regex("\\s+")
-
-private fun isCompactScriptChar(ch: Char): Boolean {
-    val code = ch.code
-    return code in 0x4E00..0x9FFF ||
-        code in 0x3040..0x30FF ||
-        code in 0xAC00..0xD7AF ||
-        code in 0x0E00..0x0E7F
-}
-
-private fun lyricTokenWeight(token: String): Float {
-    val base = token.count { it.isLetterOrDigit() }.coerceAtLeast(2).toFloat()
-    val pauseBonus = when (token.lastOrNull()) {
-        ',', ';', '、', '：' -> 1.4f
-        '.', '!', '?', '…', '。' -> 2.2f
-        else -> 0f
-    }
-    return base + pauseBonus
-}
-
 fun synthesizeWordTimings(
     line: LyricsLine,
     nextLineStartMs: Long?,
     preferExplicit: Boolean = true,
     maxTokens: Int = 0
-): List<LyricsWord> {
-    if (preferExplicit && line.words.isNotEmpty()) {
-        val explicit = line.words.filter { it.text.isNotBlank() }.map { word ->
-            LyricsWord(
-                text = word.text,
-                startTimeMs = word.startTimeMs,
-                endTimeMs = word.endTimeMs.coerceAtLeast(word.startTimeMs + 80L)
-            )
-        }
-        if (explicit.isNotEmpty()) {
-            return if (maxTokens > 0 && explicit.size > maxTokens) {
-                explicit.take(maxTokens - 1) + explicit[maxTokens - 1].let { it.copy(text = "${it.text}...") }
-            } else {
-                explicit
-            }
-        }
-    }
-
-    val trimmed = line.text.trim()
-    if (trimmed.isEmpty()) return emptyList()
-
-    val rawTokens = trimmed
-        .split(LYRIC_WHITESPACE_REGEX)
-        .filter { it.isNotEmpty() }
-        .flatMap { token ->
-            if (token.length >= 8 && token.any(::isCompactScriptChar)) {
-                token.chunked(3)
-            } else {
-                listOf(token)
-            }
-        }
-    if (rawTokens.isEmpty()) return emptyList()
-
-    val boundedTokens = if (maxTokens > 0 && rawTokens.size > maxTokens) {
-        rawTokens.take(maxTokens - 1) + "${rawTokens[maxTokens - 1]}..."
-    } else {
-        rawTokens
-    }
-
-    val weights = boundedTokens.map(::lyricTokenWeight)
-    val totalWeight = weights.sum().coerceAtLeast(1f)
-    val startMs = line.startTimeMs
-    val naturalVocalMs = (totalWeight * 155f + 900f).toLong().coerceIn(1_250L, 6_800L)
-    val availableSpanMs = when {
-        line.endTimeMs > startMs + 250L -> line.endTimeMs - startMs
-        nextLineStartMs != null && nextLineStartMs > startMs + 250L ->
-            ((nextLineStartMs - startMs) * 0.92f).toLong().coerceAtLeast(500L)
-        else -> naturalVocalMs
-    }
-    val spanMs = minOf(availableSpanMs, naturalVocalMs).coerceIn(350L, 7_500L)
-
-    var accumulatedWeight = 0f
-    var cursorMs = startMs
-    return weights.mapIndexed { index, weight ->
-        val sliceStart = cursorMs
-        accumulatedWeight += weight
-        val sliceEnd = if (index == weights.lastIndex) {
-            max(sliceStart + 60L, startMs + spanMs)
-        } else {
-            val remainingMinMs = (weights.lastIndex - index) * 45L
-            val targetEndMs = startMs + ((accumulatedWeight / totalWeight) * spanMs).toLong()
-            targetEndMs.coerceIn(
-                sliceStart + 60L,
-                max(sliceStart + 60L, startMs + spanMs - remainingMinMs)
-            )
-        }
-        cursorMs = sliceEnd
-        LyricsWord(
-            text = boundedTokens[index],
-            startTimeMs = sliceStart,
-            endTimeMs = sliceEnd
-        )
-    }
-}
+): List<LyricsWord> = synthesizeOndaWordTimings(
+    text = line.text,
+    lineStartMs = line.startTimeMs,
+    lineEndMs = line.endTimeMs,
+    nextLineStartMs = nextLineStartMs,
+    explicitWords = line.words,
+    preferExplicit = preferExplicit,
+    maxTokens = maxTokens
+)
 
 fun interpolateLyricPositionMs(
     anchorPositionMs: Long,

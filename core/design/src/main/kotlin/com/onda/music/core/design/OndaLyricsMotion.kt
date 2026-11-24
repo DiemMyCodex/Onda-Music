@@ -505,6 +505,117 @@ fun ondaKaraokeHeadFor(text: String): OndaKaraokeHead {
     return OndaKaraokeHead(starts, ends, ondaMotionCells(text, starts, ends))
 }
 
+private val ONDA_SYNTH_WHITESPACE_REGEX = Regex("\\s+")
+
+private fun isOndaCompactScriptChar(ch: Char): Boolean {
+    val code = ch.code
+    return code in 0x4E00..0x9FFF ||
+        code in 0x3040..0x30FF ||
+        code in 0xAC00..0xD7AF ||
+        code in 0x0E00..0x0E7F
+}
+
+private fun ondaLyricTokenWeight(token: String): Float {
+    val letterDigits = token.count { it.isLetterOrDigit() }
+    val compactWeight = if (token.any(::isOndaCompactScriptChar)) {
+        ondaSungLength(token)
+    } else {
+        letterDigits
+    }
+    val base = compactWeight.coerceAtLeast(2).toFloat()
+    val trailingChar = token.lastOrNull { it !in "\"')]}」』”’" }
+    val pauseBonus = when (trailingChar) {
+        ',', ';', '、', '：' -> 1.4f
+        '.', '!', '?', '…', '。' -> 2.2f
+        else -> 0f
+    }
+    return base + pauseBonus
+}
+
+fun synthesizeOndaWordTimings(
+    text: String,
+    lineStartMs: Long,
+    lineEndMs: Long = 0L,
+    nextLineStartMs: Long? = null,
+    explicitWords: List<LyricsWord> = emptyList(),
+    preferExplicit: Boolean = true,
+    maxTokens: Int = 0
+): List<LyricsWord> {
+    if (preferExplicit && explicitWords.isNotEmpty()) {
+        val explicit = explicitWords.filter { it.text.isNotBlank() }.map { word ->
+            LyricsWord(
+                text = word.text,
+                startTimeMs = word.startTimeMs,
+                endTimeMs = word.endTimeMs.coerceAtLeast(word.startTimeMs + 80L)
+            )
+        }
+        if (explicit.isNotEmpty()) {
+            return if (maxTokens > 0 && explicit.size > maxTokens) {
+                explicit.take(maxTokens - 1) + explicit[maxTokens - 1].let { it.copy(text = "${it.text}...") }
+            } else {
+                explicit
+            }
+        }
+    }
+
+    val trimmed = text.trim()
+    if (trimmed.isEmpty()) return emptyList()
+
+    val rawTokens = trimmed
+        .split(ONDA_SYNTH_WHITESPACE_REGEX)
+        .filter { it.isNotEmpty() }
+        .flatMap { token ->
+            if (token.length >= 8 && token.any(::isOndaCompactScriptChar)) {
+                token.chunked(3)
+            } else {
+                listOf(token)
+            }
+        }
+    if (rawTokens.isEmpty()) return emptyList()
+
+    val boundedTokens = if (maxTokens > 0 && rawTokens.size > maxTokens) {
+        rawTokens.take(maxTokens - 1) + "${rawTokens[maxTokens - 1]}..."
+    } else {
+        rawTokens
+    }
+
+    val weights = boundedTokens.map(::ondaLyricTokenWeight)
+    val totalWeight = weights.sum().coerceAtLeast(1f)
+    val startMs = lineStartMs.coerceAtLeast(0L)
+    val naturalVocalMs = (totalWeight * 155f + 900f).toLong().coerceIn(1_250L, 6_800L)
+    val availableSpanMs = when {
+        lineEndMs > startMs + 120L -> lineEndMs - startMs
+        nextLineStartMs != null && nextLineStartMs > startMs + 120L ->
+            ((nextLineStartMs - startMs) * 0.92f).toLong().coerceAtLeast(220L)
+        else -> naturalVocalMs
+    }
+    val minSpanMs = minOf(availableSpanMs, 350L).coerceAtLeast(120L)
+    val spanMs = minOf(availableSpanMs, naturalVocalMs).coerceIn(minSpanMs, 6_800L)
+
+    var accumulatedWeight = 0f
+    var cursorMs = startMs
+    return weights.mapIndexed { index, weight ->
+        val sliceStart = cursorMs
+        accumulatedWeight += weight
+        val sliceEnd = if (index == weights.lastIndex) {
+            maxOf(sliceStart + 60L, startMs + spanMs)
+        } else {
+            val remainingMinMs = (weights.lastIndex - index) * 45L
+            val targetEndMs = startMs + ((accumulatedWeight / totalWeight) * spanMs).toLong()
+            targetEndMs.coerceIn(
+                sliceStart + 60L,
+                maxOf(sliceStart + 60L, startMs + spanMs - remainingMinMs)
+            )
+        }
+        cursorMs = sliceEnd
+        LyricsWord(
+            text = boundedTokens[index],
+            startTimeMs = sliceStart,
+            endTimeMs = sliceEnd
+        )
+    }
+}
+
 fun computeOndaTimedRanges(
     text: String,
     words: List<LyricsWord>,
@@ -512,8 +623,18 @@ fun computeOndaTimedRanges(
     fallbackEndMs: Long = 0L
 ): List<OndaTimedRange> {
     if (text.isEmpty()) return emptyList()
+    val effectiveWords = if (words.isNotEmpty()) {
+        words
+    } else {
+        synthesizeOndaWordTimings(
+            text = text,
+            lineStartMs = fallbackStartMs,
+            lineEndMs = fallbackEndMs,
+            preferExplicit = false
+        )
+    }
     var searchFrom = 0
-    val matched = words.mapNotNull { word ->
+    val matched = effectiveWords.mapNotNull { word ->
         val trimmed = word.text.trim()
         if (trimmed.isEmpty()) return@mapNotNull null
         var start = text.indexOf(trimmed, searchFrom)
@@ -545,24 +666,29 @@ fun computeOndaTimedRanges(
     if (matched.isNotEmpty()) return matched
 
     val safeStartMs = fallbackStartMs.coerceAtLeast(0L)
-    val safeSpanMs = (fallbackEndMs - safeStartMs).takeIf { it > 180L }
-        ?: (ondaSungLength(text) * 145L + 750L).coerceIn(1_100L, 6_400L)
     val (starts, ends) = ondaVisualWordRanges(text)
     if (starts.isEmpty()) {
+        val fallbackSpanMs = (fallbackEndMs - safeStartMs).takeIf { it > 180L }
+            ?.coerceAtMost(6_800L)
+            ?: (ondaSungLength(text) * 155L + 900L).coerceIn(1_250L, 6_800L)
         return listOf(
             OndaTimedRange(
                 start = 0,
                 end = text.length,
                 startTimeSec = safeStartMs / 1000.0,
-                endTimeSec = (safeStartMs + safeSpanMs) / 1000.0,
+                endTimeSec = (safeStartMs + fallbackSpanMs) / 1000.0,
                 sungLength = ondaSungLength(text)
             )
         )
     }
     val weights = FloatArray(starts.size) { idx ->
-        ondaSungLength(text, starts[idx], ends[idx]).toFloat().coerceAtLeast(1.5f)
+        ondaLyricTokenWeight(text.substring(starts[idx], ends[idx]))
     }
     val totalWeight = weights.sum().coerceAtLeast(1f)
+    val naturalVocalMs = (totalWeight * 155f + 900f).toLong().coerceIn(1_250L, 6_800L)
+    val availableSpanMs = (fallbackEndMs - safeStartMs).takeIf { it > 120L } ?: naturalVocalMs
+    val minSpanMs = minOf(availableSpanMs, 350L).coerceAtLeast(120L)
+    val safeSpanMs = minOf(availableSpanMs, naturalVocalMs).coerceIn(minSpanMs, 6_800L)
     var acc = 0f
     var cursorMs = safeStartMs
     return List(starts.size) { idx ->
@@ -571,8 +697,9 @@ fun computeOndaTimedRanges(
         val sliceEnd = if (idx == starts.lastIndex) {
             maxOf(sliceStart + 60L, safeStartMs + safeSpanMs)
         } else {
+            val remainingMinMs = (starts.size - 1 - idx) * 45L
             val target = safeStartMs + ((acc / totalWeight) * safeSpanMs).toLong()
-            target.coerceAtLeast(sliceStart + 60L)
+            target.coerceIn(sliceStart + 60L, maxOf(sliceStart + 60L, safeStartMs + safeSpanMs - remainingMinMs))
         }
         cursorMs = sliceEnd
         OndaTimedRange(

@@ -14,9 +14,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,7 +24,6 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -63,13 +61,15 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.layout
@@ -79,6 +79,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.util.lerp
 import com.onda.music.core.design.AppMotion
 import com.onda.music.core.design.DockMetrics
 import com.onda.music.core.design.GlassTokens
@@ -188,8 +189,8 @@ private class OndaLyricsStagger(rowCount: Int) {
     }
 
     private companion object {
-        const val STAGGER_LAG_PER_ROW_MS = 55f
-        const val STAGGER_MAX_ROWS = 9
+        const val STAGGER_LAG_PER_ROW_MS = 38f
+        const val STAGGER_MAX_ROWS = 7
     }
 }
 
@@ -210,7 +211,9 @@ fun LyricsPane(
     modifier: Modifier = Modifier,
     centered: Boolean = true,
     showControls: Boolean = true,
-    onLongPressLine: ((Int) -> Unit)? = null
+    onLongPressLine: ((Int) -> Unit)? = null,
+    playbackSpeed: Float = 1.0f,
+    trackKey: Any? = null
 ) {
     val reducedMotion = OndaTheme.reducedMotion
     val motionActive = lyricsMotionEnabled && !reducedMotion
@@ -219,10 +222,19 @@ fun LyricsPane(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
-    val effectivePositionMs = (positionMs + lyricsOffsetMs).coerceAtLeast(0L)
     val lines = lyrics?.lines.orEmpty()
     val isSynced = lyrics?.isSynced == true
     val hasWordTiming = lyrics?.hasWordTiming == true
+
+    val lyricClock = rememberSmoothLyricClock(
+        anchorPositionMs = positionMs,
+        isPlaying = isPlaying,
+        playbackSpeed = playbackSpeed,
+        trackKey = trackKey,
+        active = isSynced && lines.isNotEmpty()
+    )
+
+    val effectivePositionMs = (positionMs + lyricsOffsetMs).coerceAtLeast(0L)
     val activeIndex = remember(lines, effectivePositionMs, isSynced) {
         findActiveLyricsLineIndex(lines, effectivePositionMs, isSynced)
     }
@@ -236,19 +248,37 @@ fun LyricsPane(
         stagger.run()
     }
 
-    var userDetachedScroll by remember { mutableStateOf(false) }
+    var userDetachedScroll by remember(trackKey) { mutableStateOf(false) }
 
-    LaunchedEffect(listState.isScrollInProgress) {
-        if (listState.isScrollInProgress) {
-            userDetachedScroll = true
+    LaunchedEffect(listState) {
+        listState.interactionSource.interactions.collect { interaction ->
+            if (interaction is DragInteraction.Start) {
+                userDetachedScroll = true
+            }
         }
     }
 
-    val restingOffsetPx = with(density) { 140.dp.toPx() }
+    LaunchedEffect(userDetachedScroll, listState.isScrollInProgress) {
+        if (userDetachedScroll && !listState.isScrollInProgress) {
+            delay(5_500L)
+            userDetachedScroll = false
+        }
+    }
+
+    val minOffsetPx = with(density) { 96.dp.toPx() }
+    val maxOffsetPx = with(density) { 190.dp.toPx() }
+    val fallbackOffsetPx = with(density) { 140.dp.toPx() }
+
     LaunchedEffect(activeIndex, userDetachedScroll, isSynced, motionActive, lines.size) {
         if (!isSynced || activeIndex !in lines.indices || userDetachedScroll) return@LaunchedEffect
 
         val layoutInfo = listState.layoutInfo
+        val viewportHeight = layoutInfo.viewportSize.height.toFloat()
+        val restingOffsetPx = if (viewportHeight > 0f) {
+            (viewportHeight * 0.28f).coerceIn(minOffsetPx, maxOffsetPx)
+        } else {
+            fallbackOffsetPx
+        }
         val visible = layoutInfo.visibleItemsInfo.firstOrNull { it.index == activeIndex }
         if (visible != null && motionActive) {
             val currentTop = visible.offset - layoutInfo.viewportStartOffset
@@ -265,7 +295,10 @@ fun LyricsPane(
                     animate(
                         initialValue = 0f,
                         targetValue = distance,
-                        animationSpec = tween(durationMillis = 520, easing = FastOutSlowInEasing)
+                        animationSpec = spring(
+                            dampingRatio = 0.88f,
+                            stiffness = 170f
+                        )
                     ) { value, _ ->
                         val consumed = scrollBy(value - previous)
                         previous += consumed
@@ -281,10 +314,13 @@ fun LyricsPane(
                     }
                 }
             }
-        } else if (reducedMotion) {
-            listState.scrollToItem(index = activeIndex, scrollOffset = -restingOffsetPx.roundToInt())
         } else {
-            listState.animateScrollToItem(index = activeIndex, scrollOffset = -restingOffsetPx.roundToInt())
+            stagger.clear()
+            if (reducedMotion || !motionActive) {
+                listState.scrollToItem(index = activeIndex, scrollOffset = -restingOffsetPx.roundToInt())
+            } else {
+                listState.animateScrollToItem(index = activeIndex, scrollOffset = -restingOffsetPx.roundToInt())
+            }
         }
     }
 
@@ -413,6 +449,9 @@ fun LyricsPane(
                 }
 
                 else -> {
+                    val smoothPositionProvider: () -> Long = remember(lyricClock, lyricsOffsetMs) {
+                        { (lyricClock.positionMs + lyricsOffsetMs).coerceAtLeast(0L) }
+                    }
                     LazyColumn(
                         state = listState,
                         modifier = Modifier
@@ -453,7 +492,7 @@ fun LyricsPane(
                                 isPast = isPast,
                                 isSynced = isSynced,
                                 hasWordTiming = hasWordTiming,
-                                effectivePositionMs = effectivePositionMs,
+                                smoothPositionProvider = smoothPositionProvider,
                                 distanceFromActive = distance,
                                 isUserScrolling = userDetachedScroll,
                                 isPlaying = isPlaying,
@@ -502,7 +541,13 @@ fun LyricsPane(
                     userDetachedScroll = false
                     scope.launch {
                         if (activeIndex >= 0) {
-                            listState.animateScrollToItem(activeIndex, -restingOffsetPx.roundToInt())
+                            val vh = listState.layoutInfo.viewportSize.height.toFloat()
+                            val targetOffsetPx = if (vh > 0f) {
+                                (vh * 0.28f).coerceIn(minOffsetPx, maxOffsetPx)
+                            } else {
+                                fallbackOffsetPx
+                            }
+                            listState.animateScrollToItem(activeIndex, -targetOffsetPx.roundToInt())
                         }
                     }
                 },
@@ -528,7 +573,7 @@ private fun LyricsLineRow(
     isPast: Boolean,
     isSynced: Boolean,
     hasWordTiming: Boolean,
-    effectivePositionMs: Long,
+    smoothPositionProvider: () -> Long,
     distanceFromActive: Int,
     isUserScrolling: Boolean,
     isPlaying: Boolean,
@@ -541,7 +586,11 @@ private fun LyricsLineRow(
 ) {
     if (line.isInterlude) {
         val interludeDuration = (line.endTimeMs - line.startTimeMs).coerceAtLeast(1L)
-        val interludeProgress = ((effectivePositionMs - line.startTimeMs).toFloat() / interludeDuration).coerceIn(0f, 1f)
+        val interludeProgress = if (isActive) {
+            ((smoothPositionProvider() - line.startTimeMs).toFloat() / interludeDuration).coerceIn(0f, 1f)
+        } else {
+            0f
+        }
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -562,42 +611,32 @@ private fun LyricsLineRow(
         return
     }
 
-    val targetScale = when {
-        !isSynced -> 1f
-        isActive -> 1.04f
-        else -> 0.96f
-    }
-    val animatedScale by animateFloatAsState(
-        targetValue = if (motionActive) targetScale else 1f,
+    val focus by animateFloatAsState(
+        targetValue = if (!isSynced || isActive) 1f else 0f,
         animationSpec = AppMotion.adaptiveSpring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessMediumLow,
+            dampingRatio = 0.86f,
+            stiffness = 240f,
             reducedMotion = !motionActive
         ),
-        label = "LyricRowScale"
+        label = "LyricRowFocus"
     )
 
-    val targetBlurPx = when {
+    val inactiveAlpha = if (isPast) 0.34f else 0.48f
+    val rowAlpha = if (!isSynced) 1f else lerp(inactiveAlpha, 1f, focus)
+    val rowScale = if (motionActive && isSynced) lerp(0.95f, 1.03f, focus) else 1f
+    val rowBlurPx = when {
         !motionActive || !isSynced || isActive || isUserScrolling || Build.VERSION.SDK_INT < Build.VERSION_CODES.S -> 0f
-        distanceFromActive == 1 -> 3.5f
-        else -> 7f
-    }
-    val animatedBlurPx by animateFloatAsState(
-        targetValue = targetBlurPx,
-        animationSpec = if (!motionActive) snap() else tween(durationMillis = 320),
-        label = "LyricRowBlur"
-    )
-
-    val textColor = when {
-        !isSynced -> GlassTokens.TextPrimary
-        isActive -> GlassTokens.TextPrimary
-        isPast -> GlassTokens.TextTertiary.copy(alpha = 0.72f)
-        else -> GlassTokens.TextSecondary.copy(alpha = 0.62f)
+        distanceFromActive <= 1 -> 0f
+        distanceFromActive == 2 -> 2.5f
+        else -> 4.5f
     }
 
     val alignment = if (centered) Alignment.CenterHorizontally else Alignment.Start
     val textAlign = if (centered) TextAlign.Center else TextAlign.Start
     val rowInteraction = remember { MutableInteractionSource() }
+    val density = LocalDensity.current
+    val pillRadiusPx = with(density) { GlassTokens.RadiusSm.toPx() }
+    val showWordSweep = hasWordTiming && line.words.isNotEmpty() && isActive
 
     Column(
         modifier = Modifier
@@ -623,33 +662,39 @@ private fun LyricsLineRow(
                 onLongClick = onLongClick
             )
             .graphicsLayer {
-                scaleX = animatedScale
-                scaleY = animatedScale
+                transformOrigin = TransformOrigin(if (centered) 0.5f else 0f, 0.5f)
+                scaleX = rowScale
+                scaleY = rowScale
+                alpha = rowAlpha
                 translationY = if (motionActive) stagger.lagOf(rowIndex) else 0f
-                renderEffect = if (motionActive) PlayerLineBlurCache.forRadiusPx(animatedBlurPx) else null
-            }
-            .then(
-                if (isActive) {
-                    Modifier.background(
-                        color = Color(0x14FFFFFF),
-                        shape = RoundedCornerShape(GlassTokens.RadiusSm)
-                    )
+                renderEffect = if (motionActive && rowBlurPx > 0f) {
+                    PlayerLineBlurCache.forRadiusPx(rowBlurPx)
                 } else {
-                    Modifier
+                    null
                 }
-            )
+            }
+            .drawBehind {
+                val glowAlpha = 0.08f * focus
+                if (isSynced && glowAlpha > 0.002f) {
+                    drawRoundRect(
+                        color = Color.White.copy(alpha = glowAlpha),
+                        cornerRadius = CornerRadius(pillRadiusPx, pillRadiusPx)
+                    )
+                }
+            }
             .padding(horizontal = 12.dp, vertical = 10.dp),
         horizontalAlignment = alignment,
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        if (hasWordTiming && line.words.isNotEmpty() && isActive) {
+        if (showWordSweep) {
             WordSweepLine(
                 words = line.words,
-                effectivePositionMs = effectivePositionMs,
+                smoothPositionProvider = smoothPositionProvider,
                 fontScale = fontScale,
                 centered = centered,
+                motionActive = motionActive,
                 activeColor = Color.White,
-                baseColor = Color(0x73FFFFFF)
+                baseColor = Color(0x66FFFFFF)
             )
         } else {
             Text(
@@ -657,9 +702,9 @@ private fun LyricsLineRow(
                 style = MaterialTheme.typography.headlineMedium.copy(
                     fontSize = (21f * fontScale).sp,
                     lineHeight = (28f * fontScale).sp,
-                    fontWeight = if (isActive || !isSynced) FontWeight.Bold else FontWeight.SemiBold
+                    fontWeight = FontWeight.Bold
                 ),
-                color = textColor,
+                color = GlassTokens.TextPrimary,
                 textAlign = textAlign,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -672,7 +717,7 @@ private fun LyricsLineRow(
                     fontSize = (13f * fontScale).sp,
                     lineHeight = (18f * fontScale).sp
                 ),
-                color = if (isActive) Color(0xFF9E9E9E) else Color(0xFF8A8A8A),
+                color = Color(0xFF9E9E9E),
                 textAlign = textAlign,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -685,7 +730,7 @@ private fun LyricsLineRow(
                     fontSize = (14f * fontScale).sp,
                     lineHeight = (20f * fontScale).sp
                 ),
-                color = if (isActive) GlassTokens.TextSecondary else GlassTokens.TextTertiary.copy(alpha = 0.8f),
+                color = GlassTokens.TextSecondary,
                 textAlign = textAlign,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -697,16 +742,16 @@ private fun LyricsLineRow(
 @Composable
 private fun WordSweepLine(
     words: List<LyricsWord>,
-    effectivePositionMs: Long,
+    smoothPositionProvider: () -> Long,
     fontScale: Float,
     centered: Boolean,
+    motionActive: Boolean,
     activeColor: Color,
     baseColor: Color
 ) {
-    val reducedMotion = OndaTheme.reducedMotion
     val style = MaterialTheme.typography.headlineMedium.copy(
-        fontSize = (22f * fontScale).sp,
-        lineHeight = (30f * fontScale).sp,
+        fontSize = (21f * fontScale).sp,
+        lineHeight = (28f * fontScale).sp,
         fontWeight = FontWeight.Bold
     )
 
@@ -716,39 +761,16 @@ private fun WordSweepLine(
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
         words.forEach { word ->
-            val duration = (word.endTimeMs - word.startTimeMs).coerceAtLeast(1L)
-            val progress = ((effectivePositionMs - word.startTimeMs).toFloat() / duration.toFloat()).coerceIn(0f, 1f)
-            val isLit = progress > 0f && progress < 1f
-            val liftScale by animateFloatAsState(
-                targetValue = if (isLit && !reducedMotion) 1.06f else 1f,
-                animationSpec = if (reducedMotion) snap() else AppMotion.SnappySpring,
-                label = "WordLift"
+            FeatheredSweepWord(
+                text = word.text,
+                style = style,
+                startTimeMs = word.startTimeMs,
+                endTimeMs = word.endTimeMs.coerceAtLeast(word.startTimeMs + 80L),
+                positionProvider = smoothPositionProvider,
+                activeColor = activeColor,
+                baseColor = baseColor,
+                motionActive = motionActive
             )
-
-            Box(
-                modifier = Modifier.graphicsLayer {
-                    scaleX = liftScale
-                    scaleY = liftScale
-                }
-            ) {
-                Text(
-                    text = word.text,
-                    style = style,
-                    color = baseColor
-                )
-                if (progress > 0f) {
-                    Text(
-                        text = word.text,
-                        style = style,
-                        color = if (progress >= 1f) GlassTokens.TextPrimary else activeColor,
-                        modifier = Modifier.drawWithContent {
-                            clipRect(right = size.width * progress) {
-                                this@drawWithContent.drawContent()
-                            }
-                        }
-                    )
-                }
-            }
         }
     }
 }

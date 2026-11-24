@@ -100,6 +100,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
+        playbackController.warmUp()
         splashScreen.setOnExitAnimationListener { provider ->
             val fadeOut = ObjectAnimator.ofFloat(provider.view, View.ALPHA, 1f, 0f)
             fadeOut.duration = 110L

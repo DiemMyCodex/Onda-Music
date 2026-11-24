@@ -289,7 +289,9 @@ fun TimelinePlayerStyle(
                     onRefreshLyrics = ctx.onRefreshLyrics,
                     onAdjustOffsetMs = ctx.onAdjustLyricsOffset,
                     centered = false,
-                    showControls = true
+                    showControls = true,
+                    playbackSpeed = state.playbackSpeed,
+                    trackKey = track?.id
                 )
             }
         } else {
@@ -629,7 +631,9 @@ fun LyricsStagePlayerStyle(
                 onRefreshLyrics = ctx.onRefreshLyrics,
                 onAdjustOffsetMs = ctx.onAdjustLyricsOffset,
                 centered = true,
-                showControls = true
+                showControls = true,
+                playbackSpeed = state.playbackSpeed,
+                trackKey = track?.id
             )
         }
 
@@ -1569,7 +1573,9 @@ fun BedsideTilesPlayerStyle(
                                     onRefreshLyrics = ctx.onRefreshLyrics,
                                     onAdjustOffsetMs = ctx.onAdjustLyricsOffset,
                                     centered = true,
-                                    showControls = false
+                                    showControls = false,
+                                    playbackSpeed = state.playbackSpeed,
+                                    trackKey = track?.id
                                 )
                             }
                         }
@@ -1708,7 +1714,9 @@ fun BedsideTilesPlayerStyle(
                             onRefreshLyrics = ctx.onRefreshLyrics,
                             onAdjustOffsetMs = ctx.onAdjustLyricsOffset,
                             centered = false,
-                            showControls = false
+                            showControls = false,
+                            playbackSpeed = state.playbackSpeed,
+                            trackKey = track?.id
                         )
                     }
                 }

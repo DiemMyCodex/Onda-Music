@@ -1173,7 +1173,9 @@ fun VideoPlayerStyle(
                                 onRefreshLyrics = ctx.onRefreshLyrics,
                                 onAdjustOffsetMs = ctx.onAdjustLyricsOffset,
                                 centered = false,
-                                showControls = true
+                                showControls = true,
+                                playbackSpeed = state.playbackSpeed,
+                                trackKey = track?.id
                             )
                         } else {
                             LazyColumn(
@@ -2016,7 +2018,9 @@ fun IpodPlayerStyle(
                                 onSeekToMs = ctx.onSeekToMs,
                                 onRefreshLyrics = ctx.onRefreshLyrics,
                                 onAdjustOffsetMs = ctx.onAdjustLyricsOffset,
-                                showControls = false
+                                showControls = false,
+                                playbackSpeed = state.playbackSpeed,
+                                trackKey = track?.id
                             )
                         }
 

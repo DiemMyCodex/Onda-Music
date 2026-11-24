@@ -12,16 +12,23 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -33,6 +40,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
@@ -49,6 +57,7 @@ import com.onda.music.core.design.rememberOndaBackdropState
 import com.onda.music.core.model.Album
 import com.onda.music.core.model.MoodCategory
 import com.onda.music.core.model.Track
+import java.util.Locale
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -642,12 +651,22 @@ internal fun DiscoverScreen(
             }
         }
     }
-    val hasDiscoverContent = uiState.chartShelves.isNotEmpty() ||
+    val contextualShelf = uiState.contextualShelf
+    val contextualTracks = contextualShelf?.tracks.orEmpty()
+    val hasDiscoverContent = uiState.quickPicks.isNotEmpty() ||
+        contextualTracks.isNotEmpty() ||
+        uiState.chartShelves.isNotEmpty() ||
         uiState.newReleases.isNotEmpty() ||
-        uiState.moodCategories.isNotEmpty() ||
-        uiState.quickPicks.isNotEmpty()
-    val discoverGlowCovers = remember(uiState.newReleases, uiState.chartShelves) {
-        (uiState.newReleases.mapNotNull { it.artworkUrl } +
+        uiState.moodCategories.isNotEmpty()
+    val discoverGlowCovers = remember(
+        uiState.quickPicks,
+        contextualTracks,
+        uiState.newReleases,
+        uiState.chartShelves
+    ) {
+        (uiState.quickPicks.mapNotNull { it.artworkUrl } +
+            contextualTracks.mapNotNull { it.artworkUrl } +
+            uiState.newReleases.mapNotNull { it.artworkUrl } +
             uiState.chartShelves.flatMap { it.albums.mapNotNull { album -> album.artworkUrl } })
             .distinct()
             .take(2)
@@ -691,14 +710,36 @@ internal fun DiscoverScreen(
             }
 
             item(key = "discover_heading") {
-                Text(
-                    text = discoverHeading,
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = (-0.5).sp,
-                    color = Color.White,
-                    modifier = Modifier.padding(horizontal = 24.dp)
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = discoverHeading,
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = (-0.5).sp,
+                        color = Color.White,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(
+                        onClick = onRefresh,
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF1A1A1A))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Refresh,
+                            contentDescription = strings.refreshDescription,
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
             }
 
             if (uiState.isOfflineFallback) {
@@ -713,6 +754,107 @@ internal fun DiscoverScreen(
             if (uiState.isLoading && !hasDiscoverContent) {
                 item(key = "discover_loading") {
                     DiscoverSkeleton()
+                }
+            }
+
+            if (uiState.quickPicks.isNotEmpty()) {
+                item(key = "discover_quick_picks_header") {
+                    Box(modifier = Modifier.homeRevealOnAppear("discover_quick_picks_header", revealSeen, cascade = true)) {
+                        SectionHeader(
+                            title = strings.quickPicks,
+                            subtitle = if (contextualShelf != null) strings.forYourTasteSubtitle else null
+                        )
+                    }
+                }
+                items(
+                    items = uiState.quickPicks.take(10),
+                    key = { track -> "discover_qp_${track.id}" }
+                ) { track ->
+                    Box(modifier = Modifier.homeRevealOnAppear("discover_qp_${track.id}", revealSeen, cascade = true)) {
+                        QuickPickCompactRow(
+                            track = track,
+                            strings = strings,
+                            isActive = track.id == uiState.activeTrackId,
+                            isPlaying = uiState.isPlaying,
+                            onPlay = { onPlayTrack(track, uiState.quickPicks) },
+                            onToggleLike = { onToggleLike(track) }
+                        )
+                    }
+                }
+            }
+
+            if (contextualShelf != null && contextualTracks.isNotEmpty()) {
+                item(key = "discover_contextual_shelf") {
+                    val seedLabel = if (contextualShelf.useArtistHeading) {
+                        contextualShelf.seedArtist
+                    } else {
+                        contextualShelf.seedTrackTitle
+                    }
+                    val shelfTitle = String.format(Locale.getDefault(), strings.becauseYouListenedFormat, seedLabel)
+                    val shelfSubtitle = if (!contextualShelf.useArtistHeading && contextualShelf.seedArtist.isNotBlank()) {
+                        contextualShelf.seedArtist
+                    } else {
+                        null
+                    }
+                    Column(
+                        modifier = Modifier.homeRevealOnAppear("discover_contextual_shelf", revealSeen, cascade = true),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        SectionHeader(
+                            title = shelfTitle,
+                            subtitle = shelfSubtitle
+                        )
+                        TrackHorizontalShelf(
+                            tracks = contextualTracks,
+                            strings = strings,
+                            activeTrackId = uiState.activeTrackId,
+                            isPlaying = uiState.isPlaying,
+                            detailFraction = detailFraction,
+                            sharedTransitionScope = null,
+                            animatedVisibilityScope = null,
+                            onPlayTrack = { track -> onPlayTrack(track, contextualTracks) }
+                        )
+                    }
+                }
+            }
+
+            if (uiState.moodCategories.isNotEmpty()) {
+                item(key = "discover_moods_section") {
+                    Column(
+                        modifier = Modifier.homeRevealOnAppear("discover_moods_section", revealSeen, cascade = true),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        SectionHeader(title = strings.moodsAndGenres)
+                        MoodTwoRowGrid(
+                            moods = uiState.moodCategories,
+                            onOpenMood = { mood, bounds ->
+                                launchOrigin = CardLaunchOrigin(bounds = bounds, cornerRadius = 24.dp)
+                                onOpenMood(mood)
+                            }
+                        )
+                    }
+                }
+            }
+
+            if (uiState.newReleases.isNotEmpty()) {
+                item(key = "discover_new_releases_section") {
+                    Column(
+                        modifier = Modifier.homeRevealOnAppear("discover_new_releases_section", revealSeen, cascade = true),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        SectionHeader(title = strings.newReleases)
+                        AlbumHorizontalShelf(
+                            albums = uiState.newReleases,
+                            strings = strings,
+                            detailFraction = detailFraction,
+                            sharedTransitionScope = null,
+                            animatedVisibilityScope = null,
+                            onOpenAlbum = { album, bounds ->
+                                launchOrigin = CardLaunchOrigin(bounds = bounds, cornerRadius = 22.dp)
+                                onOpenAlbum(album)
+                            }
+                        )
+                    }
                 }
             }
 
@@ -753,69 +895,6 @@ internal fun DiscoverScreen(
                                 )
                             }
                         }
-                    }
-                }
-            }
-
-            if (uiState.newReleases.isNotEmpty()) {
-                item(key = "discover_new_releases_section") {
-                    Column(
-                        modifier = Modifier.homeRevealOnAppear("discover_new_releases_section", revealSeen, cascade = true),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        SectionHeader(title = strings.newReleases)
-                        AlbumHorizontalShelf(
-                            albums = uiState.newReleases,
-                            strings = strings,
-                            detailFraction = detailFraction,
-                            sharedTransitionScope = null,
-                            animatedVisibilityScope = null,
-                            onOpenAlbum = { album, bounds ->
-                                launchOrigin = CardLaunchOrigin(bounds = bounds, cornerRadius = 22.dp)
-                                onOpenAlbum(album)
-                            }
-                        )
-                    }
-                }
-            }
-
-            if (uiState.moodCategories.isNotEmpty()) {
-                item(key = "discover_moods_section") {
-                    Column(
-                        modifier = Modifier.homeRevealOnAppear("discover_moods_section", revealSeen, cascade = true),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        SectionHeader(title = strings.moodsAndGenres)
-                        MoodTwoRowGrid(
-                            moods = uiState.moodCategories,
-                            onOpenMood = { mood, bounds ->
-                                launchOrigin = CardLaunchOrigin(bounds = bounds, cornerRadius = 24.dp)
-                                onOpenMood(mood)
-                            }
-                        )
-                    }
-                }
-            }
-
-            if (uiState.quickPicks.isNotEmpty()) {
-                item(key = "discover_quick_picks_header") {
-                    Box(modifier = Modifier.homeRevealOnAppear("discover_quick_picks_header", revealSeen, cascade = true)) {
-                        SectionHeader(title = strings.quickPicks)
-                    }
-                }
-                items(
-                    items = uiState.quickPicks.take(8),
-                    key = { track -> "discover_qp_${track.id}" }
-                ) { track ->
-                    Box(modifier = Modifier.homeRevealOnAppear("discover_qp_${track.id}", revealSeen, cascade = true)) {
-                        QuickPickCompactRow(
-                            track = track,
-                            strings = strings,
-                            isActive = track.id == uiState.activeTrackId,
-                            isPlaying = uiState.isPlaying,
-                            onPlay = { onPlayTrack(track, uiState.quickPicks) },
-                            onToggleLike = { onToggleLike(track) }
-                        )
                     }
                 }
             }

@@ -237,7 +237,7 @@ fun buildSettingsSearchEntries(strings: SettingsStrings): List<SettingsSearchEnt
         group = SettingsGroup.APPEARANCE_LANGUAGE,
         title = strings.languageTitle,
         subtitle = strings.languageSubtitle,
-        keywords = listOf("language", "vietnamese", "english", "vi", "en", "ngon ngu", "tieng viet")
+        keywords = listOf("language", "vietnamese", "english", "vi", "en", "ngon ngu", "tieng viet", "tiếng việt")
     ),
     SettingsSearchEntry(
         id = SettingsEntryId.MONOCHROME_FLAC,

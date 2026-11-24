@@ -14,7 +14,9 @@ import com.onda.music.core.database.toModel
 import com.onda.music.core.design.OndaArtworkPalette
 import com.onda.music.core.design.OndaPaletteExtractor
 import com.onda.music.core.model.Album
+import com.onda.music.core.model.ContextualShelf
 import com.onda.music.core.model.HomeShelf
+import com.onda.music.core.model.ListenerTasteProfile
 import com.onda.music.core.model.MoodCategory
 import com.onda.music.core.model.PlaybackState
 import com.onda.music.core.model.PlaybackStatus
@@ -27,13 +29,16 @@ import com.onda.music.core.sources.YtMusicClient
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -46,6 +51,7 @@ private data class RemoteHomeSnapshot(
     val isOfflineFallback: Boolean = false,
     val errorMessage: String? = null,
     val quickPicks: List<Track> = emptyList(),
+    val contextualShelf: ContextualShelf? = null,
     val shelves: List<HomeShelf> = emptyList(),
     val chartShelves: List<HomeShelf> = emptyList(),
     val newReleases: List<Album> = emptyList(),
@@ -61,9 +67,11 @@ private data class HomeSourcesBundle(
     val playbackState: PlaybackState
 )
 
+@OptIn(FlowPreview::class)
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val ytMusicClient: YtMusicClient,
+    private val discoverEngine: DiscoverRecommendationEngine,
     private val localMediaScanner: LocalMediaScanner,
     private val songDao: SongDao,
     private val playEventDao: PlayEventDao,
@@ -75,6 +83,7 @@ class HomeViewModel @Inject constructor(
     private val remoteState = MutableStateFlow(RemoteHomeSnapshot())
     private val detailState = MutableStateFlow<CollectionDetailState?>(null)
     private val heroPaletteState = MutableStateFlow(OndaArtworkPalette.Default)
+    private val latestTasteProfile = MutableStateFlow(ListenerTasteProfile())
 
     private var lastExtractedArtworkUrl: String? = null
     private var paletteJob: Job? = null
@@ -112,11 +121,47 @@ class HomeViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            ondaPreferences.settings.collect { settings ->
-                ytMusicClient.setCookie(settings.ytCookie)
-                val country = if (settings.languageCode == "vi") "VN" else "US"
-                ytMusicClient.setLocale(countryCode = country, languageTag = settings.languageCode)
+            ondaPreferences.settings
+                .map { it.ytCookie }
+                .distinctUntilChanged()
+                .collect { cookie ->
+                    ytMusicClient.setCookie(cookie)
+                }
+        }
+        viewModelScope.launch(Dispatchers.Default) {
+            localSourcesFlow.collect { local ->
+                val activeTrack = local.playbackState.currentTrack
+                val signals = local.recentEvents.map { event ->
+                    PlaySignal(
+                        trackId = event.trackId,
+                        timestampMs = event.timestampMs,
+                        durationPlayedMs = event.durationPlayedMs
+                    )
+                }
+                val computed = ListenerTasteAnalyzer.analyze(
+                    currentTrack = activeTrack,
+                    recentSongs = local.recentSongs,
+                    playSignals = signals,
+                    allSongs = local.allSongs,
+                    appLanguageCode = local.settings.languageCode
+                )
+                latestTasteProfile.value = computed
+                ytMusicClient.setLocale(
+                    countryCode = computed.dominantRegionCode,
+                    languageTag = computed.dominantLanguageTag
+                )
             }
+        }
+        viewModelScope.launch {
+            latestTasteProfile
+                .map { it.tasteSignature }
+                .distinctUntilChanged()
+                .drop(1)
+                .debounce(1_500L)
+                .collect {
+                    val emptyFeed = remoteState.value.quickPicks.isEmpty() && remoteState.value.shelves.isEmpty()
+                    refresh(initial = emptyFeed, forceNetwork = false, cancelInFlight = true)
+                }
         }
         viewModelScope.launch {
             uiState.collect { state ->
@@ -127,21 +172,28 @@ class HomeViewModel @Inject constructor(
                 }
             }
         }
-        refresh(initial = true)
+        refresh(initial = true, forceNetwork = false, cancelInFlight = false)
     }
 
-    fun refresh(initial: Boolean = false) {
-        if (refreshJob?.isActive == true) return
+    fun refresh(
+        initial: Boolean = false,
+        forceNetwork: Boolean = !initial,
+        cancelInFlight: Boolean = false
+    ) {
+        if (refreshJob?.isActive == true) {
+            if (!cancelInFlight && !forceNetwork) return
+            refreshJob?.cancel()
+        }
         refreshJob = viewModelScope.launch {
             remoteState.update {
                 it.copy(
-                    isLoading = initial && it.shelves.isEmpty(),
+                    isLoading = initial && it.shelves.isEmpty() && it.quickPicks.isEmpty(),
                     isRefreshing = !initial,
                     errorMessage = null
                 )
             }
             val loaded = withContext(Dispatchers.IO) {
-                fetchRemoteAndLocalFallback()
+                fetchRemoteAndLocalFallback(forceRefresh = forceNetwork)
             }
             remoteState.value = loaded
         }
@@ -267,15 +319,14 @@ class HomeViewModel @Inject constructor(
             isAlbum = false
         )
         detailJob = viewModelScope.launch {
+            val profile = latestTasteProfile.value
             val tracksResult = withContext(Dispatchers.IO) {
-                val browseTracks = ytMusicClient.getHomeShelves(params = mood.params)
-                    .getOrDefault(emptyList())
-                    .flatMap { it.tracks }
-                if (browseTracks.isNotEmpty()) {
-                    Result.success(browseTracks.distinctBy { it.id })
-                } else {
-                    ytMusicClient.searchTracks(mood.title)
-                }
+                ytMusicClient.getMoodTracks(
+                    mood = mood,
+                    countryOverride = profile.dominantRegionCode,
+                    languageOverride = profile.dominantLanguageTag,
+                    vietnameseHint = profile.vietnameseAffinityScore >= 0.45f
+                )
             }
             tracksResult.onSuccess { tracks ->
                 detailState.value = CollectionDetailState(
@@ -322,73 +373,52 @@ class HomeViewModel @Inject constructor(
         playTrack(track, tracks)
     }
 
-    private suspend fun fetchRemoteAndLocalFallback(): RemoteHomeSnapshot = coroutineScope {
-        val shelvesDeferred = async { ytMusicClient.getHomeShelves() }
-        val chartsDeferred = async { ytMusicClient.getCharts() }
-        val moodsDeferred = async { ytMusicClient.getMoodCategories() }
-        val releasesDeferred = async { ytMusicClient.getNewReleases() }
-
-        val shelvesResult = shelvesDeferred.await()
-        val chartsResult = chartsDeferred.await()
-        val moodsResult = moodsDeferred.await()
-        val releasesResult = releasesDeferred.await()
-
-        val rawShelves = shelvesResult.getOrDefault(emptyList())
-        val charts = chartsResult.getOrDefault(emptyList())
-        val moods = moodsResult.getOrDefault(emptyList())
-        val releases = releasesResult.getOrDefault(emptyList())
-
-        val allRemoteFailed = shelvesResult.isFailure &&
-            chartsResult.isFailure &&
-            moodsResult.isFailure &&
-            releasesResult.isFailure
-
-        val chartTitles = charts.mapTo(HashSet()) { it.title.lowercase() }
-        val filteredShelves = rawShelves.filterNot { shelf ->
-            shelf.id == "new_releases" || shelf.title.lowercase() in chartTitles
+    private suspend fun fetchRemoteAndLocalFallback(forceRefresh: Boolean): RemoteHomeSnapshot {
+        val allSongs = songDao.getAll().map { it.toModel() }
+        val likedIds = allSongs.filter { it.liked }.mapTo(HashSet()) { it.id }
+        var profile = latestTasteProfile.value
+        if (!profile.hasListeningHistory) {
+            val events = playEventDao.getAll().take(200)
+            val currentTrack = playbackController.playbackState.value.currentTrack
+            if (currentTrack != null || events.isNotEmpty() || likedIds.isNotEmpty()) {
+                val songById = allSongs.associateBy { it.id }
+                val recentSongs = events.mapNotNull { songById[it.trackId] }.distinctBy { it.id }.take(24)
+                val appLang = ondaPreferences.currentSettings().languageCode
+                profile = ListenerTasteAnalyzer.analyze(
+                    currentTrack = currentTrack,
+                    recentSongs = recentSongs,
+                    playSignals = events.map { PlaySignal(it.trackId, it.timestampMs, it.durationPlayedMs) },
+                    allSongs = allSongs,
+                    appLanguageCode = appLang
+                )
+                latestTasteProfile.value = profile
+                ytMusicClient.setLocale(profile.dominantRegionCode, profile.dominantLanguageTag)
+            }
         }
 
-        val quickPickShelf = filteredShelves.firstOrNull { shelf ->
-            shelf.tracks.isNotEmpty() &&
-                (shelf.title.contains("quick", ignoreCase = true) ||
-                    shelf.title.contains("pick", ignoreCase = true))
-        } ?: filteredShelves.firstOrNull { it.tracks.isNotEmpty() }
+        val feed = discoverEngine.fetchFeed(
+            profile = profile,
+            likedTrackIds = likedIds,
+            forceRefresh = forceRefresh
+        )
 
-        val quickPicks = quickPickShelf?.tracks.orEmpty()
-        val remainingShelves = if (quickPickShelf != null) {
-            filteredShelves.filterNot { it.id == quickPickShelf.id }
-        } else {
-            filteredShelves
-        }
-
-        val fallbackReleases = if (releases.isNotEmpty()) {
-            releases
-        } else {
-            rawShelves.firstOrNull { it.id == "new_releases" }?.albums.orEmpty()
-        }
-
-        val scannedLocal = if (allRemoteFailed || (quickPicks.isEmpty() && remainingShelves.isEmpty())) {
+        val scannedLocal = if (feed.allRemoteFailed || (feed.quickPicks.isEmpty() && feed.shelves.isEmpty())) {
             scanAndPersistLocalTracks()
         } else {
             emptyList()
         }
 
-        val errorMsg = if (allRemoteFailed) {
-            shelvesResult.exceptionOrNull()?.message
-        } else {
-            null
-        }
-
-        RemoteHomeSnapshot(
+        return RemoteHomeSnapshot(
             isLoading = false,
             isRefreshing = false,
-            isOfflineFallback = allRemoteFailed,
-            errorMessage = errorMsg,
-            quickPicks = quickPicks,
-            shelves = remainingShelves,
-            chartShelves = charts,
-            newReleases = fallbackReleases,
-            moodCategories = moods,
+            isOfflineFallback = feed.allRemoteFailed,
+            errorMessage = feed.errorMessage,
+            quickPicks = feed.quickPicks,
+            contextualShelf = feed.contextualShelf,
+            shelves = feed.shelves,
+            chartShelves = feed.chartShelves,
+            newReleases = feed.newReleases,
+            moodCategories = feed.moodCategories,
             scannedLocalTracks = scannedLocal
         )
     }
@@ -453,10 +483,23 @@ class HomeViewModel @Inject constructor(
         val localTracks = (local.allSongs.filter { it.source == SourceKind.LOCAL } + remote.scannedLocalTracks)
             .distinctBy { it.id }
 
-        val effectiveQuickPicks = remote.quickPicks.ifEmpty {
+        val rawQuickPicks = remote.quickPicks.ifEmpty {
             (mostPlayed + recentlyPlayed + localTracks + local.allSongs)
                 .distinctBy { it.id }
                 .take(16)
+        }
+        val effectiveQuickPicks = rawQuickPicks.map { track ->
+            val localTrack = songMap[track.id]
+            if (localTrack != null) track.copy(liked = localTrack.liked) else track
+        }
+
+        val syncedContextualShelf = remote.contextualShelf?.let { shelf ->
+            shelf.copy(
+                tracks = shelf.tracks.map { track ->
+                    val localTrack = songMap[track.id]
+                    if (localTrack != null) track.copy(liked = localTrack.liked) else track
+                }
+            )
         }
 
         val currentTrack = local.playbackState.currentTrack
@@ -477,10 +520,9 @@ class HomeViewModel @Inject constructor(
             if (currentDetail.tracks.isEmpty()) {
                 currentDetail
             } else {
-                val likedMap = songMap
                 currentDetail.copy(
                     tracks = currentDetail.tracks.map { track ->
-                        val localTrack = likedMap[track.id]
+                        val localTrack = songMap[track.id]
                         if (localTrack != null) track.copy(liked = localTrack.liked) else track
                     }
                 )
@@ -504,6 +546,7 @@ class HomeViewModel @Inject constructor(
             recentlyPlayed = recentlyPlayed,
             mostPlayed = mostPlayed,
             quickPicks = effectiveQuickPicks,
+            contextualShelf = syncedContextualShelf,
             shelves = remote.shelves,
             chartShelves = remote.chartShelves,
             newReleases = remote.newReleases,

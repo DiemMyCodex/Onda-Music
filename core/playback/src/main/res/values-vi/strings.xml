@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="onda_playback_channel_name">Phát nhạc Onda</string>
+    <string name="onda_notif_like">Thích</string>
+    <string name="onda_notif_unlike">Bỏ thích</string>
+    <string name="onda_notif_repeat_off">Tắt lặp lại</string>
+    <string name="onda_notif_repeat_all">Lặp lại tất cả</string>
+    <string name="onda_notif_repeat_one">Lặp lại một bài</string>
+    <string name="onda_notif_shuffle_on">Đang phát ngẫu nhiên</string>
+    <string name="onda_notif_shuffle_off">Tắt phát ngẫu nhiên</string>
+    <string name="onda_notif_sleep_on">Đang bật hẹn giờ ngủ</string>
+    <string name="onda_notif_sleep_off">Hẹn giờ ngủ</string>
+</resources>

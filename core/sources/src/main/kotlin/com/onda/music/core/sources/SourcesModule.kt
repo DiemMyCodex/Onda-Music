@@ -50,9 +50,9 @@ object SourcesModule {
     @SourcesOkHttp
     fun provideSourcesOkHttp(): OkHttpClient = OkHttpClient.Builder()
         .connectionPool(ConnectionPool(10, 5, TimeUnit.MINUTES))
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(6, TimeUnit.SECONDS)
+        .readTimeout(14, TimeUnit.SECONDS)
+        .writeTimeout(14, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
         .build()
 
@@ -72,9 +72,9 @@ object SourcesModule {
             deflate(0.8f)
         }
         install(HttpTimeout) {
-            connectTimeoutMillis = 15_000
-            requestTimeoutMillis = 30_000
-            socketTimeoutMillis = 30_000
+            connectTimeoutMillis = 6_000
+            requestTimeoutMillis = 14_000
+            socketTimeoutMillis = 14_000
         }
         engine {
             preconfigured = okHttpClient

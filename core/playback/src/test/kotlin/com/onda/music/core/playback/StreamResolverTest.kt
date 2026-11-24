@@ -3,6 +3,8 @@ package com.onda.music.core.playback
 import com.onda.music.core.model.SourceKind
 import com.onda.music.core.model.StreamOption
 import com.onda.music.core.model.Track
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -289,6 +291,60 @@ class StreamResolverTest {
         assertTrue(result.isSuccess)
         assertEquals("https://yt/vid_up", result.getOrThrow().url)
         assertEquals(1, monochrome.calls)
+        assertEquals(1, yt.resolveCalls)
+    }
+
+    @Test
+    fun slowMonochromeDoesNotBlockYoutubePlayback() = runTest {
+        val monochrome = FakeMonochromeSource {
+            delay(2_500L)
+            option("https://mono/too_late.flac", SourceKind.MONOCHROME)
+        }
+        val yt = FakeYtInnerTubeSource { id, _ ->
+            delay(20L)
+            option("https://yt/$id")
+        }
+        val resolver = StreamResolver(
+            localFileChecker = FakeLocalChecker(),
+            downloadedCacheLookup = FakeDownloadedLookup(),
+            monochromeSource = monochrome,
+            ytInnerTubeSource = yt,
+            newPipeSource = FakeNewPipeSource(),
+            preferencesProvider = FakePrefs(monochromeEnabled = true),
+            monochromeUpgradeTimeoutMs = 60L
+        )
+
+        val track = Track(id = "yt_fast", title = "Song", artist = "Artist", ytId = "vid_fast")
+        val result = resolver.resolve(track)
+
+        assertTrue(result.isSuccess)
+        assertEquals("https://yt/vid_fast", result.getOrThrow().url)
+        assertEquals(1, yt.resolveCalls)
+    }
+
+    @Test
+    fun concurrentResolveAndPrefetchSharesSingleUpstreamCall() = runTest {
+        val yt = FakeYtInnerTubeSource { id, _ ->
+            delay(50L)
+            option("https://yt/$id")
+        }
+        val resolver = StreamResolver(
+            localFileChecker = FakeLocalChecker(),
+            downloadedCacheLookup = FakeDownloadedLookup(),
+            monochromeSource = FakeMonochromeSource(),
+            ytInnerTubeSource = yt,
+            newPipeSource = FakeNewPipeSource(),
+            preferencesProvider = FakePrefs(monochromeEnabled = false)
+        )
+
+        val track = Track(id = "yt_dedup", title = "Song", artist = "Artist", ytId = "vid_dedup")
+        val first = async { resolver.prefetch(track) }
+        val second = async { resolver.resolve(track) }
+        first.await()
+        val resolved = second.await()
+
+        assertTrue(resolved.isSuccess)
+        assertEquals("https://yt/vid_dedup", resolved.getOrThrow().url)
         assertEquals(1, yt.resolveCalls)
     }
 }

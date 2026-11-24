@@ -3,6 +3,7 @@ package com.onda.music.feature.home
 import androidx.compose.runtime.Immutable
 import com.onda.music.core.design.OndaArtworkPalette
 import com.onda.music.core.model.Album
+import com.onda.music.core.model.ContextualShelf
 import com.onda.music.core.model.HomeShelf
 import com.onda.music.core.model.MoodCategory
 import com.onda.music.core.model.Track
@@ -38,6 +39,7 @@ data class HomeUiState(
     val recentlyPlayed: List<Track> = emptyList(),
     val mostPlayed: List<Track> = emptyList(),
     val quickPicks: List<Track> = emptyList(),
+    val contextualShelf: ContextualShelf? = null,
     val shelves: List<HomeShelf> = emptyList(),
     val chartShelves: List<HomeShelf> = emptyList(),
     val newReleases: List<Album> = emptyList(),
@@ -62,6 +64,8 @@ data class HomeStrings(
     val recentlyPlayed: String,
     val mostPlayed: String,
     val quickPicks: String,
+    val becauseYouListenedFormat: String,
+    val forYourTasteSubtitle: String,
     val newReleases: String,
     val charts: String,
     val moodsAndGenres: String,
@@ -94,6 +98,8 @@ internal fun resolveHomeStrings(languageCode: String): HomeStrings {
             recentlyPlayed = "Nghe gần đây",
             mostPlayed = "Nghe nhiều nhất",
             quickPicks = "Chọn nhanh",
+            becauseYouListenedFormat = "Vì bạn đã nghe %s",
+            forYourTasteSubtitle = "Gợi ý theo gu nghe gần đây của bạn",
             newReleases = "Phát hành mới",
             charts = "Bảng xếp hạng",
             moodsAndGenres = "Tâm trạng & Thể loại",
@@ -124,6 +130,8 @@ internal fun resolveHomeStrings(languageCode: String): HomeStrings {
             recentlyPlayed = "Recently Played",
             mostPlayed = "Most Played",
             quickPicks = "Quick Picks",
+            becauseYouListenedFormat = "Because you listened to %s",
+            forYourTasteSubtitle = "Tuned to your listening history",
             newReleases = "New Releases",
             charts = "Charts",
             moodsAndGenres = "Moods & Genres",

@@ -23,6 +23,7 @@ import io.ktor.http.parseQueryString
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -138,7 +139,7 @@ enum class YtClientKind(
     );
 
     companion object {
-        val defaultOrder: List<YtClientKind> = listOf(VISIONOS, ANDROID_VR, IOS, WEB_REMIX, TVHTML5)
+        val defaultOrder: List<YtClientKind> = listOf(ANDROID_VR, IOS, VISIONOS, WEB_REMIX, TVHTML5)
     }
 }
 
@@ -198,13 +199,15 @@ class YtMusicClient @Inject constructor(
 
     suspend fun getHomeShelves(
         continuation: String? = null,
-        params: String? = null
+        params: String? = null,
+        countryOverride: String? = null,
+        languageOverride: String? = null
     ): Result<List<HomeShelf>> = runCatching {
         val root = postInnerTube(
             endpoint = "browse",
             client = YtClientKind.WEB_REMIX,
             body = buildJsonObject {
-                put("context", buildContext(YtClientKind.WEB_REMIX))
+                put("context", buildContext(YtClientKind.WEB_REMIX, countryOverride = countryOverride, languageOverride = languageOverride))
                 if (continuation == null) {
                     put("browseId", "FEmusic_home")
                     params?.let { put("params", it) }
@@ -216,10 +219,10 @@ class YtMusicClient @Inject constructor(
         )
         val shelves = parseHomeShelves(root).toMutableList()
         if (continuation == null && params == null) {
-            getCharts().getOrNull()?.let { chartShelves ->
+            getCharts(countryOverride = countryOverride, languageOverride = languageOverride).getOrNull()?.let { chartShelves ->
                 shelves += chartShelves.take(2)
             }
-            getNewReleases().getOrNull()?.takeIf { it.isNotEmpty() }?.let { albums ->
+            getNewReleases(countryOverride = countryOverride, languageOverride = languageOverride).getOrNull()?.takeIf { it.isNotEmpty() }?.let { albums ->
                 shelves += HomeShelf(
                     id = "new_releases",
                     title = "New Releases",
@@ -230,12 +233,15 @@ class YtMusicClient @Inject constructor(
         shelves
     }
 
-    suspend fun getCharts(): Result<List<HomeShelf>> = runCatching {
+    suspend fun getCharts(
+        countryOverride: String? = null,
+        languageOverride: String? = null
+    ): Result<List<HomeShelf>> = runCatching {
         val root = postInnerTube(
             endpoint = "browse",
             client = YtClientKind.WEB_REMIX,
             body = buildJsonObject {
-                put("context", buildContext(YtClientKind.WEB_REMIX))
+                put("context", buildContext(YtClientKind.WEB_REMIX, countryOverride = countryOverride, languageOverride = languageOverride))
                 put("browseId", "FEmusic_charts")
                 put("params", "ggMGCgQIgAQ%3D")
             }
@@ -243,12 +249,15 @@ class YtMusicClient @Inject constructor(
         parseHomeShelves(root)
     }
 
-    suspend fun getMoodCategories(): Result<List<MoodCategory>> = runCatching {
+    suspend fun getMoodCategories(
+        countryOverride: String? = null,
+        languageOverride: String? = null
+    ): Result<List<MoodCategory>> = runCatching {
         val root = postInnerTube(
             endpoint = "browse",
             client = YtClientKind.WEB_REMIX,
             body = buildJsonObject {
-                put("context", buildContext(YtClientKind.WEB_REMIX))
+                put("context", buildContext(YtClientKind.WEB_REMIX, countryOverride = countryOverride, languageOverride = languageOverride))
                 put("browseId", "FEmusic_moods_and_genres")
             }
         )
@@ -280,12 +289,60 @@ class YtMusicClient @Inject constructor(
         }
     }
 
-    suspend fun getNewReleases(): Result<List<Album>> = runCatching {
+    suspend fun getMoodTracks(
+        mood: MoodCategory,
+        countryOverride: String? = null,
+        languageOverride: String? = null,
+        vietnameseHint: Boolean = false
+    ): Result<List<Track>> = runCatching {
+        val browseId = mood.id.substringBefore(':').takeIf { it.isNotBlank() && mood.id.contains(':') }
+            ?: "FEmusic_moods_and_genres_category"
+        val root = runCatching {
+            postInnerTube(
+                endpoint = "browse",
+                client = YtClientKind.WEB_REMIX,
+                body = buildJsonObject {
+                    put("context", buildContext(YtClientKind.WEB_REMIX, countryOverride = countryOverride, languageOverride = languageOverride))
+                    put("browseId", browseId)
+                    mood.params?.let { put("params", it) }
+                },
+                includeAuth = true
+            )
+        }.getOrNull()
+
+        val shelfTracks = if (root != null) {
+            val carouselTracks = parseHomeShelves(root).flatMap { it.tracks }
+            val listTracks = parseMoodListTracks(root)
+            (carouselTracks + listTracks).distinctBy { it.ytId ?: it.id }
+        } else {
+            emptyList()
+        }
+
+        if (shelfTracks.isNotEmpty()) {
+            return@runCatching shelfTracks
+        }
+
+        val query = if (vietnameseHint && !mood.title.contains("Việt", ignoreCase = true)) {
+            "${mood.title} nhạc Việt"
+        } else {
+            "${mood.title} music"
+        }
+        searchTracks(
+            query = query,
+            countryOverride = countryOverride,
+            languageOverride = languageOverride
+        ).getOrThrow()
+    }
+
+    suspend fun getNewReleases(
+        countryOverride: String? = null,
+        languageOverride: String? = null
+    ): Result<List<Album>> = runCatching {
         val root = postInnerTube(
             endpoint = "browse",
             client = YtClientKind.WEB_REMIX,
             body = buildJsonObject {
-                put("context", buildContext(YtClientKind.WEB_REMIX))
+                put("context", buildContext(YtClientKind.WEB_REMIX, countryOverride = countryOverride, languageOverride = languageOverride))
                 put("browseId", "FEmusic_new_releases_albums")
             }
         )
@@ -309,14 +366,16 @@ class YtMusicClient @Inject constructor(
 
     suspend fun search(
         query: String,
-        filter: YtSearchFilter = YtSearchFilter.ALL
+        filter: YtSearchFilter = YtSearchFilter.ALL,
+        countryOverride: String? = null,
+        languageOverride: String? = null
     ): Result<SearchResultBundle> = runCatching {
         if (query.isBlank()) return@runCatching SearchResultBundle()
         val root = postInnerTube(
             endpoint = "search",
             client = YtClientKind.WEB_REMIX,
             body = buildJsonObject {
-                put("context", buildContext(YtClientKind.WEB_REMIX))
+                put("context", buildContext(YtClientKind.WEB_REMIX, countryOverride = countryOverride, languageOverride = languageOverride))
                 put("query", query)
                 filter.params?.let { put("params", it) }
             },
@@ -325,8 +384,12 @@ class YtMusicClient @Inject constructor(
         parseSearchResults(root)
     }
 
-    suspend fun searchTracks(query: String): Result<List<Track>> =
-        search(query, YtSearchFilter.TRACKS).map { it.tracks }
+    suspend fun searchTracks(
+        query: String,
+        countryOverride: String? = null,
+        languageOverride: String? = null
+    ): Result<List<Track>> =
+        search(query, YtSearchFilter.TRACKS, countryOverride, languageOverride).map { it.tracks }
 
     suspend fun searchAlbums(query: String): Result<List<Album>> =
         search(query, YtSearchFilter.ALBUMS).map { it.albums }
@@ -360,15 +423,43 @@ class YtMusicClient @Inject constructor(
             .orEmpty()
     }
 
+    suspend fun getRelatedTracksForSeed(
+        videoId: String,
+        countryOverride: String? = null,
+        languageOverride: String? = null
+    ): Result<List<Track>> = runCatching {
+        val radioTracks = getRelatedQueue(
+            videoId = videoId,
+            playlistId = "RDAMVM$videoId",
+            countryOverride = countryOverride,
+            languageOverride = languageOverride
+        ).getOrDefault(emptyList())
+
+        val combined = if (radioTracks.size > 2) {
+            radioTracks
+        } else {
+            val watchTracks = getRelatedQueue(
+                videoId = videoId,
+                playlistId = null,
+                countryOverride = countryOverride,
+                languageOverride = languageOverride
+            ).getOrDefault(emptyList())
+            (radioTracks + watchTracks).distinctBy { it.ytId ?: it.id }
+        }
+        combined.filter { !it.ytId.isNullOrBlank() }.distinctBy { it.ytId ?: it.id }
+    }
+
     suspend fun getRelatedQueue(
         videoId: String,
-        playlistId: String? = null
+        playlistId: String? = null,
+        countryOverride: String? = null,
+        languageOverride: String? = null
     ): Result<List<Track>> = runCatching {
         val root = postInnerTube(
             endpoint = "next",
             client = YtClientKind.WEB_REMIX,
             body = buildJsonObject {
-                put("context", buildContext(YtClientKind.WEB_REMIX))
+                put("context", buildContext(YtClientKind.WEB_REMIX, countryOverride = countryOverride, languageOverride = languageOverride))
                 put("videoId", videoId)
                 playlistId?.let { put("playlistId", it) }
             },
@@ -406,7 +497,7 @@ class YtMusicClient @Inject constructor(
                 endpoint = "next",
                 client = YtClientKind.WEB_REMIX,
                 body = buildJsonObject {
-                    put("context", buildContext(YtClientKind.WEB_REMIX))
+                    put("context", buildContext(YtClientKind.WEB_REMIX, countryOverride = countryOverride, languageOverride = languageOverride))
                     put("playlistId", automixPlaylistId)
                 },
                 includeAuth = true
@@ -583,7 +674,13 @@ class YtMusicClient @Inject constructor(
         var lastError: Throwable? = null
         for (client in clientOrder) {
             try {
-                val streams = fetchPlayerStreams(videoId, client)
+                val streams = if (clientOrder.size > 1) {
+                    withTimeout(5_500L) {
+                        fetchPlayerStreams(videoId, client)
+                    }
+                } else {
+                    fetchPlayerStreams(videoId, client)
+                }
                 if (streams.isNotEmpty()) return@runCatching streams
             } catch (e: CancellationException) {
                 throw e
@@ -794,13 +891,18 @@ class YtMusicClient @Inject constructor(
         return json.parseToJsonElement(response.bodyAsText()) as JsonObject
     }
 
-    private fun buildContext(client: YtClientKind, visitorOverride: String? = visitorData): JsonObject =
+    private fun buildContext(
+        client: YtClientKind,
+        visitorOverride: String? = visitorData,
+        countryOverride: String? = null,
+        languageOverride: String? = null
+    ): JsonObject =
         buildJsonObject {
             putJsonObject("client") {
                 put("clientName", client.clientName)
                 put("clientVersion", client.clientVersion)
-                put("gl", gl)
-                put("hl", hl)
+                put("gl", countryOverride?.takeIf { it.isNotBlank() } ?: gl)
+                put("hl", languageOverride?.takeIf { it.isNotBlank() } ?: hl)
                 client.clientScreen?.let { put("clientScreen", it) }
                 client.platform?.let { put("platform", it) }
                 client.osName?.let { put("osName", it) }
@@ -850,6 +952,26 @@ class YtMusicClient @Inject constructor(
                 tracks = tracks,
                 albums = albums
             )
+        }
+    }
+
+    private fun parseMoodListTracks(root: JsonObject): List<Track> {
+        val tabContents = root.obj("contents")
+            ?.obj("singleColumnBrowseResultsRenderer")
+            ?.arr("tabs")
+            ?.firstOrNullObj()
+            ?.obj("tabRenderer")
+            ?.obj("content")
+            ?.obj("sectionListRenderer")
+            ?.arr("contents")
+            ?: return emptyList()
+
+        return tabContents.mapNotNull { it as? JsonObject }.flatMap { section ->
+            val shelfRows = section.obj("musicShelfRenderer")?.arr("contents").orEmpty()
+            val playlistRows = section.obj("musicPlaylistShelfRenderer")?.arr("contents").orEmpty()
+            (shelfRows + playlistRows).mapNotNull { row ->
+                (row as? JsonObject)?.obj("musicResponsiveListItemRenderer")?.let(::parseResponsiveListTrack)
+            }
         }
     }
 

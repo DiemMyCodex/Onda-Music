@@ -69,4 +69,60 @@ class LyricsLineMatcherTest {
         assertEquals(0.5f, hit.fraction, 0.03f)
         assertTrue(hit.distancePx < 2f)
     }
+
+    @Test
+    fun interpolateLyricPositionMs_advancesSmoothlyAndSuppressesMinorJitter() {
+        val advanced = interpolateLyricPositionMs(
+            anchorPositionMs = 10_000L,
+            anchorFrameNanos = 1_000_000_000L,
+            nowFrameNanos = 1_120_000_000L,
+            isPlaying = true,
+            playbackSpeed = 1.0f,
+            currentInterpolatedMs = 10_050L
+        )
+        assertEquals(10_120L, advanced)
+
+        val antiJitter = interpolateLyricPositionMs(
+            anchorPositionMs = 10_000L,
+            anchorFrameNanos = 1_000_000_000L,
+            nowFrameNanos = 1_040_000_000L,
+            isPlaying = true,
+            playbackSpeed = 1.0f,
+            currentInterpolatedMs = 10_120L
+        )
+        assertEquals(10_120L, antiJitter)
+
+        val seekSnap = interpolateLyricPositionMs(
+            anchorPositionMs = 45_000L,
+            anchorFrameNanos = 2_000_000_000L,
+            nowFrameNanos = 2_016_000_000L,
+            isPlaying = true,
+            playbackSpeed = 1.0f,
+            currentInterpolatedMs = 10_120L
+        )
+        assertEquals(45_016L, seekSnap)
+
+        val paused = interpolateLyricPositionMs(
+            anchorPositionMs = 12_345L,
+            anchorFrameNanos = 1_000_000_000L,
+            nowFrameNanos = 1_500_000_000L,
+            isPlaying = false,
+            playbackSpeed = 1.0f,
+            currentInterpolatedMs = 12_345L
+        )
+        assertEquals(12_345L, paused)
+    }
+
+    @Test
+    fun smoothWordProgressAndEnvelope_areMonotonicAndZeroAtEdges() {
+        assertEquals(0f, computeSmoothWordProgress(900L, 1_000L, 2_000L), 0.0001f)
+        assertEquals(1f, computeSmoothWordProgress(2_000L, 1_000L, 2_000L), 0.0001f)
+        val pEarly = computeSmoothWordProgress(1_250L, 1_000L, 2_000L)
+        val pMid = computeSmoothWordProgress(1_500L, 1_000L, 2_000L)
+        val pLate = computeSmoothWordProgress(1_750L, 1_000L, 2_000L)
+        assertTrue(pEarly > 0f && pEarly < pMid && pMid < pLate && pLate < 1f)
+        assertEquals(0f, computeWordActiveEnvelope(0f), 0.0001f)
+        assertEquals(0f, computeWordActiveEnvelope(1f), 0.0001f)
+        assertTrue(computeWordActiveEnvelope(0.5f) > 0.99f)
+    }
 }

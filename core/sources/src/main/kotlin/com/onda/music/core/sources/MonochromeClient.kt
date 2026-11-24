@@ -10,6 +10,7 @@ import io.ktor.client.statement.bodyAsBytes
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.isSuccess
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -175,7 +176,7 @@ class MonochromeClient @Inject constructor(
         server: MonochromeServer,
         query: String,
         limit: Int
-    ): List<Track> {
+    ): List<Track> = withTimeout(3_000L) {
         val base = server.url.trimEnd('/')
         val url = when (server.kind) {
             MonochromeServerKind.STREAMER -> "$base/search/tracks?q=${encode(query)}&limit=$limit"
@@ -190,7 +191,7 @@ class MonochromeClient @Inject constructor(
         }
         check(response.status.isSuccess()) { "Monochrome search failed: HTTP ${response.status.value}" }
         val body = response.bodyAsText()
-        return when (server.kind) {
+        when (server.kind) {
             MonochromeServerKind.STREAMER -> parseStreamerTracks(body)
             MonochromeServerKind.RELAY -> parseRelayTracks(body)
         }
@@ -199,7 +200,7 @@ class MonochromeClient @Inject constructor(
     private suspend fun openStreamOnServer(
         server: MonochromeServer,
         monochromeId: String
-    ): StreamOption? {
+    ): StreamOption? = withTimeout(2_500L) {
         val base = server.url.trimEnd('/')
         val (streamUrl, bytes) = when (server.kind) {
             MonochromeServerKind.STREAMER -> {
@@ -208,7 +209,7 @@ class MonochromeClient @Inject constructor(
                     header("User-Agent", USER_AGENT)
                     header("Range", HEAD_RANGE)
                 }
-                if (!response.status.isSuccess()) return null
+                if (!response.status.isSuccess()) return@withTimeout null
                 url to response.bodyAsBytes()
             }
             MonochromeServerKind.RELAY -> {
@@ -219,18 +220,18 @@ class MonochromeClient @Inject constructor(
                     header("X-Relay-Client", RELAY_CLIENT_VERSION)
                     header("Range", HEAD_RANGE)
                 }
-                if (!response.status.isSuccess()) return null
+                if (!response.status.isSuccess()) return@withTimeout null
                 val origin = originOf(base)
                 val relayStream = response.headers["X-Relay-Stream"]
                     ?.takeIf { origin.isNotEmpty() && it.startsWith("$origin/") }
-                    ?: return null
+                    ?: return@withTimeout null
                 relayStream to response.bodyAsBytes()
             }
         }
 
-        val flacInfo = parseFlacHeader(bytes) ?: return null
+        val flacInfo = parseFlacHeader(bytes) ?: return@withTimeout null
         val estimatedKbps = ((flacInfo.sampleRateHz * flacInfo.bitsPerSample * 2) / 1000) * 65 / 100
-        return StreamOption(
+        StreamOption(
             url = streamUrl,
             mimeType = "audio/flac",
             bitrateKbps = estimatedKbps.coerceAtLeast(900),

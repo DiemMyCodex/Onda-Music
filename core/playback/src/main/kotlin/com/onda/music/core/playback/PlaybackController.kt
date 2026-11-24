@@ -18,6 +18,7 @@ import com.onda.music.core.model.AudioOutputEqProfile
 import com.onda.music.core.model.EqConfig
 import com.onda.music.core.model.OutputProfileSwitchEvent
 import com.onda.music.core.model.PlaybackState
+import com.onda.music.core.model.PlaybackStatus
 import com.onda.music.core.model.RepeatMode
 import com.onda.music.core.model.Track
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -91,6 +92,12 @@ class PlaybackController @Inject constructor(
         }
     }
 
+    fun warmUp() {
+        scope.launch {
+            ensureController()
+        }
+    }
+
     fun playTrack(track: Track) {
         playQueue(listOf(track), startIndex = 0)
     }
@@ -98,8 +105,23 @@ class PlaybackController @Inject constructor(
     fun playQueue(tracks: List<Track>, startIndex: Int = 0) {
         if (tracks.isEmpty()) return
         val safeIndex = startIndex.coerceIn(0, tracks.lastIndex)
+        val targetTrack = tracks[safeIndex]
         sessionStore.registerTracks(tracks)
         tracks.forEach { streamResolver.resetRotationState(it.id) }
+        sessionStore.updateState { existing ->
+            existing.copy(
+                currentTrack = targetTrack,
+                queue = tracks,
+                currentIndex = safeIndex,
+                status = PlaybackStatus.BUFFERING,
+                positionMs = 0L,
+                durationMs = targetTrack.durationMs,
+                errorMessage = null
+            )
+        }
+        scope.launch(Dispatchers.IO) {
+            streamResolver.prefetch(targetTrack)
+        }
         scope.launch(Dispatchers.IO) {
             songDao.upsertAndMergeAll(tracks.map { it.toEntity() })
         }

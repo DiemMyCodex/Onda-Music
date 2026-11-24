@@ -27,6 +27,7 @@ import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.ResolvingDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.audio.AudioSink
@@ -99,6 +100,7 @@ class OndaMediaService : MediaLibraryService() {
 
     private var currentTrackStartTimeMs: Long = 0L
     private var lastTrackedId: String? = null
+    private var lastPrefetchedTrackId: String? = null
 
     @Volatile
     private var keepPlayingOnTaskRemoved: Boolean = true
@@ -204,8 +206,8 @@ class OndaMediaService : MediaLibraryService() {
     private fun initPlayer() {
         val httpFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(15_000)
-            .setReadTimeoutMs(25_000)
+            .setConnectTimeoutMs(8_000)
+            .setReadTimeoutMs(15_000)
 
         val upstreamFactory: DataSource.Factory = DefaultDataSource.Factory(this, httpFactory)
 
@@ -227,6 +229,11 @@ class OndaMediaService : MediaLibraryService() {
             }
         }.setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
 
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(15_000, 45_000, 500, 1_200)
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .build()
+
         val audioAttributes = AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
@@ -234,6 +241,7 @@ class OndaMediaService : MediaLibraryService() {
 
         player = ExoPlayer.Builder(this, renderersFactory)
             .setMediaSourceFactory(DefaultMediaSourceFactory(resolvingFactory))
+            .setLoadControl(loadControl)
             .setAudioAttributes(audioAttributes, true)
             .setHandleAudioBecomingNoisy(true)
             .setWakeMode(C.WAKE_MODE_NETWORK)
@@ -645,6 +653,7 @@ class OndaMediaService : MediaLibraryService() {
             if (isPlaying) {
                 acquireLocks()
                 startCheckpointLoop()
+                prefetchNextTrackInQueue()
                 if (!sessionStore.playbackState.value.sleepTimerFading &&
                     audioEffectsEngine.crossfadeController.crossfadeSeconds == 0 &&
                     player.volume < 0.99f
@@ -684,6 +693,7 @@ class OndaMediaService : MediaLibraryService() {
             }
             syncPlayerStateToStore()
             persistCheckpointNow()
+            prefetchNextTrackInQueue()
         }
 
         override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
@@ -892,6 +902,19 @@ class OndaMediaService : MediaLibraryService() {
                 playbackSpeed = player.playbackParameters.speed,
                 playbackPitch = player.playbackParameters.pitch
             )
+        }
+    }
+
+    private fun prefetchNextTrackInQueue() {
+        if (!::player.isInitialized) return
+        val nextIndex = player.currentMediaItemIndex + 1
+        if (nextIndex !in 0 until player.mediaItemCount) return
+        val nextMediaId = player.getMediaItemAt(nextIndex).mediaId
+        if (nextMediaId.isBlank() || nextMediaId == lastPrefetchedTrackId) return
+        lastPrefetchedTrackId = nextMediaId
+        serviceScope.launch(Dispatchers.IO) {
+            val nextTrack = sessionStore.getTrack(nextMediaId) ?: songDao.getById(nextMediaId)?.toModel() ?: return@launch
+            streamResolver.prefetch(nextTrack)
         }
     }
 

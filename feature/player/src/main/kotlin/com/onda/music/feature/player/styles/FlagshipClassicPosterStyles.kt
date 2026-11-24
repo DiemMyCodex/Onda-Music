@@ -4,7 +4,7 @@ import android.os.Build
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
@@ -20,6 +20,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -122,6 +123,7 @@ import com.onda.music.core.model.LyricsDocument
 import com.onda.music.core.model.LyricsLine
 import com.onda.music.core.model.PlaybackStatus
 import com.onda.music.core.model.StudioQuickAction
+import com.onda.music.feature.player.FeatheredSweepWord
 import com.onda.music.feature.player.GlassPillButton
 import com.onda.music.feature.player.LyricsInterludeDots
 import com.onda.music.feature.player.LyricsPane
@@ -136,6 +138,7 @@ import com.onda.music.feature.player.formatDurationMs
 import com.onda.music.feature.player.ondaLikeTarget
 import com.onda.music.feature.player.playerPressBounce
 import com.onda.music.feature.player.queue.OndaBottomDeck
+import com.onda.music.feature.player.rememberSmoothLyricClock
 import com.onda.music.feature.player.rememberSongCarouselPagerState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -145,6 +148,7 @@ import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 @Composable
 fun FlagshipPlayerStyle(
@@ -221,7 +225,9 @@ fun FlagshipPlayerStyle(
                             onSeekToMs = ctx.onSeekToMs,
                             onRefreshLyrics = ctx.onRefreshLyrics,
                             onAdjustOffsetMs = ctx.onAdjustLyricsOffset,
-                            onLongPressLine = { lineIdx -> ctx.onOpenShare(lineIdx) }
+                            onLongPressLine = { lineIdx -> ctx.onOpenShare(lineIdx) },
+                            playbackSpeed = state.playbackSpeed,
+                            trackKey = track?.id
                         )
                     }
                 } else {
@@ -373,7 +379,9 @@ fun ClassicPlayerStyle(
                     onSeekToMs = ctx.onSeekToMs,
                     onRefreshLyrics = ctx.onRefreshLyrics,
                     onAdjustOffsetMs = ctx.onAdjustLyricsOffset,
-                    onLongPressLine = { lineIdx -> ctx.onOpenShare(lineIdx) }
+                    onLongPressLine = { lineIdx -> ctx.onOpenShare(lineIdx) },
+                    playbackSpeed = state.playbackSpeed,
+                    trackKey = track?.id
                 )
             } else {
                 SongCarousel(
@@ -1103,7 +1111,9 @@ fun PosterPlayerStyle(
                                 onSeekToMs = ctx.onSeekToMs,
                                 onRefreshLyrics = ctx.onRefreshLyrics,
                                 onLongPressLine = { lineIdx -> ctx.onOpenShare(lineIdx) },
-                                modifier = Modifier.fillMaxSize()
+                                modifier = Modifier.fillMaxSize(),
+                                playbackSpeed = state.playbackSpeed,
+                                trackKey = track?.id
                             )
                         }
                     }
@@ -1490,17 +1500,32 @@ private fun PosterKineticLyrics(
     onSeekToMs: (Long) -> Unit,
     onRefreshLyrics: () -> Unit,
     onLongPressLine: ((Int) -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    playbackSpeed: Float = 1.0f,
+    trackKey: Any? = null
 ) {
     val reducedMotion = OndaTheme.reducedMotion
     val motionActive = lyricsMotionEnabled && !reducedMotion
     val haptics = LocalHapticFeedback.current
+    val density = LocalDensity.current
     val listState = rememberLazyListState()
 
-    val effectivePositionMs = (positionMs + lyricsOffsetMs).coerceAtLeast(0L)
     val lines = lyrics?.lines.orEmpty()
     val isSynced = lyrics?.isSynced == true
     val hasWordTiming = lyrics?.hasWordTiming == true
+
+    val lyricClock = rememberSmoothLyricClock(
+        anchorPositionMs = positionMs,
+        isPlaying = isPlaying,
+        playbackSpeed = playbackSpeed,
+        trackKey = trackKey,
+        active = isSynced && lines.isNotEmpty()
+    )
+
+    val effectivePositionMs = (positionMs + lyricsOffsetMs).coerceAtLeast(0L)
+    val smoothPositionProvider: () -> Long = remember(lyricClock, lyricsOffsetMs) {
+        { (lyricClock.positionMs + lyricsOffsetMs).coerceAtLeast(0L) }
+    }
     val activeIndex = remember(lines, effectivePositionMs, isSynced) {
         findActiveLyricsLineIndex(lines, effectivePositionMs, isSynced)
     }
@@ -1518,28 +1543,60 @@ private fun PosterKineticLyrics(
         }
     }
 
-    var userDetachedScroll by remember { mutableStateOf(false) }
+    var userDetachedScroll by remember(trackKey) { mutableStateOf(false) }
 
-    LaunchedEffect(listState.isScrollInProgress) {
-        if (listState.isScrollInProgress) {
-            userDetachedScroll = true
+    LaunchedEffect(listState) {
+        listState.interactionSource.interactions.collect { interaction ->
+            if (interaction is DragInteraction.Start) {
+                userDetachedScroll = true
+            }
         }
     }
 
-    LaunchedEffect(userDetachedScroll) {
-        if (userDetachedScroll) {
-            delay(3_500L)
+    LaunchedEffect(userDetachedScroll, listState.isScrollInProgress) {
+        if (userDetachedScroll && !listState.isScrollInProgress) {
+            delay(4_500L)
             userDetachedScroll = false
         }
     }
 
-    LaunchedEffect(activeIndex, userDetachedScroll, isSynced, expanded) {
-        if (expanded && isSynced && activeIndex >= 0 && !userDetachedScroll) {
-            if (reducedMotion) {
-                listState.scrollToItem(index = activeIndex, scrollOffset = -32)
-            } else {
-                listState.animateScrollToItem(index = activeIndex, scrollOffset = -32)
+    val minOffsetPx = with(density) { 48.dp.toPx() }
+    val maxOffsetPx = with(density) { 120.dp.toPx() }
+    val fallbackOffsetPx = with(density) { 72.dp.toPx() }
+
+    LaunchedEffect(activeIndex, userDetachedScroll, isSynced, expanded, motionActive) {
+        if (!expanded || !isSynced || activeIndex !in lines.indices || userDetachedScroll) return@LaunchedEffect
+        val layoutInfo = listState.layoutInfo
+        val viewportHeight = layoutInfo.viewportSize.height.toFloat()
+        val restingOffsetPx = if (viewportHeight > 0f) {
+            (viewportHeight * 0.24f).coerceIn(minOffsetPx, maxOffsetPx)
+        } else {
+            fallbackOffsetPx
+        }
+        val visible = layoutInfo.visibleItemsInfo.firstOrNull { it.index == activeIndex }
+        if (visible != null && motionActive) {
+            val currentTop = visible.offset - layoutInfo.viewportStartOffset
+            val distance = (currentTop - restingOffsetPx).toFloat()
+            if (abs(distance) > 1f) {
+                listState.scroll {
+                    var previous = 0f
+                    animate(
+                        initialValue = 0f,
+                        targetValue = distance,
+                        animationSpec = spring(
+                            dampingRatio = 0.88f,
+                            stiffness = 175f
+                        )
+                    ) { value, _ ->
+                        val consumed = scrollBy(value - previous)
+                        previous += consumed
+                    }
+                }
             }
+        } else if (reducedMotion || !motionActive) {
+            listState.scrollToItem(index = activeIndex, scrollOffset = -restingOffsetPx.roundToInt())
+        } else {
+            listState.animateScrollToItem(index = activeIndex, scrollOffset = -restingOffsetPx.roundToInt())
         }
     }
 
@@ -1613,18 +1670,13 @@ private fun PosterKineticLyrics(
                         if (!motionActive) {
                             fadeIn(tween(120)) togetherWith fadeOut(tween(90))
                         } else {
-                            (fadeIn(tween(240)) + slideInVertically(
-                                animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioNoBouncy,
-                                    stiffness = Spring.StiffnessMediumLow
-                                )
-                            ) { fullHeight -> fullHeight / 3 }) togetherWith
-                                (fadeOut(tween(160)) + slideOutVertically(
-                                    animationSpec = spring(
-                                        dampingRatio = Spring.DampingRatioNoBouncy,
-                                        stiffness = Spring.StiffnessMediumLow
-                                    )
-                                ) { fullHeight -> -fullHeight / 3 })
+                            val curve = CubicBezierEasing(0.22f, 1f, 0.36f, 1f)
+                            (fadeIn(tween(360, easing = curve)) + slideInVertically(
+                                animationSpec = tween(360, easing = curve)
+                            ) { fullHeight -> (fullHeight * 0.22f).roundToInt() }) togetherWith
+                                (fadeOut(tween(220, easing = curve)) + slideOutVertically(
+                                    animationSpec = tween(220, easing = curve)
+                                ) { fullHeight -> -(fullHeight * 0.18f).roundToInt() })
                         }
                     },
                     label = "PosterSpotlightStanza"
@@ -1634,7 +1686,7 @@ private fun PosterKineticLyrics(
                         nextLineStartMs = nextLineStartMs,
                         isSynced = isSynced,
                         hasWordTiming = hasWordTiming,
-                        effectivePositionMs = effectivePositionMs,
+                        smoothPositionProvider = smoothPositionProvider,
                         isPlaying = isPlaying,
                         motionActive = motionActive
                     )
@@ -1679,7 +1731,7 @@ private fun PosterKineticLyrics(
                             isActive = isActive,
                             isSynced = isSynced,
                             hasWordTiming = hasWordTiming,
-                            effectivePositionMs = effectivePositionMs,
+                            smoothPositionProvider = smoothPositionProvider,
                             distanceFromActive = distance,
                             isUserScrolling = userDetachedScroll,
                             isPlaying = isPlaying,
@@ -1752,7 +1804,7 @@ private fun PosterSpotlightStanza(
     nextLineStartMs: Long?,
     isSynced: Boolean,
     hasWordTiming: Boolean,
-    effectivePositionMs: Long,
+    smoothPositionProvider: () -> Long,
     isPlaying: Boolean,
     motionActive: Boolean
 ) {
@@ -1770,7 +1822,7 @@ private fun PosterSpotlightStanza(
             else -> line.startTimeMs + 3_000L
         }
         val interludeDuration = (interludeEnd - line.startTimeMs).coerceAtLeast(1L)
-        val interludeProgress = ((effectivePositionMs - line.startTimeMs).toFloat() / interludeDuration).coerceIn(0f, 1f)
+        val interludeProgress = ((smoothPositionProvider() - line.startTimeMs).toFloat() / interludeDuration).coerceIn(0f, 1f)
         Box(
             modifier = Modifier.fillMaxWidth(),
             contentAlignment = Alignment.CenterStart
@@ -1784,6 +1836,17 @@ private fun PosterSpotlightStanza(
                 visible = true
             )
         }
+        return
+    }
+
+    if (!isSynced) {
+        Text(
+            text = line.text,
+            style = spotlightStyle,
+            color = Color.White,
+            textAlign = TextAlign.Start,
+            modifier = Modifier.fillMaxWidth()
+        )
         return
     }
 
@@ -1831,69 +1894,21 @@ private fun PosterSpotlightStanza(
         }
     }
 
-    val activeWordIndex = remember(wordSlices, effectivePositionMs, isSynced) {
-        if (!isSynced || wordSlices.isEmpty()) {
-            -1
-        } else {
-            val exact = wordSlices.indexOfFirst { slice ->
-                effectivePositionMs in slice.startTimeMs..slice.endTimeMs
-            }
-            when {
-                exact >= 0 -> exact
-                effectivePositionMs < wordSlices.first().startTimeMs -> 0
-                else -> wordSlices.indexOfLast { effectivePositionMs >= it.startTimeMs }.coerceAtLeast(0)
-            }
-        }
-    }
-
     FlowRow(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.Start),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        wordSlices.forEachIndexed { index, slice ->
-            val isSpokenOrCurrent = !isSynced || index <= activeWordIndex || effectivePositionMs >= slice.startTimeMs
-            val isLeadActiveWord = isSynced && index == activeWordIndex
-            val distanceAhead = (index - activeWordIndex).coerceAtLeast(0)
-
-            val wordScale by animateFloatAsState(
-                targetValue = if (isLeadActiveWord && motionActive) 1.10f else 1f,
-                animationSpec = if (motionActive) AppMotion.SnappySpring else snap(),
-                label = "SpotlightWordScale"
-            )
-            val wordLiftDp by animateFloatAsState(
-                targetValue = when {
-                    !motionActive -> 0f
-                    isLeadActiveWord -> -1.5f
-                    isSpokenOrCurrent -> 0f
-                    else -> 2f
-                },
-                animationSpec = if (motionActive) spring(dampingRatio = 0.85f, stiffness = 360f) else snap(),
-                label = "SpotlightWordLift"
-            )
-            val wordAlpha by animateFloatAsState(
-                targetValue = when {
-                    isSpokenOrCurrent -> 1f
-                    distanceAhead == 1 -> 0.56f
-                    else -> 0.38f
-                },
-                animationSpec = if (motionActive) tween(durationMillis = 180) else snap(),
-                label = "SpotlightWordAlpha"
-            )
-
-            Text(
+        wordSlices.forEach { slice ->
+            FeatheredSweepWord(
                 text = slice.text,
                 style = spotlightStyle,
-                color = Color.White,
-                modifier = Modifier
-                    .padding(end = if (isLeadActiveWord && motionActive) 3.dp else 0.dp)
-                    .graphicsLayer {
-                        transformOrigin = TransformOrigin(0f, 0.55f)
-                        scaleX = wordScale
-                        scaleY = wordScale
-                        translationY = wordLiftDp.dp.toPx()
-                        alpha = wordAlpha
-                    }
+                startTimeMs = slice.startTimeMs,
+                endTimeMs = slice.endTimeMs,
+                positionProvider = smoothPositionProvider,
+                activeColor = Color.White,
+                baseColor = Color(0x66FFFFFF),
+                motionActive = motionActive
             )
         }
     }
@@ -1906,7 +1921,7 @@ private fun PosterLyricRow(
     isActive: Boolean,
     isSynced: Boolean,
     hasWordTiming: Boolean,
-    effectivePositionMs: Long,
+    smoothPositionProvider: () -> Long,
     distanceFromActive: Int,
     isUserScrolling: Boolean,
     isPlaying: Boolean,
@@ -1916,7 +1931,11 @@ private fun PosterLyricRow(
 ) {
     if (line.isInterlude) {
         val interludeDuration = (line.endTimeMs - line.startTimeMs).coerceAtLeast(1L)
-        val interludeProgress = ((effectivePositionMs - line.startTimeMs).toFloat() / interludeDuration).coerceIn(0f, 1f)
+        val interludeProgress = if (isActive) {
+            ((smoothPositionProvider() - line.startTimeMs).toFloat() / interludeDuration).coerceIn(0f, 1f)
+        } else {
+            0f
+        }
         Box(
             modifier = Modifier.fillMaxWidth(),
             contentAlignment = Alignment.CenterStart
@@ -1933,26 +1952,24 @@ private fun PosterLyricRow(
         return
     }
 
-    val activeScale by animateFloatAsState(
-        targetValue = if (isActive && motionActive) 1.03f else 1f,
+    val focus by animateFloatAsState(
+        targetValue = if (!isSynced || isActive) 1f else 0f,
         animationSpec = AppMotion.adaptiveSpring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessMediumLow,
+            dampingRatio = 0.86f,
+            stiffness = 240f,
             reducedMotion = !motionActive
         ),
-        label = "PosterLyricScale"
+        label = "PosterLyricFocus"
     )
 
-    val targetLineBlurPx = when {
+    val rowAlpha = if (!isSynced) 1f else lerp(0.46f, 1f, focus)
+    val rowScale = if (motionActive && isSynced) lerp(0.96f, 1.03f, focus) else 1f
+    val rowBlurPx = when {
         !motionActive || !isSynced || isActive || isUserScrolling || Build.VERSION.SDK_INT < Build.VERSION_CODES.S -> 0f
-        distanceFromActive == 1 -> 3.5f
-        else -> 7f
+        distanceFromActive <= 1 -> 0f
+        distanceFromActive == 2 -> 2.5f
+        else -> 4.5f
     }
-    val lineBlurPx by animateFloatAsState(
-        targetValue = targetLineBlurPx,
-        animationSpec = if (!motionActive) snap() else tween(durationMillis = 320),
-        label = "PosterLineBlur"
-    )
 
     val textStyle = MaterialTheme.typography.headlineMedium.copy(
         fontSize = 28.sp,
@@ -1980,9 +1997,15 @@ private fun PosterLyricRow(
                 onLongClick = onLongClick
             )
             .graphicsLayer {
-                scaleX = activeScale
-                scaleY = activeScale
-                renderEffect = if (motionActive) PlayerLineBlurCache.forRadiusPx(lineBlurPx) else null
+                transformOrigin = TransformOrigin(0f, 0.5f)
+                scaleX = rowScale
+                scaleY = rowScale
+                alpha = rowAlpha
+                renderEffect = if (motionActive && rowBlurPx > 0f) {
+                    PlayerLineBlurCache.forRadiusPx(rowBlurPx)
+                } else {
+                    null
+                }
             }
             .padding(horizontal = 4.dp, vertical = 2.dp),
         contentAlignment = Alignment.CenterStart
@@ -1994,21 +2017,15 @@ private fun PosterLyricRow(
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 line.words.forEach { word ->
-                    val reached = effectivePositionMs >= word.startTimeMs
-                    val isCurrent = reached && effectivePositionMs <= word.endTimeMs
-                    val wordScale by animateFloatAsState(
-                        targetValue = if (isCurrent && motionActive) 1.12f else 1f,
-                        animationSpec = if (motionActive) AppMotion.SnappySpring else snap(),
-                        label = "PosterWordScale"
-                    )
-                    Text(
+                    FeatheredSweepWord(
                         text = word.text,
                         style = textStyle,
-                        color = if (reached) Color.White else Color(0x73FFFFFF),
-                        modifier = Modifier.graphicsLayer {
-                            scaleX = wordScale
-                            scaleY = wordScale
-                        }
+                        startTimeMs = word.startTimeMs,
+                        endTimeMs = word.endTimeMs.coerceAtLeast(word.startTimeMs + 80L),
+                        positionProvider = smoothPositionProvider,
+                        activeColor = Color.White,
+                        baseColor = Color(0x66FFFFFF),
+                        motionActive = motionActive
                     )
                 }
             }
@@ -2016,7 +2033,7 @@ private fun PosterLyricRow(
             Text(
                 text = line.text,
                 style = textStyle,
-                color = if (isActive || !isSynced) Color.White else Color(0x73FFFFFF),
+                color = Color.White,
                 textAlign = TextAlign.Start,
                 modifier = Modifier.fillMaxWidth()
             )

@@ -5,6 +5,10 @@ import com.onda.music.core.model.StreamOption
 import com.onda.music.core.model.Track
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeoutOrNull
 
 class StreamHttpException(
     val statusCode: Int,
@@ -44,7 +48,8 @@ class StreamResolver(
     private val newPipeSource: NewPipeStreamSource,
     private val preferencesProvider: StreamPreferencesProvider,
     private val clockMs: () -> Long = { System.currentTimeMillis() },
-    private val defaultCacheTtlMs: Long = DEFAULT_CACHE_TTL_MS
+    private val defaultCacheTtlMs: Long = DEFAULT_CACHE_TTL_MS,
+    private val monochromeUpgradeTimeoutMs: Long = DEFAULT_MONOCHROME_UPGRADE_TIMEOUT_MS
 ) {
     private data class CacheEntry(
         val option: StreamOption,
@@ -53,6 +58,11 @@ class StreamResolver(
 
     private val urlCache = ConcurrentHashMap<String, CacheEntry>()
     private val rotatedTrackIds = ConcurrentHashMap.newKeySet<String>()
+    private val inFlight = ConcurrentHashMap<String, CompletableDeferred<Result<StreamOption>>>()
+
+    suspend fun prefetch(track: Track) {
+        runCatching { resolve(track, bypassCache = false) }
+    }
 
     suspend fun resolve(
         track: Track,
@@ -87,13 +97,88 @@ class StreamResolver(
                 }
                 urlCache.remove(track.id)
             }
-        } else {
-            urlCache.remove(track.id)
+            val mine = CompletableDeferred<Result<StreamOption>>()
+            val existing = inFlight.putIfAbsent(track.id, mine)
+            if (existing != null) {
+                return existing.await()
+            }
+            return try {
+                val resolved = resolveNetwork(track)
+                mine.complete(resolved)
+                resolved
+            } catch (ce: CancellationException) {
+                inFlight.remove(track.id, mine)
+                mine.cancel(ce)
+                throw ce
+            } catch (t: Throwable) {
+                val failure = Result.failure<StreamOption>(t)
+                mine.complete(failure)
+                failure
+            } finally {
+                inFlight.remove(track.id, mine)
+            }
+        }
+
+        urlCache.remove(track.id)
+        return resolveNetwork(track)
+    }
+
+    private suspend fun resolveNetwork(track: Track): Result<StreamOption> {
+        val monochromeEnabled = preferencesProvider.isMonochromeEnabled() && shouldTryMonochrome(track)
+        val isExplicitMonochrome = !track.monochromeId.isNullOrBlank() || track.source == SourceKind.MONOCHROME
+        val videoId = extractYtVideoId(track)
+
+        if (monochromeEnabled && !isExplicitMonochrome && videoId != null) {
+            return coroutineScope {
+                val monoDeferred = async {
+                    try {
+                        monochromeSource.resolveStream(track)
+                    } catch (ce: CancellationException) {
+                        throw ce
+                    } catch (_: Throwable) {
+                        null
+                    }
+                }
+                val ytDeferred = async {
+                    resolveYtWithSingleRotation(track.id, videoId)
+                }
+
+                val fastMono = withTimeoutOrNull(monochromeUpgradeTimeoutMs) {
+                    monoDeferred.await()
+                }
+                if (fastMono != null) {
+                    ytDeferred.cancel()
+                    cacheOption(track.id, fastMono)
+                    return@coroutineScope Result.success(fastMono)
+                }
+                monoDeferred.cancel()
+
+                val ytResult = ytDeferred.await()
+                if (ytResult.isSuccess) {
+                    val option = ytResult.getOrThrow()
+                    cacheOption(track.id, option)
+                    return@coroutineScope Result.success(option)
+                }
+                var lastError: Throwable? = ytResult.exceptionOrNull()
+                try {
+                    val fallbackOption = newPipeSource.resolveStream(videoId)
+                    if (fallbackOption != null) {
+                        cacheOption(track.id, fallbackOption)
+                        return@coroutineScope Result.success(fallbackOption)
+                    }
+                } catch (ce: CancellationException) {
+                    throw ce
+                } catch (t: Throwable) {
+                    lastError = t
+                }
+                Result.failure(
+                    lastError ?: IllegalStateException("No stream available for track ${track.id}")
+                )
+            }
         }
 
         var lastError: Throwable? = null
-
-        if (preferencesProvider.isMonochromeEnabled() && shouldTryMonochrome(track)) {
+        if (monochromeEnabled) {
             try {
                 val monochromeOption = monochromeSource.resolveStream(track)
                 if (monochromeOption != null) {
@@ -107,7 +192,6 @@ class StreamResolver(
             }
         }
 
-        val videoId = extractYtVideoId(track)
         if (videoId != null) {
             val ytResult = resolveYtWithSingleRotation(track.id, videoId)
             if (ytResult.isSuccess) {
@@ -234,5 +318,6 @@ class StreamResolver(
 
     companion object {
         const val DEFAULT_CACHE_TTL_MS: Long = 30L * 60L * 1000L
+        const val DEFAULT_MONOCHROME_UPGRADE_TIMEOUT_MS: Long = 1_100L
     }
 }

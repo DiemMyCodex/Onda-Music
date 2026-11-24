@@ -2,7 +2,6 @@ package com.onda.music.feature.player
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
@@ -12,7 +11,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -34,8 +32,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Pause
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -54,21 +50,21 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -88,11 +84,12 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.onda.music.core.design.DockMetrics
-import com.onda.music.core.design.GlassTokens
+import com.onda.music.core.design.LocalOndaBackdropState
 import com.onda.music.core.design.LocalOndaColors
 import com.onda.music.core.design.LocalOndaPalette
+import com.onda.music.core.design.OndaSampledGlassBackdrop
 import com.onda.music.core.design.OndaTheme
-import com.onda.music.core.design.ondaBackdropBlur
+import com.onda.music.core.design.SmoothCornerShape
 import com.onda.music.core.design.press3D
 import com.onda.music.core.model.PlaybackStatus
 import com.onda.music.core.model.Track
@@ -100,10 +97,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.roundToInt
-import kotlin.math.sin
 
 private enum class MiniDragAxis {
     NONE,
@@ -114,9 +109,9 @@ private enum class MiniDragAxis {
 private val NavHighlightLead = spring<Float>(dampingRatio = 0.82f, stiffness = 700f)
 private val NavHighlightTrail = spring<Float>(dampingRatio = 0.82f, stiffness = 320f)
 private val PillRiseSpring = spring<Float>(dampingRatio = 0.55f, stiffness = 420f)
-private val PillSettleSpring = spring<Float>(dampingRatio = 0.70f, stiffness = 300f)
-private val NavHighlightInset = 4.dp
-private val NavHighlightGap = 4.dp
+private val PillSettleSpring = spring<Float>(dampingRatio = 0.72f, stiffness = 320f)
+private val NavHighlightInset = 8.dp
+private val NavHighlightGap = 6.dp
 
 @Stable
 private class DockHighlightState(initialIndex: Int) {
@@ -199,76 +194,93 @@ fun UnifiedDock(
     val previousTrack = if (currentIndex > 0) queue.getOrNull(currentIndex - 1) else null
     val nextTrack = if (currentIndex >= 0 && currentIndex < queue.lastIndex) queue.getOrNull(currentIndex + 1) else null
 
+    val bottomScrimBrush = remember {
+        Brush.verticalGradient(
+            0.00f to Color.Transparent,
+            0.34f to Color(0x74000000),
+            0.74f to Color(0xDF000000),
+            1.00f to Color(0xFF000000)
+        )
+    }
+
     CompositionLocalProvider(
         LocalOndaPalette provides palette,
         LocalOndaColors provides dockColors
     ) {
-        Column(
-            modifier = modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(start = 12.dp, end = 12.dp, bottom = 8.dp)
-                .graphicsLayer {
-                    alpha = dockAlpha
-                },
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            AnimatedVisibility(
-                visible = playbackState.currentTrack != null,
-                enter = fadeIn() + slideInVertically { it / 2 },
-                exit = fadeOut() + slideOutVertically { it / 2 }
+        Box(modifier = modifier.fillMaxWidth()) {
+            Spacer(
+                modifier = Modifier
+                    .matchParentSize()
+                    .graphicsLayer { alpha = dockAlpha }
+                    .drawBehind { drawRect(brush = bottomScrimBrush) }
+            )
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 42.dp)
+                    .navigationBarsPadding()
+                    .padding(start = 24.dp, end = 24.dp, bottom = 10.dp)
+                    .graphicsLayer { alpha = dockAlpha },
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                playbackState.currentTrack?.let { track ->
-                    val durationMs = playbackState.durationMs.coerceAtLeast(1L)
-                    val progress = (playbackState.positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
-                    Box(
-                        modifier = Modifier.graphicsLayer {
-                            translationY = -with(density) { 38.dp.toPx() } * clampedMorph
-                            if (!reducedMotion) {
-                                val s = lerp(1f, 1.03f, clampedMorph)
-                                scaleX = s
-                                scaleY = s
+                AnimatedVisibility(
+                    visible = playbackState.currentTrack != null,
+                    enter = fadeIn() + slideInVertically { it / 2 },
+                    exit = fadeOut() + slideOutVertically { it / 2 }
+                ) {
+                    playbackState.currentTrack?.let { track ->
+                        val durationMs = playbackState.durationMs.coerceAtLeast(1L)
+                        val progress = (playbackState.positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+                        Box(
+                            modifier = Modifier.graphicsLayer {
+                                translationY = -with(density) { 38.dp.toPx() } * clampedMorph
+                                if (!reducedMotion) {
+                                    val s = lerp(1f, 1.03f, clampedMorph)
+                                    scaleX = s
+                                    scaleY = s
+                                }
                             }
+                        ) {
+                            MiniPlayerBar(
+                                track = track,
+                                previousTrack = previousTrack,
+                                nextTrack = nextTrack,
+                                isPlaying = playbackState.status == PlaybackStatus.PLAYING,
+                                progress = progress,
+                                blurEnabled = settings.glassBlurEnabled,
+                                hapticsEnabled = settings.hapticsEnabled,
+                                morphFraction = clampedMorph,
+                                onMorphFractionChange = onMorphFractionChange,
+                                onExpandPlayer = onExpandPlayer,
+                                onTogglePlayPause = viewModel::togglePlayPause,
+                                onSkipNext = viewModel::skipNext,
+                                onSkipPrevious = viewModel::skipPrevious,
+                                settleScope = scope,
+                                onVerticalDraggingChange = { isVerticalDragging = it },
+                                onSettlingMorphChange = { isSettlingMorph = it }
+                            )
                         }
-                    ) {
-                        MiniPlayerBar(
-                            track = track,
-                            previousTrack = previousTrack,
-                            nextTrack = nextTrack,
-                            isPlaying = playbackState.status == PlaybackStatus.PLAYING,
-                            progress = progress,
-                            blurEnabled = settings.glassBlurEnabled,
-                            hapticsEnabled = settings.hapticsEnabled,
-                            morphFraction = clampedMorph,
-                            onMorphFractionChange = onMorphFractionChange,
-                            onExpandPlayer = onExpandPlayer,
-                            onTogglePlayPause = viewModel::togglePlayPause,
-                            onSkipNext = viewModel::skipNext,
-                            onSkipPrevious = viewModel::skipPrevious,
-                            settleScope = scope,
-                            onVerticalDraggingChange = { isVerticalDragging = it },
-                            onSettlingMorphChange = { isSettlingMorph = it }
-                        )
                     }
                 }
-            }
 
-            Box(
-                modifier = Modifier.graphicsLayer {
-                    val tabFade = (1f - clampedMorph * 2.3f).coerceIn(0f, 1f)
-                    alpha = tabFade
-                    translationY = with(density) { 42.dp.toPx() } * clampedMorph
+                Box(
+                    modifier = Modifier.graphicsLayer {
+                        val tabFade = (1f - clampedMorph * 2.3f).coerceIn(0f, 1f)
+                        alpha = tabFade
+                        translationY = with(density) { 42.dp.toPx() } * clampedMorph
+                    }
+                ) {
+                    DockTabPill(
+                        tabLabels = tabLabels,
+                        tabIcons = tabIcons,
+                        inactiveTabIcons = inactiveTabIcons,
+                        selectedTabIndex = selectedTabIndex,
+                        blurEnabled = settings.glassBlurEnabled,
+                        hapticsEnabled = settings.hapticsEnabled,
+                        onSelectTab = onSelectTab
+                    )
                 }
-            ) {
-                DockTabPill(
-                    tabLabels = tabLabels,
-                    tabIcons = tabIcons,
-                    inactiveTabIcons = inactiveTabIcons,
-                    selectedTabIndex = selectedTabIndex,
-                    blurEnabled = settings.glassBlurEnabled,
-                    hapticsEnabled = settings.hapticsEnabled,
-                    onSelectTab = onSelectTab
-                )
             }
         }
     }
@@ -296,18 +308,21 @@ private fun MiniPlayerBar(
     val haptics = LocalHapticFeedback.current
     val density = LocalDensity.current
     val reducedMotion = OndaTheme.reducedMotion
+    val backdropState = LocalOndaBackdropState.current
     val scope = rememberCoroutineScope()
     val horizontalOffset = remember { Animatable(0f) }
     var pillWidthPx by remember { mutableFloatStateOf(1f) }
     var contentAreaWidthPx by remember { mutableFloatStateOf(1f) }
     var skipCommitGeneration by remember { mutableIntStateOf(0) }
     var settleJob by remember { mutableStateOf<Job?>(null) }
+    var dragSnapJob by remember { mutableStateOf<Job?>(null) }
+    var skipJob by remember { mutableStateOf<Job?>(null) }
 
     val expandDistancePx = with(density) { 380.dp.toPx() }.coerceAtLeast(1f)
     val releaseSpeedPx = with(density) { 300.dp.toPx() }
     val openTravelPx = with(density) { 36.dp.toPx() }
     val horizontalFlingPx = with(density) { 420.dp.toPx() }
-    val shape = RoundedCornerShape(24.dp)
+    val shape = SmoothCornerShape(20.dp)
 
     val currentMorph by rememberUpdatedState(morphFraction)
     val currentOnMorph by rememberUpdatedState(onMorphFractionChange)
@@ -323,6 +338,8 @@ private fun MiniPlayerBar(
 
     LaunchedEffect(track.id) {
         skipCommitGeneration++
+        dragSnapJob?.cancel()
+        skipJob?.cancel()
         horizontalOffset.snapTo(0f)
     }
 
@@ -332,14 +349,14 @@ private fun MiniPlayerBar(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(62.dp)
+            .height(DockMetrics.MiniPlayerHeight)
             .onSizeChanged { pillWidthPx = it.width.toFloat().coerceAtLeast(1f) }
             .graphicsLayer {
-                translationX = horizontalOffset.value * 0.06f
+                translationX = horizontalOffset.value * 0.05f
             }
             .press3D(maxTiltDegrees = 4f, pressedScale = 0.985f)
             .clip(shape)
-            .border(width = 0.5.dp, color = Color(0x26FFFFFF), shape = shape)
+            .border(width = 0.5.dp, color = Color(0x22FFFFFF), shape = shape)
             .pointerInput(track.id) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
@@ -377,30 +394,36 @@ private fun MiniPlayerBar(
                                         val backward = !forward && currentPrevTrack != null &&
                                             ((offsetNow > span * 0.34f || vx > horizontalFlingPx) && vx >= -horizontalFlingPx)
 
+                                        dragSnapJob?.cancel()
+                                        skipJob?.cancel()
+
                                         if (forward || backward) {
                                             if (currentHaptics) {
                                                 haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                             }
                                             val targetOffset = if (forward) -span else span
                                             val commitGen = ++skipCommitGeneration
-                                            scope.launch {
+                                            skipJob = scope.launch {
                                                 if (currentReducedMotion) {
                                                     horizontalOffset.snapTo(targetOffset)
                                                 } else {
                                                     horizontalOffset.animateTo(
                                                         targetValue = targetOffset,
-                                                        animationSpec = spring(dampingRatio = 0.92f, stiffness = 520f),
+                                                        animationSpec = spring(dampingRatio = 0.92f, stiffness = 540f),
                                                         initialVelocity = vx
                                                     )
                                                 }
                                                 if (forward) currentOnSkipNext() else currentOnSkipPrev()
-                                                delay(220L)
+                                                delay(180L)
                                                 if (skipCommitGeneration == commitGen) {
-                                                    horizontalOffset.animateTo(0f, spring(dampingRatio = 0.85f, stiffness = 460f))
+                                                    horizontalOffset.animateTo(
+                                                        0f,
+                                                        spring(dampingRatio = 0.85f, stiffness = 460f)
+                                                    )
                                                 }
                                             }
                                         } else {
-                                            scope.launch {
+                                            skipJob = scope.launch {
                                                 if (currentReducedMotion) {
                                                     horizontalOffset.snapTo(0f)
                                                 } else {
@@ -453,6 +476,7 @@ private fun MiniPlayerBar(
                                 val touchSlop = viewConfiguration.touchSlop
                                 if (abs(totalDx) > touchSlop || abs(totalDy) > touchSlop) {
                                     axis = if (abs(totalDx) >= abs(totalDy)) {
+                                        skipJob?.cancel()
                                         MiniDragAxis.HORIZONTAL
                                     } else if (totalDy < 0f || currentMorph > 0.01f) {
                                         startMorph = currentMorph
@@ -478,7 +502,8 @@ private fun MiniPlayerBar(
                                             rubberBandOffset(totalDx, pillWidthPx * 0.14f)
                                         else -> totalDx.coerceIn(-span, span)
                                     }
-                                    scope.launch {
+                                    dragSnapJob?.cancel()
+                                    dragSnapJob = scope.launch {
                                         horizontalOffset.snapTo(resisted)
                                     }
                                 }
@@ -497,23 +522,21 @@ private fun MiniPlayerBar(
                 }
             }
     ) {
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .background(Color(0xE6181818), shape)
-                .then(
-                    if (blurEnabled) {
-                        Modifier.ondaBackdropBlur(radius = 16.dp)
-                    } else {
-                        Modifier
-                    }
-                )
+        OndaSampledGlassBackdrop(
+            backdropState = backdropState,
+            modifier = Modifier.matchParentSize(),
+            blurRadiusPx = 42f,
+            tintColor = Color(0xFF161619),
+            tintAlpha = 0.76f,
+            fallbackAlpha = 0.94f,
+            sheenAlpha = 0.09f,
+            blurEnabled = blurEnabled
         )
 
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(start = 10.dp, end = 6.dp),
+                .padding(start = 8.dp, end = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
@@ -589,11 +612,11 @@ private fun MiniPlayerBar(
                         reducedMotion = reducedMotion
                     )
             ) {
-                Icon(
-                    imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                    contentDescription = if (isPlaying) "Pause" else "Play",
+                OndaAnimatedPlayGlyph(
+                    isPlaying = isPlaying,
+                    reducedMotion = reducedMotion,
                     tint = Color.White,
-                    modifier = Modifier.size(26.dp)
+                    modifier = Modifier.size(22.dp)
                 )
             }
 
@@ -622,15 +645,14 @@ private fun MiniPlayerBar(
             }
         }
 
-        MiniWavyGlowProgress(
+        MiniTelemetryProgress(
             progress = progress,
-            isPlaying = isPlaying,
             accentColor = Color.White,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .height(6.dp)
-                .padding(horizontal = 14.dp)
+                .padding(start = 16.dp, end = 16.dp, bottom = 2.dp)
+                .height(3.dp)
         )
     }
 }
@@ -640,6 +662,14 @@ private fun MiniTrackPeekContent(
     track: Track,
     modifier: Modifier = Modifier
 ) {
+    val textFadeMask = remember {
+        Brush.horizontalGradient(
+            0.00f to Color.Black,
+            0.80f to Color.Black,
+            1.00f to Color.Transparent
+        )
+    }
+
     Row(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically
@@ -647,26 +677,34 @@ private fun MiniTrackPeekContent(
         TrackArtworkImage(
             artworkUrl = track.artworkUrl,
             contentDescription = track.title,
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.size(44.dp)
+            shape = SmoothCornerShape(12.dp),
+            modifier = Modifier.size(48.dp)
         )
 
-        Spacer(modifier = Modifier.width(10.dp))
+        Spacer(modifier = Modifier.width(12.dp))
 
         Column(
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .weight(1f)
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                .drawWithContent {
+                    drawContent()
+                    drawRect(brush = textFadeMask, blendMode = BlendMode.DstIn)
+                },
             verticalArrangement = Arrangement.Center
         ) {
             Text(
                 text = track.title,
                 style = MaterialTheme.typography.titleSmall.copy(
-                    fontSize = 14.sp,
-                    lineHeight = 17.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontSize = 14.5.sp,
+                    lineHeight = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = (-0.2).sp
                 ),
                 color = Color.White,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Clip
             )
             Text(
                 text = track.artist,
@@ -674,94 +712,49 @@ private fun MiniTrackPeekContent(
                     fontSize = 12.sp,
                     lineHeight = 15.sp
                 ),
-                color = Color(0xFFA0A0A0),
+                color = Color(0xFFA0A0A6),
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                softWrap = false,
+                overflow = TextOverflow.Clip
             )
         }
     }
 }
 
 @Composable
-private fun MiniWavyGlowProgress(
+private fun MiniTelemetryProgress(
     progress: Float,
-    isPlaying: Boolean,
     accentColor: Color,
     modifier: Modifier = Modifier
 ) {
-    val reducedMotion = OndaTheme.reducedMotion
-    var phase by remember { mutableFloatStateOf(0f) }
-    val wavePath = remember { Path() }
-
-    LaunchedEffect(isPlaying, reducedMotion) {
-        if (!isPlaying || reducedMotion) return@LaunchedEffect
-        var lastNanos = 0L
-        while (true) {
-            withFrameNanos { frameNanos ->
-                if (lastNanos != 0L) {
-                    val dt = (frameNanos - lastNanos).coerceIn(0L, 50_000_000L) / 1_000_000_000f
-                    phase = (phase + dt * 5f) % (2f * PI.toFloat())
-                }
-                lastNanos = frameNanos
-            }
-        }
-    }
-
     Canvas(modifier = modifier) {
-        val yMid = size.height * 0.6f
+        val yMid = size.height * 0.5f
         val endX = size.width * progress.coerceIn(0f, 1f)
 
         drawLine(
-            color = GlassTokens.GlassHighlight.copy(alpha = 0.14f),
+            color = Color.White.copy(alpha = 0.12f),
             start = Offset(0f, yMid),
             end = Offset(size.width, yMid),
-            strokeWidth = 2.dp.toPx(),
+            strokeWidth = 1.8.dp.toPx(),
             cap = StrokeCap.Round
         )
 
         if (endX <= 1f) return@Canvas
 
-        if (!isPlaying || reducedMotion) {
-            drawLine(
-                color = accentColor.copy(alpha = 0.35f),
-                start = Offset(0f, yMid),
-                end = Offset(endX, yMid),
-                strokeWidth = 5.dp.toPx(),
-                cap = StrokeCap.Round
-            )
-            drawLine(
-                color = accentColor,
-                start = Offset(0f, yMid),
-                end = Offset(endX, yMid),
-                strokeWidth = 2.dp.toPx(),
-                cap = StrokeCap.Round
-            )
-        } else {
-            wavePath.reset()
-            val amp = 1.4.dp.toPx()
-            val freq = 0.18f
-            var x = 0f
-            wavePath.moveTo(0f, yMid)
-            while (x <= endX) {
-                val edge = minOf(x, endX - x) / 12f
-                val env = edge.coerceIn(0f, 1f)
-                val y = yMid + sin(x * freq - phase) * amp * env
-                wavePath.lineTo(x, y)
-                x += 3f
-            }
-            wavePath.lineTo(endX, yMid)
-
-            drawPath(
-                path = wavePath,
-                color = accentColor.copy(alpha = 0.34f),
-                style = Stroke(width = 5.dp.toPx(), cap = StrokeCap.Round)
-            )
-            drawPath(
-                path = wavePath,
-                color = accentColor,
-                style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
-            )
-        }
+        drawLine(
+            color = accentColor.copy(alpha = 0.24f),
+            start = Offset(0f, yMid),
+            end = Offset(endX, yMid),
+            strokeWidth = 3.2.dp.toPx(),
+            cap = StrokeCap.Round
+        )
+        drawLine(
+            color = accentColor,
+            start = Offset(0f, yMid),
+            end = Offset(endX, yMid),
+            strokeWidth = 1.8.dp.toPx(),
+            cap = StrokeCap.Round
+        )
     }
 }
 
@@ -778,10 +771,13 @@ private fun DockTabPill(
     val haptics = LocalHapticFeedback.current
     val density = LocalDensity.current
     val reducedMotion = OndaTheme.reducedMotion
+    val backdropState = LocalOndaBackdropState.current
     val itemCount = minOf(tabLabels.size, tabIcons.size)
     if (itemCount == 0) return
 
+    var hoveredDragTab by remember { mutableIntStateOf(-1) }
     val pillState = remember { DockHighlightState(selectedTabIndex) }
+
     LaunchedEffect(selectedTabIndex, reducedMotion) {
         if (selectedTabIndex < 0) {
             if (reducedMotion) pillState.shown.snapTo(0f) else pillState.shown.animateTo(0f, tween(200))
@@ -805,37 +801,36 @@ private fun DockTabPill(
     val currentHaptics by rememberUpdatedState(hapticsEnabled)
     val currentReducedMotion by rememberUpdatedState(reducedMotion)
 
-    val pillShape = RoundedCornerShape(999.dp)
+    val pillShape = RoundedCornerShape(50)
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(DockMetrics.NavBarHeight)
+            .press3D(maxTiltDegrees = 4f, pressedScale = 0.985f)
             .clip(pillShape)
-            .border(width = 0.5.dp, color = Color(0x22FFFFFF), shape = pillShape)
+            .border(width = 0.5.dp, color = Color(0x1EFFFFFF), shape = pillShape)
     ) {
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .background(Color(0xE6141414), pillShape)
-                .then(
-                    if (blurEnabled) {
-                        Modifier.ondaBackdropBlur(radius = 20.dp)
-                    } else {
-                        Modifier
-                    }
-                )
+        OndaSampledGlassBackdrop(
+            backdropState = backdropState,
+            modifier = Modifier.matchParentSize(),
+            blurRadiusPx = 42f,
+            tintColor = Color(0xFF141416),
+            tintAlpha = 0.74f,
+            fallbackAlpha = 0.94f,
+            sheenAlpha = 0.08f,
+            blurEnabled = blurEnabled
         )
 
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 4.dp, vertical = 2.dp)
+                .padding(horizontal = 4.dp)
                 .drawBehind {
                     val rect = pillState.rect(size, itemCount, density) ?: return@drawBehind
                     val lift = if (currentReducedMotion) 0f else pillState.lift.value
                     val grow = lift * 3.dp.toPx()
-                    val baseAlpha = 0.16f + 0.12f * lift
+                    val baseAlpha = 0.14f + 0.12f * lift
                     drawRoundRect(
                         color = Color.White.copy(alpha = baseAlpha),
                         topLeft = Offset(rect.left - grow, rect.top - grow),
@@ -846,15 +841,22 @@ private fun DockTabPill(
                 }
                 .pointerInput(pillState, itemCount) {
                     coroutineScope {
+                        var moveJob: Job? = null
+                        var liftJob: Job? = null
+                        var revertJob: Job? = null
+
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                             val slot = size.width.toFloat() / itemCount.coerceAtLeast(1)
                             fun tabAt(x: Float): Float = (x / slot - 0.5f).coerceIn(0f, (itemCount - 1).toFloat())
 
+                            revertJob?.cancel()
                             if (!currentReducedMotion) {
-                                launch { pillState.lift.animateTo(1f, PillRiseSpring) }
+                                liftJob?.cancel()
+                                liftJob = launch { pillState.lift.animateTo(1f, PillRiseSpring) }
                             }
-                            launch { pillState.moveTo(tabAt(down.position.x), currentReducedMotion) }
+                            moveJob?.cancel()
+                            moveJob = launch { pillState.moveTo(tabAt(down.position.x), currentReducedMotion) }
 
                             var dragging = false
                             var travel = 0f
@@ -874,31 +876,37 @@ private fun DockTabPill(
                                     change.consume()
                                     val mapped = tabAt(currentX)
                                     val hoveredTab = mapped.roundToInt()
+                                    hoveredDragTab = hoveredTab
                                     if (hoveredTab != lastHoveredTab) {
                                         lastHoveredTab = hoveredTab
                                         if (currentHaptics) {
                                             haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                         }
                                     }
-                                    launch { pillState.moveTo(mapped, currentReducedMotion) }
+                                    moveJob?.cancel()
+                                    moveJob = launch { pillState.moveTo(mapped, currentReducedMotion) }
                                 }
                             }
 
+                            hoveredDragTab = -1
                             if (!currentReducedMotion) {
-                                launch { pillState.lift.animateTo(0f, PillSettleSpring) }
+                                liftJob?.cancel()
+                                liftJob = launch { pillState.lift.animateTo(0f, PillSettleSpring) }
                             }
                             val target = tabAt(currentX).roundToInt().coerceIn(0, itemCount - 1)
-                            launch { pillState.moveTo(target.toFloat(), currentReducedMotion) }
+                            moveJob?.cancel()
+                            moveJob = launch { pillState.moveTo(target.toFloat(), currentReducedMotion) }
                             if (dragging) {
                                 if (currentHaptics) {
                                     haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 }
                                 currentOnSelectTab(target)
                             } else {
-                                launch {
+                                revertJob = launch {
                                     delay(450L)
                                     val lit = currentSelected
                                     if (lit in 0 until itemCount && lit != target) {
+                                        moveJob?.cancel()
                                         pillState.moveTo(lit.toFloat(), currentReducedMotion)
                                     }
                                 }
@@ -910,13 +918,14 @@ private fun DockTabPill(
         ) {
             for (index in 0 until itemCount) {
                 val selected = index == selectedTabIndex
+                val isLit = selected || index == hoveredDragTab
                 val label = tabLabels[index]
                 val activeIcon = tabIcons[index]
                 val inactiveIcon = inactiveTabIcons.getOrElse(index) { activeIcon }
                 val interactionSource = remember { MutableInteractionSource() }
                 val litProgress = animateFloatAsState(
-                    targetValue = if (selected) 1f else 0f,
-                    animationSpec = if (reducedMotion) snap() else tween(200),
+                    targetValue = if (isLit) 1f else 0f,
+                    animationSpec = if (reducedMotion) snap() else tween(180),
                     label = "DockTabLit"
                 )
 
@@ -927,7 +936,7 @@ private fun DockTabPill(
                         .defaultMinSize(minWidth = DockMetrics.MinTapTarget, minHeight = DockMetrics.MinTapTarget)
                         .playerPressBounce(
                             interactionSource = interactionSource,
-                            pressedScale = 0.85f,
+                            pressedScale = 0.86f,
                             reducedMotion = reducedMotion
                         )
                         .clickable(
@@ -943,9 +952,9 @@ private fun DockTabPill(
                         Icon(
                             imageVector = inactiveIcon,
                             contentDescription = label,
-                            tint = Color(0xFF9E9E9E),
+                            tint = Color.White.copy(alpha = 0.64f),
                             modifier = Modifier
-                                .size(24.dp)
+                                .size(23.dp)
                                 .graphicsLayer {
                                     alpha = 1f - litProgress.value
                                     compositingStrategy = CompositingStrategy.ModulateAlpha
@@ -956,7 +965,7 @@ private fun DockTabPill(
                             contentDescription = null,
                             tint = Color.White,
                             modifier = Modifier
-                                .size(24.dp)
+                                .size(23.dp)
                                 .graphicsLayer {
                                     alpha = litProgress.value
                                     compositingStrategy = CompositingStrategy.ModulateAlpha

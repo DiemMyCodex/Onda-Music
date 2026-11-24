@@ -97,7 +97,6 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.node.DelegatableNode
 import androidx.compose.ui.node.DrawModifierNode
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -118,6 +117,7 @@ import com.onda.music.core.design.DockMetrics
 import com.onda.music.core.design.GlassTokens
 import com.onda.music.core.design.OndaArtworkPalette
 import com.onda.music.core.design.OndaTheme
+import com.onda.music.core.design.SmoothCornerShape
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -411,7 +411,7 @@ internal fun HomeBone(
 internal fun HomeHeroSkeleton(
     modifier: Modifier = Modifier
 ) {
-    val heroHeight = (LocalConfiguration.current.screenHeightDp * 0.46f).dp.coerceIn(380.dp, 420.dp)
+    val heroHeight = rememberHomeHeroHeight()
     HomeBonesHost(
         modifier = modifier
             .fillMaxWidth()
@@ -421,15 +421,16 @@ internal fun HomeHeroSkeleton(
             modifier = Modifier
                 .fillMaxSize()
                 .background(OledFallbackSurface)
-                .padding(horizontal = 16.dp, vertical = 20.dp)
+                .padding(horizontal = 24.dp, vertical = 24.dp)
         ) {
             Column(
                 modifier = Modifier.align(Alignment.BottomStart),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                HomeBone(width = 128.dp, height = 14.dp, shape = RoundedCornerShape(7.dp))
-                HomeBone(width = 236.dp, height = 26.dp, shape = RoundedCornerShape(10.dp))
-                HomeBone(width = 96.dp, height = 40.dp, shape = RoundedCornerShape(999.dp))
+                HomeBone(width = 136.dp, height = 12.dp, shape = RoundedCornerShape(6.dp))
+                HomeBone(width = 244.dp, height = 28.dp, shape = RoundedCornerShape(10.dp))
+                HomeBone(width = 148.dp, height = 14.dp, shape = RoundedCornerShape(7.dp))
+                HomeBone(width = 92.dp, height = 36.dp, shape = RoundedCornerShape(999.dp))
             }
         }
     }
@@ -442,16 +443,16 @@ internal fun HomeShelfSkeleton(
     HomeBonesHost(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 24.dp),
         content = {
-            HomeBone(width = 148.dp, height = 20.dp, shape = RoundedCornerShape(8.dp))
+            HomeBone(width = 148.dp, height = 18.dp, shape = RoundedCornerShape(8.dp))
             Spacer(modifier = Modifier.height(14.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 repeat(3) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        HomeBone(width = 148.dp, height = 148.dp, shape = RoundedCornerShape(24.dp))
-                        HomeBone(width = 112.dp, height = 14.dp, shape = RoundedCornerShape(6.dp))
-                        HomeBone(width = 76.dp, height = 12.dp, shape = RoundedCornerShape(6.dp))
+                        HomeBone(width = 140.dp, height = 140.dp, shape = SmoothCornerShape(22.dp))
+                        HomeBone(width = 108.dp, height = 14.dp, shape = RoundedCornerShape(6.dp))
+                        HomeBone(width = 74.dp, height = 12.dp, shape = RoundedCornerShape(6.dp))
                     }
                 }
             }
@@ -466,20 +467,20 @@ internal fun DiscoverSkeleton(
     HomeBonesHost(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 24.dp),
         content = {
-            HomeBone(width = 156.dp, height = 20.dp, shape = RoundedCornerShape(8.dp))
+            HomeBone(width = 156.dp, height = 18.dp, shape = RoundedCornerShape(8.dp))
             Spacer(modifier = Modifier.height(14.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 repeat(3) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        HomeBone(width = 148.dp, height = 148.dp, shape = RoundedCornerShape(24.dp))
-                        HomeBone(width = 110.dp, height = 14.dp, shape = RoundedCornerShape(6.dp))
+                        HomeBone(width = 140.dp, height = 140.dp, shape = SmoothCornerShape(22.dp))
+                        HomeBone(width = 108.dp, height = 14.dp, shape = RoundedCornerShape(6.dp))
                     }
                 }
             }
             Spacer(modifier = Modifier.height(22.dp))
-            HomeBone(width = 140.dp, height = 20.dp, shape = RoundedCornerShape(8.dp))
+            HomeBone(width = 140.dp, height = 18.dp, shape = RoundedCornerShape(8.dp))
             Spacer(modifier = Modifier.height(12.dp))
             repeat(3) {
                 Row(
@@ -487,7 +488,7 @@ internal fun DiscoverSkeleton(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    HomeBone(width = 48.dp, height = 48.dp, shape = RoundedCornerShape(12.dp))
+                    HomeBone(width = 48.dp, height = 48.dp, shape = SmoothCornerShape(10.dp))
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         HomeBone(width = 176.dp, height = 14.dp, shape = RoundedCornerShape(6.dp))
                         HomeBone(width = 116.dp, height = 12.dp, shape = RoundedCornerShape(6.dp))
@@ -554,7 +555,7 @@ internal fun HomePlayingIndicator(
     }
 }
 
-private object HomeGlowColorCache {
+internal object HomeGlowColorCache {
     private val cache = LruCache<String, Int>(48)
 
     fun cached(url: String): Color? = cache.get(url)?.let { Color(it) }

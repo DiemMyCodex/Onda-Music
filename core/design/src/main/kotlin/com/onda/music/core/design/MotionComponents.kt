@@ -69,8 +69,8 @@ import kotlin.math.tanh
 
 object DockMetrics {
     val NavBarHeight: Dp = 64.dp
-    val MiniPlayerHeight: Dp = 62.dp
-    val ContentClearance: Dp = 34.dp
+    val MiniPlayerHeight: Dp = 64.dp
+    val ContentClearance: Dp = 30.dp
     val MinTapTarget: Dp = 48.dp
 
     fun contentBottomPadding(

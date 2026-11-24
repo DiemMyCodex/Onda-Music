@@ -1,4 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="onda_playback_channel_name">Onda Playback</string>
+    <string name="onda_notif_like">Like</string>
+    <string name="onda_notif_unlike">Unlike</string>
+    <string name="onda_notif_repeat_off">Repeat off</string>
+    <string name="onda_notif_repeat_all">Repeat all</string>
+    <string name="onda_notif_repeat_one">Repeat one</string>
+    <string name="onda_notif_shuffle_on">Shuffle on</string>
+    <string name="onda_notif_shuffle_off">Shuffle off</string>
+    <string name="onda_notif_sleep_on">Sleep timer on</string>
+    <string name="onda_notif_sleep_off">Sleep timer off</string>
 </resources>

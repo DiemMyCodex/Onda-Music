@@ -15,6 +15,8 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -52,10 +54,13 @@ import androidx.core.view.WindowCompat
 import com.onda.music.core.database.OndaPreferences
 import com.onda.music.core.database.OndaUserSettings
 import com.onda.music.core.design.AppMotion
+import com.onda.music.core.design.LocalOndaBackdropState
 import com.onda.music.core.design.LocalOndaToastState
 import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.design.OndaTopToastHost
 import com.onda.music.core.design.homeRecede
+import com.onda.music.core.design.ondaBlurSource
+import com.onda.music.core.design.rememberOndaBackdropState
 import com.onda.music.core.design.rememberOndaToastState
 import com.onda.music.feature.home.DiscoverRoute
 import com.onda.music.feature.home.HomeRoute
@@ -127,6 +132,7 @@ private fun OndaRootShell(languageCode: String) {
     val scope = rememberCoroutineScope()
     val reducedMotion = OndaTheme.reducedMotion
     val toastState = rememberOndaToastState()
+    val rootBackdropState = rememberOndaBackdropState()
 
     val tabLabels = remember(languageCode) {
         if (languageCode.startsWith("vi", ignoreCase = true)) {
@@ -181,7 +187,10 @@ private fun OndaRootShell(languageCode: String) {
         showSettings = false
     }
 
-    CompositionLocalProvider(LocalOndaToastState provides toastState) {
+    CompositionLocalProvider(
+        LocalOndaToastState provides toastState,
+        LocalOndaBackdropState provides rootBackdropState
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -191,6 +200,10 @@ private fun OndaRootShell(languageCode: String) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
+                        .ondaBlurSource(
+                            state = rootBackdropState,
+                            isActive = { morphAnimatable.value < 0.65f }
+                        )
                         .homeRecede(
                             fractionProvider = { morphAnimatable.value },
                             reducedMotion = reducedMotion
@@ -199,7 +212,17 @@ private fun OndaRootShell(languageCode: String) {
                     AnimatedContent(
                         targetState = selectedTabIndex,
                         transitionSpec = {
-                            fadeIn() togetherWith fadeOut()
+                            if (reducedMotion) {
+                                fadeIn(tween(120)) togetherWith fadeOut(tween(100))
+                            } else {
+                                val dir = if (targetState >= initialState) 1 else -1
+                                (slideInHorizontally(tween(210, easing = FastOutSlowInEasing)) { dir * (it / 10) } +
+                                    fadeIn(tween(190, easing = FastOutSlowInEasing)))
+                                    .togetherWith(
+                                        slideOutHorizontally(tween(160, easing = FastOutSlowInEasing)) { -dir * (it / 10) } +
+                                            fadeOut(tween(140))
+                                    )
+                            }
                         },
                         label = "root_tab_content"
                     ) { tabIndex ->

@@ -10,6 +10,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -34,16 +35,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.onda.music.core.design.DockMetrics
 import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.design.homeRecede
+import com.onda.music.core.design.ondaBlurSource
+import com.onda.music.core.design.rememberOndaBackdropState
 import com.onda.music.core.model.Album
 import com.onda.music.core.model.MoodCategory
 import com.onda.music.core.model.Track
@@ -99,15 +100,6 @@ fun DiscoverRoute(
     )
 }
 
-@Composable
-private fun rememberOledDockBottomClearance(hasMiniPlayer: Boolean): Dp {
-    val extraClearance = if (hasMiniPlayer) 32.dp else 96.dp
-    return DockMetrics.rememberBottomPadding(
-        hasMiniPlayer = hasMiniPlayer,
-        extraClearance = extraClearance
-    )
-}
-
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 internal fun HomeScreen(
@@ -127,9 +119,20 @@ internal fun HomeScreen(
     modifier: Modifier = Modifier
 ) {
     val strings = resolveHomeStrings(uiState.languageCode)
+    val homeTitle = if (uiState.languageCode.startsWith("vi", ignoreCase = true)) {
+        "Trang chủ"
+    } else {
+        "Home"
+    }
+    val showcaseTitle = if (uiState.languageCode.startsWith("vi", ignoreCase = true)) {
+        "Tuyển chọn Onda"
+    } else {
+        "Onda Selections"
+    }
     val reducedMotion = OndaTheme.reducedMotion
     val density = LocalDensity.current
     val listState = rememberLazyListState()
+    val homeBackdropState = rememberOndaBackdropState()
     val revealSeen = rememberHomeRevealSeenState()
     val detailVisible = uiState.detailSheet != null
     var lastDetail by remember { mutableStateOf<CollectionDetailState?>(null) }
@@ -155,8 +158,8 @@ internal fun HomeScreen(
         },
         label = "HomeDetailFraction"
     )
-    val bottomClearance = rememberOledDockBottomClearance(hasMiniPlayer = uiState.hasMiniPlayer)
-    val heroHeightDp = (LocalConfiguration.current.screenHeightDp * 0.46f).dp.coerceIn(380.dp, 420.dp)
+    val bottomClearance = DockMetrics.rememberBottomPadding(hasMiniPlayer = uiState.hasMiniPlayer)
+    val heroHeightDp = rememberHomeHeroHeight()
     val heroHeightPx = with(density) { heroHeightDp.toPx() }.coerceAtLeast(1f)
     val heroScrollProgress by remember(listState, heroHeightPx) {
         derivedStateOf {
@@ -181,6 +184,26 @@ internal fun HomeScreen(
         uiState.languageCode
     ) {
         buildHeroCarouselCards(uiState, strings)
+    }
+
+    val quickJumpPool = remember(
+        uiState.recentlyPlayed,
+        uiState.quickPicks,
+        uiState.mostPlayed,
+        uiState.localTracks
+    ) {
+        (uiState.recentlyPlayed + uiState.quickPicks + uiState.mostPlayed + uiState.localTracks)
+            .distinctBy { it.id }
+    }
+    val quickJumpTracks = remember(quickJumpPool) {
+        quickJumpPool.take(4)
+    }
+    val editorialShowcaseItems = remember(
+        uiState.chartShelves,
+        uiState.shelves,
+        uiState.languageCode
+    ) {
+        buildEditorialShowcaseItems(uiState, strings)
     }
 
     val topGlowCovers = remember(heroCards, uiState.recentlyPlayed, uiState.quickPicks) {
@@ -212,9 +235,13 @@ internal fun HomeScreen(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
+                .ondaBlurSource(
+                    state = homeBackdropState,
+                    isActive = { heroScrollProgress > 0.05f }
+                )
                 .homeRecede(fraction = detailFraction, reducedMotion = reducedMotion),
             contentPadding = PaddingValues(top = 0.dp, bottom = bottomClearance),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+            verticalArrangement = Arrangement.spacedBy(28.dp)
         ) {
             if (heroCards.isNotEmpty()) {
                 item(key = "hero_card") {
@@ -229,9 +256,10 @@ internal fun HomeScreen(
                         onPlayTrack = onPlayTrack,
                         onPlayHero = onPlayHero,
                         onOpenAlbum = { album, bounds ->
-                            launchOrigin = CardLaunchOrigin(bounds = bounds, cornerRadius = 24.dp)
+                            launchOrigin = CardLaunchOrigin(bounds = bounds, cornerRadius = 22.dp)
                             onOpenAlbum(album)
-                        }
+                        },
+                        onToggleLike = onToggleLike
                     )
                 }
             } else if (uiState.isLoading) {
@@ -265,14 +293,27 @@ internal fun HomeScreen(
                 }
             }
 
-            if (uiState.recentlyPlayed.isNotEmpty()) {
-                item(key = "recently_played_header") {
-                    Box(modifier = Modifier.homeRevealOnAppear("recently_played_header", revealSeen, cascade = true)) {
-                        SectionHeader(title = strings.recentlyPlayed)
+            if (quickJumpTracks.isNotEmpty()) {
+                item(key = "quick_jump_grid") {
+                    Box(modifier = Modifier.homeRevealOnAppear("quick_jump_grid", revealSeen, cascade = true)) {
+                        QuickJumpGrid(
+                            tracks = quickJumpTracks,
+                            strings = strings,
+                            activeTrackId = uiState.activeTrackId,
+                            isPlaying = uiState.isPlaying,
+                            onPlayTrack = { track -> onPlayTrack(track, quickJumpPool) }
+                        )
                     }
                 }
-                item(key = "recently_played_row") {
-                    Box(modifier = Modifier.homeRevealOnAppear("recently_played_row", revealSeen, cascade = true)) {
+            }
+
+            if (uiState.recentlyPlayed.isNotEmpty()) {
+                item(key = "recently_played_section") {
+                    Column(
+                        modifier = Modifier.homeRevealOnAppear("recently_played_section", revealSeen, cascade = true),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        SectionHeader(title = strings.recentlyPlayed)
                         TrackHorizontalShelf(
                             tracks = uiState.recentlyPlayed,
                             strings = strings,
@@ -287,59 +328,33 @@ internal fun HomeScreen(
                 }
             }
 
-            if (uiState.mostPlayed.isNotEmpty()) {
-                item(key = "most_played_header") {
-                    Box(modifier = Modifier.homeRevealOnAppear("most_played_header", revealSeen, cascade = true)) {
-                        SectionHeader(title = strings.mostPlayed)
-                    }
-                }
-                item(key = "most_played_row") {
-                    Box(modifier = Modifier.homeRevealOnAppear("most_played_row", revealSeen, cascade = true)) {
-                        TrackHorizontalShelf(
-                            tracks = uiState.mostPlayed,
+            if (uiState.quickPicks.isNotEmpty()) {
+                item(key = "quick_picks_section") {
+                    Column(
+                        modifier = Modifier.homeRevealOnAppear("quick_picks_section", revealSeen, cascade = true),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        SectionHeader(title = strings.quickPicks)
+                        SnappingTrackColumnGrid(
+                            tracks = uiState.quickPicks,
                             strings = strings,
                             activeTrackId = uiState.activeTrackId,
                             isPlaying = uiState.isPlaying,
-                            detailFraction = detailFraction,
-                            sharedTransitionScope = sharedTransitionScope,
-                            animatedVisibilityScope = animatedVisibilityScope,
-                            onPlayTrack = { track -> onPlayTrack(track, uiState.mostPlayed) }
-                        )
-                    }
-                }
-            }
-
-            if (uiState.quickPicks.isNotEmpty()) {
-                item(key = "quick_picks_header") {
-                    Box(modifier = Modifier.homeRevealOnAppear("quick_picks_header", revealSeen, cascade = true)) {
-                        SectionHeader(title = strings.quickPicks)
-                    }
-                }
-                items(
-                    items = uiState.quickPicks.take(6),
-                    key = { track -> "qp_${track.id}" }
-                ) { track ->
-                    Box(modifier = Modifier.homeRevealOnAppear("qp_${track.id}", revealSeen, cascade = true)) {
-                        QuickPickCompactRow(
-                            track = track,
-                            strings = strings,
-                            isActive = track.id == uiState.activeTrackId,
-                            isPlaying = uiState.isPlaying,
-                            onPlay = { onPlayTrack(track, uiState.quickPicks) },
-                            onToggleLike = { onToggleLike(track) }
+                            showRanks = false,
+                            onPlayTrack = { track -> onPlayTrack(track, uiState.quickPicks) },
+                            onToggleLike = onToggleLike
                         )
                     }
                 }
             }
 
             if (uiState.newReleases.isNotEmpty()) {
-                item(key = "new_releases_header") {
-                    Box(modifier = Modifier.homeRevealOnAppear("new_releases_header", revealSeen, cascade = true)) {
+                item(key = "new_releases_section") {
+                    Column(
+                        modifier = Modifier.homeRevealOnAppear("new_releases_section", revealSeen, cascade = true),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
                         SectionHeader(title = strings.newReleases)
-                    }
-                }
-                item(key = "new_releases_row") {
-                    Box(modifier = Modifier.homeRevealOnAppear("new_releases_row", revealSeen, cascade = true)) {
                         AlbumHorizontalShelf(
                             albums = uiState.newReleases,
                             strings = strings,
@@ -347,7 +362,7 @@ internal fun HomeScreen(
                             sharedTransitionScope = sharedTransitionScope,
                             animatedVisibilityScope = animatedVisibilityScope,
                             onOpenAlbum = { album, bounds ->
-                                launchOrigin = CardLaunchOrigin(bounds = bounds, cornerRadius = 24.dp)
+                                launchOrigin = CardLaunchOrigin(bounds = bounds, cornerRadius = 22.dp)
                                 onOpenAlbum(album)
                             }
                         )
@@ -355,65 +370,77 @@ internal fun HomeScreen(
                 }
             }
 
-            uiState.chartShelves.forEach { chartShelf ->
-                if (chartShelf.tracks.isNotEmpty() || chartShelf.albums.isNotEmpty()) {
-                    item(key = "chart_header_${chartShelf.id}") {
-                        Box(modifier = Modifier.homeRevealOnAppear("chart_header_${chartShelf.id}", revealSeen, cascade = true)) {
-                            SectionHeader(
-                                title = chartShelf.title.ifBlank { strings.charts },
-                                subtitle = chartShelf.subtitle
-                            )
-                        }
-                    }
-                    if (chartShelf.tracks.isNotEmpty()) {
-                        item(key = "chart_tracks_${chartShelf.id}") {
-                            Box(modifier = Modifier.homeRevealOnAppear("chart_tracks_${chartShelf.id}", revealSeen, cascade = true)) {
-                                TrackHorizontalShelf(
-                                    tracks = chartShelf.tracks,
-                                    strings = strings,
-                                    activeTrackId = uiState.activeTrackId,
-                                    isPlaying = uiState.isPlaying,
-                                    detailFraction = detailFraction,
-                                    sharedTransitionScope = sharedTransitionScope,
-                                    animatedVisibilityScope = animatedVisibilityScope,
-                                    onPlayTrack = { track -> onPlayTrack(track, chartShelf.tracks) }
-                                )
+            if (editorialShowcaseItems.isNotEmpty()) {
+                item(key = "editorial_showcase_section") {
+                    Column(
+                        modifier = Modifier.homeRevealOnAppear("editorial_showcase_section", revealSeen, cascade = true),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        SectionHeader(title = showcaseTitle)
+                        EditorialShowcaseShelf(
+                            items = editorialShowcaseItems,
+                            onOpenAlbum = { album, bounds ->
+                                launchOrigin = CardLaunchOrigin(bounds = bounds, cornerRadius = 24.dp)
+                                onOpenAlbum(album)
+                            },
+                            onPlayShelf = { shelf ->
+                                val firstTrack = shelf.tracks.firstOrNull() ?: return@EditorialShowcaseShelf
+                                onPlayTrack(firstTrack, shelf.tracks)
                             }
-                        }
+                        )
                     }
-                    if (chartShelf.albums.isNotEmpty()) {
-                        item(key = "chart_albums_${chartShelf.id}") {
-                            Box(modifier = Modifier.homeRevealOnAppear("chart_albums_${chartShelf.id}", revealSeen, cascade = true)) {
-                                AlbumHorizontalShelf(
-                                    albums = chartShelf.albums,
-                                    strings = strings,
-                                    detailFraction = detailFraction,
-                                    sharedTransitionScope = sharedTransitionScope,
-                                    animatedVisibilityScope = animatedVisibilityScope,
-                                    onOpenAlbum = { album, bounds ->
-                                        launchOrigin = CardLaunchOrigin(bounds = bounds, cornerRadius = 24.dp)
-                                        onOpenAlbum(album)
-                                    }
-                                )
+                }
+            }
+
+            if (uiState.mostPlayed.isNotEmpty()) {
+                item(key = "most_played_section") {
+                    Column(
+                        modifier = Modifier.homeRevealOnAppear("most_played_section", revealSeen, cascade = true),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        SectionHeader(title = strings.mostPlayed)
+                        SnappingTrackColumnGrid(
+                            tracks = uiState.mostPlayed,
+                            strings = strings,
+                            activeTrackId = uiState.activeTrackId,
+                            isPlaying = uiState.isPlaying,
+                            showRanks = true,
+                            onPlayTrack = { track -> onPlayTrack(track, uiState.mostPlayed) }
+                        )
+                    }
+                }
+            }
+
+            if (uiState.moodCategories.isNotEmpty()) {
+                item(key = "moods_section") {
+                    Column(
+                        modifier = Modifier.homeRevealOnAppear("moods_section", revealSeen, cascade = true),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        SectionHeader(title = strings.moodsAndGenres)
+                        MoodTwoRowGrid(
+                            moods = uiState.moodCategories,
+                            onOpenMood = { mood, bounds ->
+                                launchOrigin = CardLaunchOrigin(bounds = bounds, cornerRadius = 24.dp)
+                                onOpenMood(mood)
                             }
-                        }
+                        )
                     }
                 }
             }
 
             uiState.shelves.forEach { shelf ->
                 if (shelf.tracks.isNotEmpty() || shelf.albums.isNotEmpty()) {
-                    item(key = "shelf_header_${shelf.id}") {
-                        Box(modifier = Modifier.homeRevealOnAppear("shelf_header_${shelf.id}", revealSeen, cascade = true)) {
+                    item(key = "shelf_section_${shelf.id}") {
+                        Column(
+                            modifier = Modifier.homeRevealOnAppear("shelf_section_${shelf.id}", revealSeen, cascade = true),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
                             SectionHeader(
                                 title = shelf.title,
                                 subtitle = shelf.subtitle
                             )
-                        }
-                    }
-                    if (shelf.tracks.isNotEmpty()) {
-                        item(key = "shelf_tracks_${shelf.id}") {
-                            Box(modifier = Modifier.homeRevealOnAppear("shelf_tracks_${shelf.id}", revealSeen, cascade = true)) {
+                            if (shelf.tracks.isNotEmpty()) {
                                 TrackHorizontalShelf(
                                     tracks = shelf.tracks,
                                     strings = strings,
@@ -425,11 +452,7 @@ internal fun HomeScreen(
                                     onPlayTrack = { track -> onPlayTrack(track, shelf.tracks) }
                                 )
                             }
-                        }
-                    }
-                    if (shelf.albums.isNotEmpty()) {
-                        item(key = "shelf_albums_${shelf.id}") {
-                            Box(modifier = Modifier.homeRevealOnAppear("shelf_albums_${shelf.id}", revealSeen, cascade = true)) {
+                            if (shelf.albums.isNotEmpty()) {
                                 AlbumHorizontalShelf(
                                     albums = shelf.albums,
                                     strings = strings,
@@ -437,7 +460,7 @@ internal fun HomeScreen(
                                     sharedTransitionScope = sharedTransitionScope,
                                     animatedVisibilityScope = animatedVisibilityScope,
                                     onOpenAlbum = { album, bounds ->
-                                        launchOrigin = CardLaunchOrigin(bounds = bounds, cornerRadius = 24.dp)
+                                        launchOrigin = CardLaunchOrigin(bounds = bounds, cornerRadius = 22.dp)
                                         onOpenAlbum(album)
                                     }
                                 )
@@ -447,43 +470,39 @@ internal fun HomeScreen(
                 }
             }
 
-            if (uiState.moodCategories.isNotEmpty()) {
-                item(key = "moods_header") {
-                    Box(modifier = Modifier.homeRevealOnAppear("moods_header", revealSeen, cascade = true)) {
-                        SectionHeader(title = strings.moodsAndGenres)
-                    }
-                }
-                item(key = "moods_row") {
-                    Box(modifier = Modifier.homeRevealOnAppear("moods_row", revealSeen, cascade = true)) {
-                        LazyRow(
-                            contentPadding = ShelfHorizontalPadding,
-                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+            uiState.chartShelves.forEach { chartShelf ->
+                if (chartShelf.tracks.isNotEmpty()) {
+                    item(key = "chart_section_${chartShelf.id}") {
+                        Column(
+                            modifier = Modifier.homeRevealOnAppear("chart_section_${chartShelf.id}", revealSeen, cascade = true),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            items(
-                                items = uiState.moodCategories,
-                                key = { mood -> mood.id }
-                            ) { mood ->
-                                MoodPillCard(
-                                    mood = mood,
-                                    onClick = { bounds ->
-                                        launchOrigin = CardLaunchOrigin(bounds = bounds, cornerRadius = 24.dp)
-                                        onOpenMood(mood)
-                                    }
-                                )
-                            }
+                            SectionHeader(
+                                title = chartShelf.title.ifBlank { strings.charts },
+                                subtitle = chartShelf.subtitle
+                            )
+                            TrackHorizontalShelf(
+                                tracks = chartShelf.tracks,
+                                strings = strings,
+                                activeTrackId = uiState.activeTrackId,
+                                isPlaying = uiState.isPlaying,
+                                detailFraction = detailFraction,
+                                sharedTransitionScope = sharedTransitionScope,
+                                animatedVisibilityScope = animatedVisibilityScope,
+                                onPlayTrack = { track -> onPlayTrack(track, chartShelf.tracks) }
+                            )
                         }
                     }
                 }
             }
 
             if (uiState.localTracks.isNotEmpty() && (uiState.isOfflineFallback || uiState.shelves.isEmpty())) {
-                item(key = "local_header") {
-                    Box(modifier = Modifier.homeRevealOnAppear("local_header", revealSeen, cascade = true)) {
+                item(key = "local_section") {
+                    Column(
+                        modifier = Modifier.homeRevealOnAppear("local_section", revealSeen, cascade = true),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
                         SectionHeader(title = strings.offlineLibrary)
-                    }
-                }
-                item(key = "local_row") {
-                    Box(modifier = Modifier.homeRevealOnAppear("local_row", revealSeen, cascade = true)) {
                         TrackHorizontalShelf(
                             tracks = uiState.localTracks,
                             strings = strings,
@@ -506,7 +525,7 @@ internal fun HomeScreen(
                         color = OledMutedText,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                            .padding(horizontal = 24.dp, vertical = 12.dp)
                     )
                 }
             }
@@ -517,7 +536,10 @@ internal fun HomeScreen(
             avatarPath = uiState.avatarPath,
             settingsDescription = strings.settingsDescription,
             onOpenSettings = onOpenSettings,
-            scrollProgress = { if (heroCards.isNotEmpty()) heroScrollProgress else 0f },
+            scrollProgress = { heroScrollProgress },
+            backdropState = homeBackdropState,
+            blurEnabled = uiState.glassBlurEnabled,
+            title = homeTitle,
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .homeRecede(fraction = detailFraction, reducedMotion = reducedMotion)
@@ -571,6 +593,7 @@ internal fun DiscoverScreen(
     val reducedMotion = OndaTheme.reducedMotion
     val density = LocalDensity.current
     val listState = rememberLazyListState()
+    val discoverBackdropState = rememberOndaBackdropState()
     val revealSeen = rememberHomeRevealSeenState()
     val detailVisible = uiState.detailSheet != null
     var lastDetail by remember { mutableStateOf<CollectionDetailState?>(null) }
@@ -596,7 +619,7 @@ internal fun DiscoverScreen(
         },
         label = "DiscoverDetailFraction"
     )
-    val bottomClearance = rememberOledDockBottomClearance(hasMiniPlayer = uiState.hasMiniPlayer)
+    val bottomClearance = DockMetrics.rememberBottomPadding(hasMiniPlayer = uiState.hasMiniPlayer)
     val topBarTriggerPx = with(density) { 48.dp.toPx() }.coerceAtLeast(1f)
     val scrollProgress by remember(listState, topBarTriggerPx) {
         derivedStateOf {
@@ -639,9 +662,13 @@ internal fun DiscoverScreen(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
+                .ondaBlurSource(
+                    state = discoverBackdropState,
+                    isActive = { scrollProgress > 0.01f }
+                )
                 .homeRecede(fraction = detailFraction, reducedMotion = reducedMotion),
             contentPadding = PaddingValues(top = 0.dp, bottom = bottomClearance),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+            verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
             item(key = "discover_top_clearance") {
                 Spacer(
@@ -656,8 +683,9 @@ internal fun DiscoverScreen(
                     text = discoverHeading,
                     fontSize = 28.sp,
                     fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = (-0.5).sp,
                     color = Color.White,
-                    modifier = Modifier.padding(horizontal = 16.dp)
+                    modifier = Modifier.padding(horizontal = 24.dp)
                 )
             }
 
@@ -678,17 +706,16 @@ internal fun DiscoverScreen(
 
             uiState.chartShelves.forEach { chartShelf ->
                 if (chartShelf.tracks.isNotEmpty() || chartShelf.albums.isNotEmpty()) {
-                    item(key = "discover_chart_header_${chartShelf.id}") {
-                        Box(modifier = Modifier.homeRevealOnAppear("discover_chart_header_${chartShelf.id}", revealSeen, cascade = true)) {
+                    item(key = "discover_chart_section_${chartShelf.id}") {
+                        Column(
+                            modifier = Modifier.homeRevealOnAppear("discover_chart_section_${chartShelf.id}", revealSeen, cascade = true),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
                             SectionHeader(
                                 title = chartShelf.title.ifBlank { strings.charts },
                                 subtitle = chartShelf.subtitle
                             )
-                        }
-                    }
-                    if (chartShelf.tracks.isNotEmpty()) {
-                        item(key = "discover_chart_tracks_${chartShelf.id}") {
-                            Box(modifier = Modifier.homeRevealOnAppear("discover_chart_tracks_${chartShelf.id}", revealSeen, cascade = true)) {
+                            if (chartShelf.tracks.isNotEmpty()) {
                                 TrackHorizontalShelf(
                                     tracks = chartShelf.tracks,
                                     strings = strings,
@@ -700,11 +727,7 @@ internal fun DiscoverScreen(
                                     onPlayTrack = { track -> onPlayTrack(track, chartShelf.tracks) }
                                 )
                             }
-                        }
-                    }
-                    if (chartShelf.albums.isNotEmpty()) {
-                        item(key = "discover_chart_albums_${chartShelf.id}") {
-                            Box(modifier = Modifier.homeRevealOnAppear("discover_chart_albums_${chartShelf.id}", revealSeen, cascade = true)) {
+                            if (chartShelf.albums.isNotEmpty()) {
                                 AlbumHorizontalShelf(
                                     albums = chartShelf.albums,
                                     strings = strings,
@@ -712,7 +735,7 @@ internal fun DiscoverScreen(
                                     sharedTransitionScope = null,
                                     animatedVisibilityScope = null,
                                     onOpenAlbum = { album, bounds ->
-                                        launchOrigin = CardLaunchOrigin(bounds = bounds, cornerRadius = 24.dp)
+                                        launchOrigin = CardLaunchOrigin(bounds = bounds, cornerRadius = 22.dp)
                                         onOpenAlbum(album)
                                     }
                                 )
@@ -723,13 +746,12 @@ internal fun DiscoverScreen(
             }
 
             if (uiState.newReleases.isNotEmpty()) {
-                item(key = "discover_new_releases_header") {
-                    Box(modifier = Modifier.homeRevealOnAppear("discover_new_releases_header", revealSeen, cascade = true)) {
+                item(key = "discover_new_releases_section") {
+                    Column(
+                        modifier = Modifier.homeRevealOnAppear("discover_new_releases_section", revealSeen, cascade = true),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
                         SectionHeader(title = strings.newReleases)
-                    }
-                }
-                item(key = "discover_new_releases_row") {
-                    Box(modifier = Modifier.homeRevealOnAppear("discover_new_releases_row", revealSeen, cascade = true)) {
                         AlbumHorizontalShelf(
                             albums = uiState.newReleases,
                             strings = strings,
@@ -737,7 +759,7 @@ internal fun DiscoverScreen(
                             sharedTransitionScope = null,
                             animatedVisibilityScope = null,
                             onOpenAlbum = { album, bounds ->
-                                launchOrigin = CardLaunchOrigin(bounds = bounds, cornerRadius = 24.dp)
+                                launchOrigin = CardLaunchOrigin(bounds = bounds, cornerRadius = 22.dp)
                                 onOpenAlbum(album)
                             }
                         )
@@ -746,30 +768,19 @@ internal fun DiscoverScreen(
             }
 
             if (uiState.moodCategories.isNotEmpty()) {
-                item(key = "discover_moods_header") {
-                    Box(modifier = Modifier.homeRevealOnAppear("discover_moods_header", revealSeen, cascade = true)) {
+                item(key = "discover_moods_section") {
+                    Column(
+                        modifier = Modifier.homeRevealOnAppear("discover_moods_section", revealSeen, cascade = true),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
                         SectionHeader(title = strings.moodsAndGenres)
-                    }
-                }
-                item(key = "discover_moods_row") {
-                    Box(modifier = Modifier.homeRevealOnAppear("discover_moods_row", revealSeen, cascade = true)) {
-                        LazyRow(
-                            contentPadding = ShelfHorizontalPadding,
-                            horizontalArrangement = Arrangement.spacedBy(14.dp)
-                        ) {
-                            items(
-                                items = uiState.moodCategories,
-                                key = { mood -> mood.id }
-                            ) { mood ->
-                                MoodPillCard(
-                                    mood = mood,
-                                    onClick = { bounds ->
-                                        launchOrigin = CardLaunchOrigin(bounds = bounds, cornerRadius = 24.dp)
-                                        onOpenMood(mood)
-                                    }
-                                )
+                        MoodTwoRowGrid(
+                            moods = uiState.moodCategories,
+                            onOpenMood = { mood, bounds ->
+                                launchOrigin = CardLaunchOrigin(bounds = bounds, cornerRadius = 24.dp)
+                                onOpenMood(mood)
                             }
-                        }
+                        )
                     }
                 }
             }
@@ -805,7 +816,7 @@ internal fun DiscoverScreen(
                         color = OledMutedText,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                            .padding(horizontal = 24.dp, vertical = 12.dp)
                     )
                 }
             }
@@ -817,6 +828,8 @@ internal fun DiscoverScreen(
             settingsDescription = strings.settingsDescription,
             onOpenSettings = onOpenSettings,
             scrollProgress = { scrollProgress },
+            backdropState = discoverBackdropState,
+            blurEnabled = uiState.glassBlurEnabled,
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .homeRecede(fraction = detailFraction, reducedMotion = reducedMotion)

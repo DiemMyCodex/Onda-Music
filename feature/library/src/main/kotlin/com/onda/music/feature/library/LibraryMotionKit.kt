@@ -10,6 +10,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
@@ -36,14 +37,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material3.Icon
@@ -99,8 +100,8 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
-import com.onda.music.core.design.GlassTokens
 import com.onda.music.core.design.OndaTheme
+import com.onda.music.core.design.SmoothCornerShape
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -111,7 +112,6 @@ import kotlin.math.sign
 import kotlin.random.Random
 
 private val LibraryRevealEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
-private val LibraryCollapseEasing = CubicBezierEasing(0.57f, 0.53f, 0f, 1f)
 private val LibraryHighlightColor = Color.White.copy(alpha = 0.11f)
 private val StaticLibraryEqualizerFractions = floatArrayOf(0.45f, 0.85f, 0.62f, 0.94f, 0.50f)
 
@@ -135,7 +135,7 @@ internal object LibraryBlurCache {
 
 @Immutable
 internal class LibraryHighlightIndication(
-    private val cornerRadius: Dp = 18.dp,
+    private val cornerRadius: Dp = 16.dp,
     private val spillX: Dp = 0.dp,
     private val spillY: Dp = 0.dp,
     private val color: Color = LibraryHighlightColor
@@ -316,17 +316,16 @@ internal fun Modifier.libraryRevealOnAppear(
 }
 
 @Composable
-internal fun rememberLibraryCollapseProgress(
+internal fun rememberLibraryCollapsed(
     listState: LazyListState,
     enterDp: Dp = 24.dp,
     exitDp: Dp = 6.dp
-): State<Float> {
-    val reducedMotion = OndaTheme.reducedMotion
+): State<Boolean> {
     val density = LocalDensity.current
     val enterPx = with(density) { enterDp.toPx() }
     val exitPx = with(density) { exitDp.toPx() }
     val latch = remember(listState) { booleanArrayOf(false) }
-    val collapsed by remember(listState, enterPx, exitPx) {
+    return remember(listState, enterPx, exitPx) {
         derivedStateOf {
             val offset = listState.firstVisibleItemScrollOffset.toFloat()
             val next = when {
@@ -339,9 +338,20 @@ internal fun rememberLibraryCollapseProgress(
             next
         }
     }
+}
+
+@Composable
+internal fun rememberLibraryCollapseProgress(
+    isCollapsed: Boolean
+): State<Float> {
+    val reducedMotion = OndaTheme.reducedMotion
     return animateFloatAsState(
-        targetValue = if (collapsed) 1f else 0f,
-        animationSpec = if (reducedMotion) snap() else tween(700, easing = LibraryCollapseEasing),
+        targetValue = if (isCollapsed) 1f else 0f,
+        animationSpec = if (reducedMotion) {
+            snap()
+        } else {
+            spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = 440f)
+        },
         label = "libraryHeaderCollapse"
     )
 }
@@ -402,75 +412,143 @@ internal fun LibraryPlayingIndicator(
 internal fun LibraryCoverStack(
     covers: List<String?>,
     modifier: Modifier = Modifier,
-    tile: Dp = 46.dp,
+    tile: Dp = 40.dp,
+    cornerRadius: Dp = 8.dp,
     showFan: Boolean = true,
-    round: Boolean = false
+    round: Boolean = false,
+    fallbackIcon: ImageVector = Icons.AutoMirrored.Rounded.QueueMusic
 ) {
-    val shown = remember(covers) { covers.filterNotNull().distinct().take(2) }
-    val frontUrl = shown.firstOrNull()
-    val backUrl = shown.getOrNull(1)
-    val corner = if (round) tile * 0.5f else tile * 0.22f
-    val shape = if (round) CircleShape else RoundedCornerShape(corner)
-    val stackWidth = if (showFan) tile * 1.48f else tile
+    val shown = remember(covers) { covers.filterNotNull().filter { it.isNotBlank() }.distinct().take(3) }
+    val shape = if (round) CircleShape else SmoothCornerShape(cornerRadius.coerceAtLeast(0.dp))
 
-    Box(modifier = modifier.size(width = stackWidth, height = tile)) {
-        if (showFan) {
+    if (shown.isEmpty()) {
+        val stackWidth = if (showFan) tile * 1.45f else tile
+        Box(modifier = modifier.size(width = stackWidth, height = tile)) {
+            if (showFan) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .offset(x = tile * 0.08f, y = 2.dp)
+                        .size(tile * 0.88f)
+                        .graphicsLayer {
+                            rotationZ = if (round) 0f else -10f
+                            alpha = 0.65f
+                        }
+                        .clip(shape)
+                        .background(Color(0xFF1C1C20))
+                        .border(0.5.dp, Color(0x1CFFFFFF), shape)
+                )
+            }
             Box(
                 modifier = Modifier
-                    .align(Alignment.CenterStart)
+                    .align(if (showFan) Alignment.CenterEnd else Alignment.Center)
                     .size(tile)
                     .graphicsLayer {
-                        alpha = 0.55f
-                        rotationZ = if (round) 0f else -9f
+                        rotationZ = if (showFan && !round) 5f else 0f
                     }
                     .clip(shape)
-                    .background(GlassTokens.SmokedGlassElevated)
-                    .border(0.75.dp, Color.White.copy(alpha = 0.14f), shape),
+                    .background(Color(0xFF1E1E24))
+                    .border(0.5.dp, Color(0x28FFFFFF), shape),
                 contentAlignment = Alignment.Center
             ) {
-                if (!backUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = backUrl,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.QueueMusic,
-                        contentDescription = null,
-                        tint = OndaTheme.colors.textTertiary,
-                        modifier = Modifier.size(tile * 0.42f)
-                    )
-                }
+                Icon(
+                    imageVector = fallbackIcon,
+                    contentDescription = null,
+                    tint = Color(0xCCFFFFFF),
+                    modifier = Modifier.size(tile * 0.48f)
+                )
             }
         }
+        return
+    }
 
-        Box(
-            modifier = Modifier
-                .align(if (showFan) Alignment.CenterEnd else Alignment.Center)
-                .size(tile)
-                .graphicsLayer {
-                    rotationZ = if (showFan && !round) 7f else 0f
-                }
-                .clip(shape)
-                .background(GlassTokens.IconBadgeSurface)
-                .border(0.75.dp, Color.White.copy(alpha = 0.18f), shape),
-            contentAlignment = Alignment.Center
-        ) {
-            if (!frontUrl.isNullOrBlank()) {
+    if (!showFan || shown.size == 1) {
+        val url = shown.first()
+        val stackWidth = if (showFan) tile * 1.38f else tile
+        Box(modifier = modifier.size(width = stackWidth, height = tile)) {
+            if (showFan) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .size(tile * 0.88f)
+                        .graphicsLayer {
+                            rotationZ = if (round) 0f else -9f
+                            alpha = 0.45f
+                        }
+                        .clip(shape)
+                        .background(Color(0xFF1C1C20))
+                        .border(0.5.dp, Color(0x18FFFFFF), shape)
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .align(if (showFan) Alignment.CenterEnd else Alignment.Center)
+                    .size(tile)
+                    .graphicsLayer {
+                        rotationZ = if (showFan && !round) 5f else 0f
+                    }
+                    .clip(shape)
+                    .background(Color(0xFF1B1B20))
+                    .border(0.5.dp, Color(0x2AFFFFFF), shape)
+            ) {
                 AsyncImage(
-                    model = frontUrl,
+                    model = url,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
                 )
-            } else {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.QueueMusic,
+            }
+        }
+        return
+    }
+
+    val layers = shown.take(3).reversed()
+    val stepOffset = tile * 0.30f
+    val totalWidth = tile + stepOffset * (layers.size - 1)
+
+    Box(modifier = modifier.size(width = totalWidth, height = tile)) {
+        layers.forEachIndexed { idx, url ->
+            val isFront = idx == layers.lastIndex
+            val rotation = when (layers.size) {
+                2 -> if (idx == 0) -8f else 6f
+                else -> when (idx) {
+                    0 -> -11f
+                    1 -> -2f
+                    else -> 7f
+                }
+            }
+            val tileAlpha = when {
+                isFront -> 1f
+                layers.size == 3 && idx == 0 -> 0.70f
+                else -> 0.86f
+            }
+            val verticalOffset = when {
+                isFront -> 0.dp
+                layers.size == 3 && idx == 0 -> 3.dp
+                else -> 1.5.dp
+            }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .offset(x = stepOffset * idx, y = verticalOffset)
+                    .size(tile)
+                    .graphicsLayer {
+                        if (!round) rotationZ = rotation
+                        alpha = tileAlpha
+                    }
+                    .clip(shape)
+                    .background(Color(0xFF1A1A1F))
+                    .border(
+                        width = 0.5.dp,
+                        color = if (isFront) Color(0x32FFFFFF) else Color(0x20FFFFFF),
+                        shape = shape
+                    )
+            ) {
+                AsyncImage(
+                    model = url,
                     contentDescription = null,
-                    tint = OndaTheme.colors.accent,
-                    modifier = Modifier.size(tile * 0.48f)
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
                 )
             }
         }
@@ -490,7 +568,8 @@ internal fun DraggableScrollbar(
     trackWidth: Dp = 28.dp,
     minItemCountForScroll: Int = 15,
     minScrollRangeForDrag: Int = 4,
-    headerItems: Int = 0
+    headerItems: Int = 0,
+    indexLabelForIndex: ((Int) -> String?)? = null
 ) {
     val reducedMotion = OndaTheme.reducedMotion
     val density = LocalDensity.current
@@ -503,6 +582,8 @@ internal fun DraggableScrollbar(
     var lastThumbPosition by remember { mutableFloatStateOf(0f) }
     val animatedThumbY = remember { Animatable(0f) }
     var lastTargetIndex by remember { mutableIntStateOf(-1) }
+    var activeIndicatorIndex by remember { mutableIntStateOf(0) }
+    var cachedIndicatorLabel by remember { mutableStateOf<String?>(null) }
 
     val isUserScrolling by remember(scrollState) {
         derivedStateOf { scrollState.isScrollInProgress }
@@ -525,6 +606,27 @@ internal fun DraggableScrollbar(
         label = "scrollbarThumbWidth"
     )
 
+    val currentIndexLabel = if (isDragging && indexLabelForIndex != null) {
+        indexLabelForIndex(activeIndicatorIndex)?.takeIf { it.isNotBlank() }
+    } else {
+        null
+    }
+    if (currentIndexLabel != null) {
+        cachedIndicatorLabel = currentIndexLabel
+    }
+
+    val bubbleProgress by animateFloatAsState(
+        targetValue = if (isDragging && currentIndexLabel != null) 1f else 0f,
+        animationSpec = if (reducedMotion) {
+            snap()
+        } else if (isDragging) {
+            spring(dampingRatio = 0.72f, stiffness = 560f)
+        } else {
+            tween(durationMillis = 160)
+        },
+        label = "scrollbarIndicatorBubble"
+    )
+
     BoxWithConstraints(
         modifier = modifier
             .width(trackWidth)
@@ -533,12 +635,17 @@ internal fun DraggableScrollbar(
                 detectDragGestures(
                     onDragStart = { offset ->
                         isDragging = true
-                        lastTargetIndex = -1
-                        val viewportHeight = size.height.toFloat()
+                        lastTargetIndex = scrollState.firstVisibleItemIndex
+                        val viewportHeight = size.height.toFloat().coerceAtLeast(1f)
                         val constThumbHeight = with(density) { thumbHeight.toPx() }
                         val maxThumbY = (viewportHeight - constThumbHeight).coerceAtLeast(1f)
                         smoothedThumbY = (offset.y - constThumbHeight * 0.5f).coerceIn(0f, maxThumbY)
-                        smoothedY = (offset.y / viewportHeight.coerceAtLeast(1f)).coerceIn(0f, 1f)
+                        val touchProgress = (offset.y / viewportHeight).coerceIn(0f, 1f)
+                        smoothedY = touchProgress
+                        val totalContentItems = (scrollState.layoutInfo.totalItemsCount - headerItems).coerceAtLeast(1)
+                        activeIndicatorIndex = (touchProgress * (totalContentItems - 1))
+                            .roundToInt()
+                            .coerceIn(0, (totalContentItems - 1).coerceAtLeast(0))
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     },
                     onDragEnd = {
@@ -567,6 +674,17 @@ internal fun DraggableScrollbar(
                     }
                     smoothedThumbY = smoothedThumbY * (1f - thumbSmoothing) + targetThumbY * thumbSmoothing
 
+                    val touchProgress = (change.position.y / viewportHeight).coerceIn(0f, 1f)
+                    val listSmoothing = when {
+                        totalContentItems < 20 -> 0.25f
+                        totalContentItems < 50 -> 0.5f
+                        else -> 0.85f
+                    }
+                    smoothedY = smoothedY * (1f - listSmoothing) + touchProgress * listSmoothing
+                    activeIndicatorIndex = (smoothedY * (totalContentItems - 1))
+                        .roundToInt()
+                        .coerceIn(0, (totalContentItems - 1).coerceAtLeast(0))
+
                     if (currentTime - lastScrollTime < 32L) return@detectDragGestures
                     lastScrollTime = currentTime
 
@@ -575,13 +693,6 @@ internal fun DraggableScrollbar(
 
                     val maxScrollIndex = max(1, totalContentItems - visibleItems.size)
                     if (maxScrollIndex > minScrollRangeForDrag) {
-                        val touchProgress = (change.position.y / viewportHeight).coerceIn(0f, 1f)
-                        val listSmoothing = when {
-                            totalContentItems < 20 -> 0.25f
-                            totalContentItems < 50 -> 0.5f
-                            else -> 0.85f
-                        }
-                        smoothedY = smoothedY * (1f - listSmoothing) + touchProgress * listSmoothing
                         val targetIndex = (headerItems + (smoothedY * maxScrollIndex).roundToInt())
                             .coerceIn(headerItems, (layoutInfo.totalItemsCount - 1).coerceAtLeast(headerItems))
 
@@ -648,6 +759,39 @@ internal fun DraggableScrollbar(
                 cornerRadius = CornerRadius(radiusPx)
             )
         }
+
+        val bubbleText = currentIndexLabel ?: cachedIndicatorLabel
+        if (bubbleProgress > 0.01f && !bubbleText.isNullOrBlank()) {
+            val bubbleSizePx = with(density) { 40.dp.toPx() }
+            val bubbleShiftXPx = with(density) { 24.dp.toPx() }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .requiredSize(40.dp)
+                    .graphicsLayer {
+                        val clampedThumbY = animatedThumbY.value.coerceIn(0f, maxThumbY)
+                        val centerY = clampedThumbY + constThumbHeight * 0.5f - bubbleSizePx * 0.5f
+                        translationX = -bubbleShiftXPx
+                        translationY = centerY.coerceIn(0f, (viewportHeight - bubbleSizePx).coerceAtLeast(0f))
+                        alpha = bubbleProgress.coerceIn(0f, 1f)
+                        val scale = if (reducedMotion) 1f else 0.72f + 0.28f * bubbleProgress
+                        scaleX = scale
+                        scaleY = scale
+                    }
+                    .clip(CircleShape)
+                    .background(Color.White)
+                    .border(0.5.dp, Color(0x24000000), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = bubbleText,
+                    color = Color.Black,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
+                )
+            }
+        }
     }
 }
 
@@ -683,14 +827,14 @@ internal fun LibrarySwipeActionsBox(
     var startNeed by remember { mutableFloatStateOf(0f) }
     var endNeed by remember { mutableFloatStateOf(0f) }
 
-    val baseThreshold = with(density) { (rowSize.width * 0.28f).coerceIn(96.dp.toPx(), 144.dp.toPx()) }
-    val pillRoom = with(density) { 8.dp.toPx() }
+    val baseThreshold = with(density) { (rowSize.width * 0.26f).coerceIn(92.dp.toPx(), 138.dp.toPx()) }
+    val pillGapPx = with(density) { 6.dp.toPx() }
     val deadSideLimit = with(density) { 20.dp.toPx() }
     val hysteresis = with(density) { 4.dp.toPx() }
     val resistance = 0.35f
 
     fun thresholdFor(direction: Float): Float {
-        return maxOf(baseThreshold, (if (direction > 0f) startNeed else endNeed) + pillRoom)
+        return maxOf(baseThreshold, (if (direction > 0f) startNeed else endNeed) + pillGapPx)
     }
 
     fun resisted(raw: Float): Float {
@@ -783,7 +927,7 @@ internal fun LibrarySwipeActionsBox(
                                     initialValue = offset,
                                     targetValue = 0f,
                                     initialVelocity = velocity.coerceIn(-2800f, 2800f) * 0.35f,
-                                    animationSpec = spring(dampingRatio = 0.68f, stiffness = 400f)
+                                    animationSpec = spring(dampingRatio = 0.72f, stiffness = 420f)
                                 ) { value, _ ->
                                     offset = value
                                     travel = value
@@ -800,7 +944,7 @@ internal fun LibrarySwipeActionsBox(
                 LibrarySwipePill(
                     action = action,
                     atStart = true,
-                    room = { (offset - pillRoom).coerceAtLeast(0f) },
+                    room = { (offset - pillGapPx).coerceAtLeast(0f) },
                     rowHeight = rowSize.height,
                     armed = armed == 1,
                     fired = fired == 1,
@@ -813,7 +957,7 @@ internal fun LibrarySwipeActionsBox(
                 LibrarySwipePill(
                     action = action,
                     atStart = false,
-                    room = { (-offset - pillRoom).coerceAtLeast(0f) },
+                    room = { (-offset - pillGapPx).coerceAtLeast(0f) },
                     rowHeight = rowSize.height,
                     armed = armed == -1,
                     fired = fired == -1,
@@ -829,7 +973,7 @@ internal fun LibrarySwipeActionsBox(
                         if (strength > 0f) {
                             drawRoundRect(
                                 color = LibraryHighlightColor.copy(alpha = LibraryHighlightColor.alpha * strength),
-                                cornerRadius = CornerRadius(GlassTokens.RadiusMd.toPx())
+                                cornerRadius = CornerRadius(16.dp.toPx())
                             )
                         }
                     }
@@ -859,44 +1003,57 @@ private fun BoxScope.LibrarySwipePill(
             fontSize = 12.5.sp
         )
     }
-    val pillHeight = with(density) { (rowHeight.toDp() * 0.58f).coerceIn(34.dp, 40.dp).toPx() }
     val labelWidth = remember(action.label, density) {
         measurer.measure(action.label, labelStyle).size.width.toFloat()
     }
-    val need = with(density) { (26.dp + 18.dp + 6.dp).toPx() } + labelWidth
+    val need = with(density) { (28.dp + 18.dp + 6.dp).toPx() } + labelWidth
     SideEffect { onNeed(need) }
 
-    val width by animateFloatAsState(
-        targetValue = room().coerceIn(0f, need),
-        animationSpec = if (reducedMotion) snap() else spring(dampingRatio = 0.74f, stiffness = 1000f),
-        label = "swipePillWidth"
-    )
     val fill by animateColorAsState(
-        targetValue = if (armed || fired) action.color else Color.White.copy(alpha = 0.14f),
+        targetValue = if (armed || fired) action.color else Color(0xFF1D1D22),
         animationSpec = if (reducedMotion) snap() else spring(stiffness = 650f),
         label = "swipePillColor"
     )
+    val borderTint by animateColorAsState(
+        targetValue = if (armed || fired) Color(0x36FFFFFF) else Color(0x16FFFFFF),
+        animationSpec = if (reducedMotion) snap() else spring(stiffness = 650f),
+        label = "swipePillBorder"
+    )
     val bump = remember { Animatable(1f) }
     LaunchedEffect(armed, fired, reducedMotion) {
-        if (!reducedMotion && (armed || fired)) {
-            bump.animateTo(if (fired) 1.25f else 1.15f, tween(80))
-            bump.animateTo(1f, spring(dampingRatio = 0.42f, stiffness = 540f))
+        if (reducedMotion) {
+            bump.snapTo(1f)
+        } else if (fired) {
+            bump.animateTo(1.28f, tween(70))
+            bump.animateTo(1f, spring(dampingRatio = 0.45f, stiffness = 560f))
+        } else if (armed) {
+            bump.animateTo(1.22f, spring(dampingRatio = 0.48f, stiffness = 920f))
+            bump.animateTo(1.06f, spring(dampingRatio = 0.56f, stiffness = 520f))
+        } else {
+            bump.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = 500f))
         }
     }
+
+    val shape = remember { SmoothCornerShape(16.dp) }
+    val iconRevealFloorPx = with(density) { 28.dp.toPx() }
 
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .align(if (atStart) Alignment.CenterStart else Alignment.CenterEnd)
-            .padding(horizontal = 4.dp)
             .layout { measurable, _ ->
-                val w = minOf(width, room()).coerceAtLeast(0f)
-                val h = minOf(w, pillHeight)
-                val placeable = measurable.measure(Constraints.fixed(w.roundToInt(), h.roundToInt()))
-                layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+                val w = room().roundToInt().coerceAtLeast(0)
+                val h = rowHeight.coerceAtLeast(0)
+                if (w == 0 || h == 0) {
+                    layout(0, 0) {}
+                } else {
+                    val placeable = measurable.measure(Constraints.fixed(w, h))
+                    layout(w, h) { placeable.place(0, 0) }
+                }
             }
-            .clip(RoundedCornerShape(50))
+            .clip(shape)
             .background(fill)
+            .border(0.5.dp, borderTint, shape)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -907,19 +1064,30 @@ private fun BoxScope.LibrarySwipePill(
                 contentDescription = action.label,
                 tint = Color.White,
                 modifier = Modifier
-                    .size(18.dp)
+                    .size(19.dp)
                     .graphicsLayer {
-                        val grown = (minOf(width, room()) / pillHeight.coerceAtLeast(1f)).coerceIn(0f, 1f)
-                        val s = (0.4f + 0.6f * grown) * bump.value
+                        val grown = (room() / iconRevealFloorPx.coerceAtLeast(1f)).coerceIn(0f, 1f)
+                        val s = (0.45f + 0.55f * grown) * bump.value
                         scaleX = s
                         scaleY = s
                         alpha = grown
                     }
             )
             AnimatedVisibility(
-                visible = armed,
-                enter = if (reducedMotion) fadeIn(snap()) else expandHorizontally(spring(dampingRatio = 0.8f, stiffness = 680f), expandFrom = Alignment.Start) + fadeIn(tween(150)),
-                exit = if (reducedMotion) fadeOut(snap()) else shrinkHorizontally(tween(130), shrinkTowards = Alignment.Start) + fadeOut(tween(90))
+                visible = armed || fired,
+                enter = if (reducedMotion) {
+                    fadeIn(snap())
+                } else {
+                    expandHorizontally(
+                        spring(dampingRatio = 0.78f, stiffness = 680f),
+                        expandFrom = Alignment.Start
+                    ) + fadeIn(tween(140))
+                },
+                exit = if (reducedMotion) {
+                    fadeOut(snap())
+                } else {
+                    shrinkHorizontally(tween(120), shrinkTowards = Alignment.Start) + fadeOut(tween(80))
+                }
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Spacer(modifier = Modifier.width(6.dp))

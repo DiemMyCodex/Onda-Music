@@ -7,6 +7,7 @@ import com.onda.music.core.model.Track
 import com.onda.music.core.sources.LocalMediaFolder
 
 enum class LibraryTab(val label: String) {
+    OVERVIEW("Overview"),
     PLAYLISTS("Playlists"),
     LIKED("Liked"),
     LOCAL("Local"),
@@ -22,8 +23,10 @@ data class DownloadEntryUi(
 
 @Immutable
 data class LibraryUiState(
-    val selectedTab: LibraryTab = LibraryTab.PLAYLISTS,
+    val selectedTab: LibraryTab = LibraryTab.OVERVIEW,
+    val searchQuery: String = "",
     val playlists: List<Playlist> = emptyList(),
+    val playlistCoversById: Map<String, List<String>> = emptyMap(),
     val selectedPlaylistId: String? = null,
     val selectedPlaylist: Playlist? = null,
     val selectedPlaylistTracks: List<Track> = emptyList(),

@@ -5,6 +5,7 @@ import android.content.Context
 import android.view.Surface
 import android.view.SurfaceView
 import android.view.TextureView
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
@@ -45,6 +46,7 @@ class PlaybackController @Inject constructor(
     private val controllerMutex = Mutex()
     private var mediaController: MediaController? = null
     private var sleepTimerJob: Job? = null
+    private var sleepTimerDeadlineMs: Long = 0L
 
     val playbackState: StateFlow<PlaybackState> = sessionStore.playbackState
     val activePlayerFlow: StateFlow<Player?> = sessionStore.activePlayer
@@ -186,6 +188,67 @@ class PlaybackController @Inject constructor(
         }
     }
 
+    fun setPlaybackSpeed(speed: Float) {
+        setPlaybackSpeedAndPitch(speed, playbackState.value.playbackPitch)
+    }
+
+    fun setPlaybackPitch(pitch: Float) {
+        setPlaybackSpeedAndPitch(playbackState.value.playbackSpeed, pitch)
+    }
+
+    fun setPlaybackSpeedAndPitch(speed: Float, pitch: Float) {
+        val safeSpeed = (speed.takeIf { it.isFinite() } ?: 1.0f).coerceIn(0.5f, 2.0f)
+        val safePitch = (pitch.takeIf { it.isFinite() } ?: 1.0f).coerceIn(0.5f, 2.0f)
+        sessionStore.updateState {
+            it.copy(playbackSpeed = safeSpeed, playbackPitch = safePitch)
+        }
+        scope.launch {
+            ondaPreferences.setPlaybackSpeedAndPitch(safeSpeed, safePitch)
+            ensureController()?.playbackParameters = PlaybackParameters(safeSpeed, safePitch)
+        }
+    }
+
+    fun resetPlaybackSpeedAndPitch() {
+        setPlaybackSpeedAndPitch(1.0f, 1.0f)
+    }
+
+    fun playNext(track: Track) {
+        enqueueTrack(track, playNext = true)
+    }
+
+    fun addToQueue(track: Track) {
+        enqueueTrack(track, playNext = false)
+    }
+
+    private fun enqueueTrack(track: Track, playNext: Boolean) {
+        sessionStore.registerTracks(listOf(track))
+        streamResolver.resetRotationState(track.id)
+        scope.launch(Dispatchers.IO) {
+            songDao.upsertAndMerge(track.toEntity())
+        }
+        scope.launch {
+            val controller = ensureController() ?: return@launch
+            if (controller.mediaItemCount == 0) {
+                playTrack(track)
+            } else if (playNext) {
+                val insertIndex = (controller.currentMediaItemIndex + 1).coerceIn(0, controller.mediaItemCount)
+                controller.addMediaItem(insertIndex, OndaMediaService.trackToMediaItem(track))
+            } else {
+                controller.addMediaItem(OndaMediaService.trackToMediaItem(track))
+            }
+        }
+    }
+
+    fun clearUpNext() {
+        scope.launch {
+            val controller = ensureController() ?: return@launch
+            val startRemoveIndex = controller.currentMediaItemIndex.coerceAtLeast(0) + 1
+            for (index in (controller.mediaItemCount - 1) downTo startRemoveIndex) {
+                controller.removeMediaItem(index)
+            }
+        }
+    }
+
     fun startSleepTimer(durationMs: Long) {
         sleepTimerJob?.cancel()
         if (durationMs <= 0L) {
@@ -193,14 +256,26 @@ class PlaybackController @Inject constructor(
             return
         }
         val deadlineMs = System.currentTimeMillis() + durationMs
-        sessionStore.updateState { it.copy(sleepTimerRemainingMs = durationMs) }
+        sleepTimerDeadlineMs = deadlineMs
+        sessionStore.updateState {
+            it.copy(
+                sleepTimerRemainingMs = durationMs,
+                sleepTimerEndOfTrack = false
+            )
+        }
         sleepTimerJob = scope.launch {
             while (isActive) {
                 val remaining = (deadlineMs - System.currentTimeMillis()).coerceAtLeast(0L)
                 sessionStore.updateState { it.copy(sleepTimerRemainingMs = remaining) }
                 if (remaining == 0L) {
+                    sleepTimerDeadlineMs = 0L
                     getActivePlayer()?.pause()
-                    sessionStore.updateState { it.copy(sleepTimerRemainingMs = null) }
+                    sessionStore.updateState {
+                        it.copy(
+                            sleepTimerRemainingMs = null,
+                            sleepTimerEndOfTrack = false
+                        )
+                    }
                     break
                 }
                 delay(1_000L)
@@ -208,10 +283,44 @@ class PlaybackController @Inject constructor(
         }
     }
 
+    fun startSleepTimerEndOfTrack() {
+        sleepTimerJob?.cancel()
+        sleepTimerJob = null
+        sleepTimerDeadlineMs = 0L
+        sessionStore.updateState {
+            it.copy(
+                sleepTimerRemainingMs = null,
+                sleepTimerEndOfTrack = true
+            )
+        }
+    }
+
+    fun adjustSleepTimer(deltaMs: Long) {
+        val currentRemaining = playbackState.value.sleepTimerRemainingMs
+        if (sleepTimerDeadlineMs > 0L || currentRemaining != null) {
+            val baseRemaining = currentRemaining
+                ?: (sleepTimerDeadlineMs - System.currentTimeMillis()).coerceAtLeast(0L)
+            val newRemaining = baseRemaining + deltaMs
+            if (newRemaining <= 0L) {
+                cancelSleepTimer()
+            } else {
+                startSleepTimer(newRemaining)
+            }
+        } else if (deltaMs > 0L) {
+            startSleepTimer(deltaMs)
+        }
+    }
+
     fun cancelSleepTimer() {
         sleepTimerJob?.cancel()
         sleepTimerJob = null
-        sessionStore.updateState { it.copy(sleepTimerRemainingMs = null) }
+        sleepTimerDeadlineMs = 0L
+        sessionStore.updateState {
+            it.copy(
+                sleepTimerRemainingMs = null,
+                sleepTimerEndOfTrack = false
+            )
+        }
     }
 
     fun updateEqConfig(config: EqConfig) {

@@ -33,7 +33,10 @@ data class PlaybackState(
     val shuffleEnabled: Boolean = false,
     val activeStream: StreamOption? = null,
     val sleepTimerRemainingMs: Long? = null,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val playbackSpeed: Float = 1.0f,
+    val playbackPitch: Float = 1.0f,
+    val sleepTimerEndOfTrack: Boolean = false
 )
 
 @Serializable

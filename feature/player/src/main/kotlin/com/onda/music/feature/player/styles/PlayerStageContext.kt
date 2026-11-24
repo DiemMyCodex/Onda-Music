@@ -7,8 +7,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.media3.common.Player
 import com.onda.music.core.database.OndaUserSettings
 import com.onda.music.core.model.DownloadItem
+import com.onda.music.core.model.EqConfig
 import com.onda.music.core.model.LyricsDocument
 import com.onda.music.core.model.PlaybackState
+import com.onda.music.core.model.PlayerStudioConfig
+import com.onda.music.core.model.Track
 import com.onda.music.feature.player.OndaLikeBurstState
 
 @Immutable
@@ -45,5 +48,15 @@ data class PlayerStageContext(
     val onOpenOverflowMenu: () -> Unit = {},
     val likeBurstState: OndaLikeBurstState? = null,
     val onLikeFromButton: (() -> Unit)? = null,
-    val onLikeFromDoubleTap: ((Offset) -> Unit)? = null
+    val onLikeFromDoubleTap: ((Offset) -> Unit)? = null,
+    val eqConfig: EqConfig = EqConfig(),
+    val onOpenStudio: () -> Unit = {},
+    val onOpenShare: (Int?) -> Unit = {},
+    val onOpenSpeedSheet: () -> Unit = {},
+    val onOpenStreamInfo: () -> Unit = {},
+    val onOpenLyricsOffset: () -> Unit = {},
+    val onOpenSongMenu: (Track, Int?) -> Unit = { _, _ -> },
+    val onPlayNext: (Track) -> Unit = {},
+    val onAddToQueue: (Track) -> Unit = {},
+    val onUpdateStudioConfig: (PlayerStudioConfig) -> Unit = {}
 )

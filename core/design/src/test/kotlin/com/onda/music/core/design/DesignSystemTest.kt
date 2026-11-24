@@ -4,12 +4,15 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import kotlin.math.PI
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotSame
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -147,5 +150,60 @@ class DesignSystemTest {
         val mid3 = ondaLaunchRiseOrderProgress(0.35f, 3)
         assertTrue(mid0 >= mid1 && mid1 >= mid2 && mid2 >= mid3)
         assertTrue(mid0 > 0f)
+    }
+
+    @Test
+    fun morphCornerShapeReturnsRectangleAtZeroAndCachesQuantizedShapes() {
+        assertSame(RectangleShape, AppMotion.morphCornerShape(18.dp, 0.dp, 1f))
+        assertSame(RectangleShape, AppMotion.morphCornerShape(0.2.dp, 0.dp, 0f))
+        assertSame(RectangleShape, AppMotion.morphCornerShape((-4).dp, (-2).dp, 0.5f))
+
+        val s1 = AppMotion.morphCornerShape(12.1.dp, 12.1.dp, 0f)
+        val s2 = AppMotion.morphCornerShape(12.2.dp, 12.2.dp, 0f)
+        val s3 = AppMotion.morphCornerShape(18.dp, 18.dp, 0f)
+        assertSame(s1, s2)
+        assertNotSame(s1, s3)
+    }
+
+    @Test
+    fun pagerIndicatorDotProgressConservesTotalWeightAcrossLoopAndLinear() {
+        val linearSum = (0 until 5).sumOf { idx ->
+            pagerIndicatorDotProgress(idx, 1.35f, count = 5, loop = false).toDouble()
+        }
+        assertEquals(1.0, linearSum, 0.0001)
+        assertEquals(0.65f, pagerIndicatorDotProgress(1, 1.35f, count = 5, loop = false), 0.0001f)
+        assertEquals(0.35f, pagerIndicatorDotProgress(2, 1.35f, count = 5, loop = false), 0.0001f)
+        assertEquals(1f, pagerIndicatorDotProgress(0, -1f, count = 5, loop = false), 0.0001f)
+        assertEquals(1f, pagerIndicatorDotProgress(4, 9f, count = 5, loop = false), 0.0001f)
+
+        val loopSum = (0 until 4).sumOf { idx ->
+            pagerIndicatorDotProgress(idx, 3.4f, count = 4, loop = true).toDouble()
+        }
+        assertEquals(1.0, loopSum, 0.0001)
+        assertEquals(0.6f, pagerIndicatorDotProgress(3, 3.4f, count = 4, loop = true), 0.0001f)
+        assertEquals(0.4f, pagerIndicatorDotProgress(0, 3.4f, count = 4, loop = true), 0.0001f)
+    }
+
+    @Test
+    fun launchChoreographyWindowProgressAndContentReadyLifecycle() {
+        assertEquals(0f, ondaLaunchWindowProgress(elapsedMs = 100f, startMs = 200f, durationMs = 400f), 0.0001f)
+        assertEquals(0.5f, ondaLaunchWindowProgress(elapsedMs = 400f, startMs = 200f, durationMs = 400f), 0.0001f)
+        assertEquals(1f, ondaLaunchWindowProgress(elapsedMs = 900f, startMs = 200f, durationMs = 400f), 0.0001f)
+        assertEquals(0f, ondaLaunchWindowProgress(elapsedMs = 50f, startMs = 100f, durationMs = 0f), 0.0001f)
+        assertEquals(1f, ondaLaunchWindowProgress(elapsedMs = 100f, startMs = 100f, durationMs = 0f), 0.0001f)
+
+        val coldStart = OndaLaunchChoreographyState(playOnStart = true)
+        assertFalse(coldStart.isSettled)
+        assertFalse(coldStart.isContentReady)
+        coldStart.markContentReady()
+        assertTrue(coldStart.isContentReady)
+        assertFalse(coldStart.isSettled)
+        coldStart.markSettled()
+        assertTrue(coldStart.isSettled)
+        assertEquals(1f, coldStart.orderProgress(0), 0.0001f)
+
+        val warmResume = OndaLaunchChoreographyState(playOnStart = false)
+        assertTrue(warmResume.isSettled)
+        assertTrue(warmResume.isContentReady)
     }
 }

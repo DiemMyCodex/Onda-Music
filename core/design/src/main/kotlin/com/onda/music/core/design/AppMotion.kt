@@ -5,11 +5,13 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.SpringSpec
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Density
@@ -18,6 +20,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.util.lerp
+import kotlin.math.roundToInt
 
 object AppMotion {
     const val HomeRecedeScale = 0.92f
@@ -25,6 +28,10 @@ object AppMotion {
     const val LyricsStaggerDelayMs = 55L
     const val DefaultTiltDegrees = 7f
     const val DefaultPressScale = 0.97f
+
+    private const val CORNER_SHAPE_STEP_DP = 0.5f
+    private const val MAX_CACHED_CORNER_STEPS = 96
+    private val roundedCornerShapeCache = arrayOfNulls<RoundedCornerShape>(MAX_CACHED_CORNER_STEPS + 1)
 
     val MorphSpring: SpringSpec<Float> = spring(
         dampingRatio = Spring.DampingRatioNoBouncy,
@@ -78,6 +85,22 @@ object AppMotion {
     ): Dp {
         return lerp(startRadius, endRadius, fraction.coerceIn(0f, 1f)).coerceAtLeast(0.dp)
     }
+
+    fun morphCornerShape(
+        startRadius: Dp,
+        endRadius: Dp,
+        fraction: Float
+    ): Shape {
+        val radiusDp = morphCornerRadius(startRadius, endRadius, fraction)
+        if (radiusDp.value <= 0.25f) return RectangleShape
+        val step = (radiusDp.value / CORNER_SHAPE_STEP_DP)
+            .roundToInt()
+            .coerceIn(1, MAX_CACHED_CORNER_STEPS)
+        return roundedCornerShapeCache[step]
+            ?: RoundedCornerShape((step * CORNER_SHAPE_STEP_DP).dp).also {
+                roundedCornerShapeCache[step] = it
+            }
+    }
 }
 
 class MorphingCornerClipShape(
@@ -113,14 +136,11 @@ fun Modifier.morphingCornerClip(
     endRadius: Dp,
     fractionProvider: () -> Float
 ): Modifier {
-    val morphShape = MorphingCornerClipShape(
-        startRadius = startRadius,
-        endRadius = endRadius,
-        fractionProvider = fractionProvider
-    )
     return this.graphicsLayer {
-        shape = morphShape
-        clip = true
+        val f = fractionProvider()
+        val radiusDp = AppMotion.morphCornerRadius(startRadius, endRadius, f)
+        shape = AppMotion.morphCornerShape(startRadius, endRadius, f)
+        clip = radiusDp.value > 0.25f
     }
 }
 

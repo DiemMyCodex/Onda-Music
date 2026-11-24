@@ -3,12 +3,15 @@ package com.onda.music.feature.player.studio
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -84,6 +87,7 @@ import com.onda.music.core.design.AppMotion
 import com.onda.music.core.design.DockMetrics
 import com.onda.music.core.design.OndaArtworkPalette
 import com.onda.music.core.design.OndaMonogramMark
+import com.onda.music.core.design.OndaPagerIndicator
 import com.onda.music.core.design.OndaSwitch
 import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.design.RoundedHighlight
@@ -203,8 +207,23 @@ fun OndaStudioOverlay(
             transitionSpec = {
                 if (reducedMotion) {
                     fadeIn(snap()) togetherWith fadeOut(snap())
+                } else if (targetState) {
+                    (slideInVertically(
+                        animationSpec = spring(dampingRatio = 0.86f, stiffness = 440f)
+                    ) { it / 14 } + scaleIn(
+                        animationSpec = spring(dampingRatio = 0.86f, stiffness = 440f),
+                        initialScale = 0.97f
+                    ) + fadeIn(tween(200))) togetherWith (scaleOut(
+                        animationSpec = tween(150),
+                        targetScale = 0.96f
+                    ) + fadeOut(tween(140)))
                 } else {
-                    fadeIn(tween(200)) togetherWith fadeOut(tween(160))
+                    (scaleIn(
+                        animationSpec = spring(dampingRatio = 0.86f, stiffness = 440f),
+                        initialScale = 0.96f
+                    ) + fadeIn(tween(200))) togetherWith (slideOutVertically(
+                        animationSpec = tween(160)
+                    ) { it / 14 } + fadeOut(tween(140)))
                 }
             },
             label = "OndaStudioPhase"
@@ -589,27 +608,24 @@ private fun StudioStageCarouselPhase(
                 )
             }
 
-            Row(
-                modifier = Modifier.padding(vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                styles.forEachIndexed { index, _ ->
-                    val selected = index == pagerState.currentPage
-                    val dotWidth by animateDpAsState(
-                        targetValue = if (selected) 20.dp else 6.dp,
-                        animationSpec = if (reducedMotion) snap() else spring(dampingRatio = 0.8f, stiffness = 520f),
-                        label = "StudioDotWidth"
-                    )
-                    Box(
-                        modifier = Modifier
-                            .height(6.dp)
-                            .width(dotWidth)
-                            .clip(CircleShape)
-                            .background(if (selected) Color.White else Color(0xFF34343A))
-                    )
-                }
-            }
+            OndaPagerIndicator(
+                count = styles.size,
+                positionProvider = {
+                    if (reducedMotion) {
+                        pagerState.currentPage.toFloat()
+                    } else {
+                        pagerState.currentPage + pagerState.currentPageOffsetFraction
+                    }
+                },
+                activeWidth = 20.dp,
+                inactiveWidth = 6.dp,
+                dotHeight = 6.dp,
+                spacing = 6.dp,
+                activeColor = Color.White,
+                inactiveColor = Color(0xFF34343A),
+                loop = false,
+                modifier = Modifier.padding(vertical = 4.dp)
+            )
 
             Row(
                 modifier = Modifier

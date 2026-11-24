@@ -691,7 +691,6 @@ internal fun TrackSquareCard(
     strings: HomeStrings,
     isActive: Boolean,
     isPlaying: Boolean,
-    detailFraction: Float,
     sharedTransitionScope: SharedTransitionScope?,
     animatedVisibilityScope: AnimatedVisibilityScope?,
     onClick: () -> Unit,
@@ -812,7 +811,6 @@ internal fun TrackSquareCard(
 internal fun AlbumSquareCard(
     album: Album,
     strings: HomeStrings,
-    detailFraction: Float,
     sharedTransitionScope: SharedTransitionScope?,
     animatedVisibilityScope: AnimatedVisibilityScope?,
     onClick: (Rect?) -> Unit,

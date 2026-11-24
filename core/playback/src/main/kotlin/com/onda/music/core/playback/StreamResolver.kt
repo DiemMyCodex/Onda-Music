@@ -8,6 +8,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withTimeoutOrNull
 
 class StreamHttpException(
@@ -58,6 +59,7 @@ class StreamResolver(
 
     private val urlCache = ConcurrentHashMap<String, CacheEntry>()
     private val rotatedTrackIds = ConcurrentHashMap.newKeySet<String>()
+    private val monochromeFallbackTrackIds = ConcurrentHashMap.newKeySet<String>()
     private val inFlight = ConcurrentHashMap<String, CompletableDeferred<Result<StreamOption>>>()
 
     suspend fun prefetch(track: Track) {
@@ -66,7 +68,8 @@ class StreamResolver(
 
     suspend fun resolve(
         track: Track,
-        bypassCache: Boolean = false
+        bypassCache: Boolean = false,
+        skipMonochrome: Boolean = false
     ): Result<StreamOption> {
         val localUri = track.localUri
         if (!localUri.isNullOrBlank() && localFileChecker.isReadable(localUri)) {
@@ -103,7 +106,7 @@ class StreamResolver(
                 return existing.await()
             }
             return try {
-                val resolved = resolveNetwork(track)
+                val resolved = resolveNetwork(track, skipMonochrome)
                 mine.complete(resolved)
                 resolved
             } catch (ce: CancellationException) {
@@ -120,11 +123,16 @@ class StreamResolver(
         }
 
         urlCache.remove(track.id)
-        return resolveNetwork(track)
+        return resolveNetwork(track, skipMonochrome)
     }
 
-    private suspend fun resolveNetwork(track: Track): Result<StreamOption> {
-        val monochromeEnabled = preferencesProvider.isMonochromeEnabled() && shouldTryMonochrome(track)
+    private suspend fun resolveNetwork(
+        track: Track,
+        skipMonochrome: Boolean = false
+    ): Result<StreamOption> {
+        val monochromeEnabled = !skipMonochrome &&
+            preferencesProvider.isMonochromeEnabled() &&
+            shouldTryMonochrome(track)
         val isExplicitMonochrome = !track.monochromeId.isNullOrBlank() || track.source == SourceKind.MONOCHROME
         val videoId = extractYtVideoId(track)
 
@@ -143,14 +151,49 @@ class StreamResolver(
                     resolveYtWithSingleRotation(track.id, videoId)
                 }
 
-                val fastMono = withTimeoutOrNull(monochromeUpgradeTimeoutMs) {
-                    monoDeferred.await()
+                val firstIsMono = select<Boolean> {
+                    monoDeferred.onAwait { true }
+                    ytDeferred.onAwait { false }
                 }
-                if (fastMono != null) {
-                    ytDeferred.cancel()
-                    cacheOption(track.id, fastMono)
-                    return@coroutineScope Result.success(fastMono)
+
+                if (firstIsMono) {
+                    val fastMono = monoDeferred.await()
+                    if (fastMono != null) {
+                        ytDeferred.cancel()
+                        cacheOption(track.id, fastMono)
+                        return@coroutineScope Result.success(fastMono)
+                    }
+                } else {
+                    val ytResultFirst = ytDeferred.await()
+                    if (ytResultFirst.isSuccess) {
+                        val graceMs = minOf(monochromeUpgradeTimeoutMs, MONOCHROME_POST_YT_GRACE_MS)
+                        val fastMono = withTimeoutOrNull(graceMs) {
+                            monoDeferred.await()
+                        }
+                        if (fastMono != null) {
+                            cacheOption(track.id, fastMono)
+                            return@coroutineScope Result.success(fastMono)
+                        }
+                        monoDeferred.cancel()
+                        val ytOption = ytResultFirst.getOrThrow()
+                        cacheOption(track.id, ytOption)
+                        return@coroutineScope Result.success(ytOption)
+                    }
+                    val graceMono = withTimeoutOrNull(monochromeUpgradeTimeoutMs) {
+                        monoDeferred.await()
+                    }
+                    if (graceMono != null) {
+                        cacheOption(track.id, graceMono)
+                        return@coroutineScope Result.success(graceMono)
+                    }
+                    monoDeferred.cancel()
+                    return@coroutineScope resolveWithNewPipeFallback(
+                        trackId = track.id,
+                        videoId = videoId,
+                        initialError = ytResultFirst.exceptionOrNull()
+                    )
                 }
+
                 monoDeferred.cancel()
 
                 val ytResult = ytDeferred.await()
@@ -159,20 +202,10 @@ class StreamResolver(
                     cacheOption(track.id, option)
                     return@coroutineScope Result.success(option)
                 }
-                var lastError: Throwable? = ytResult.exceptionOrNull()
-                try {
-                    val fallbackOption = newPipeSource.resolveStream(videoId)
-                    if (fallbackOption != null) {
-                        cacheOption(track.id, fallbackOption)
-                        return@coroutineScope Result.success(fallbackOption)
-                    }
-                } catch (ce: CancellationException) {
-                    throw ce
-                } catch (t: Throwable) {
-                    lastError = t
-                }
-                Result.failure(
-                    lastError ?: IllegalStateException("No stream available for track ${track.id}")
+                resolveWithNewPipeFallback(
+                    trackId = track.id,
+                    videoId = videoId,
+                    initialError = ytResult.exceptionOrNull()
                 )
             }
         }
@@ -239,6 +272,18 @@ class StreamResolver(
         return resolve(track = track, bypassCache = true)
     }
 
+    suspend fun handleMonochromePlaybackFailure(track: Track): Result<StreamOption> {
+        extractYtVideoId(track)
+            ?: return Result.failure(IllegalStateException("No YouTube fallback for track ${track.id}"))
+        urlCache.remove(track.id)
+        if (!monochromeFallbackTrackIds.add(track.id)) {
+            return Result.failure(
+                IllegalStateException("Monochrome fallback already attempted for track ${track.id}")
+            )
+        }
+        return resolve(track = track, bypassCache = true, skipMonochrome = true)
+    }
+
     fun invalidateCache(trackId: String) {
         urlCache.remove(trackId)
     }
@@ -246,13 +291,37 @@ class StreamResolver(
     fun clearCache() {
         urlCache.clear()
         rotatedTrackIds.clear()
+        monochromeFallbackTrackIds.clear()
     }
 
     fun resetRotationState(trackId: String) {
         rotatedTrackIds.remove(trackId)
+        monochromeFallbackTrackIds.remove(trackId)
     }
 
     fun cachedSize(): Int = urlCache.size
+
+    private suspend fun resolveWithNewPipeFallback(
+        trackId: String,
+        videoId: String,
+        initialError: Throwable?
+    ): Result<StreamOption> {
+        var lastError = initialError
+        try {
+            val fallbackOption = newPipeSource.resolveStream(videoId)
+            if (fallbackOption != null) {
+                cacheOption(trackId, fallbackOption)
+                return Result.success(fallbackOption)
+            }
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (t: Throwable) {
+            lastError = t
+        }
+        return Result.failure(
+            lastError ?: IllegalStateException("No stream available for track $trackId")
+        )
+    }
 
     private suspend fun resolveYtWithSingleRotation(
         trackId: String,
@@ -318,6 +387,7 @@ class StreamResolver(
 
     companion object {
         const val DEFAULT_CACHE_TTL_MS: Long = 30L * 60L * 1000L
-        const val DEFAULT_MONOCHROME_UPGRADE_TIMEOUT_MS: Long = 1_100L
+        const val DEFAULT_MONOCHROME_UPGRADE_TIMEOUT_MS: Long = 500L
+        private const val MONOCHROME_POST_YT_GRACE_MS: Long = 160L
     }
 }

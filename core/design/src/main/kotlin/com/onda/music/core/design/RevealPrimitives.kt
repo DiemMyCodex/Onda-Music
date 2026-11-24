@@ -15,6 +15,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,13 +28,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -44,7 +51,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import kotlin.math.PI
 import kotlin.math.min
+import kotlin.math.sin
 
 private const val BonesFadeOutMs = 240
 private const val RevealGapMs = 90
@@ -193,16 +202,18 @@ fun BonesHost(
             .damageBoundary()
             .drawWithContent {
                 drawContent()
+                val w = size.width
                 val h = size.height
-                val band = h * 0.8f + 1f
-                val center = -band + phase * (h + band * 2f)
+                val band = maxOf(w, h) * 0.55f + 1f
+                val centerX = -band + phase * (w + band * 2f)
+                val centerY = -band + phase * (h + band * 2f)
                 drawRect(
-                    brush = Brush.verticalGradient(
-                        0f to Color.Black.copy(alpha = 0.42f),
+                    brush = Brush.linearGradient(
+                        0f to Color.Black.copy(alpha = 0.48f),
                         0.5f to Color.Black,
-                        1f to Color.Black.copy(alpha = 0.42f),
-                        startY = center - band,
-                        endY = center + band
+                        1f to Color.Black.copy(alpha = 0.48f),
+                        start = Offset(centerX - band * 0.55f, centerY - band * 0.55f),
+                        end = Offset(centerX + band * 0.55f, centerY + band * 0.55f)
                     ),
                     blendMode = BlendMode.DstIn
                 )
@@ -290,6 +301,66 @@ fun OndaLoadingDots(
                     }
                     .clip(CircleShape)
                     .background(dotColor)
+            )
+        }
+    }
+}
+
+private val StaticAcousticBars = floatArrayOf(0.35f, 0.72f, 1.0f, 0.72f, 0.35f)
+
+@Composable
+fun OndaAcousticBarLoader(
+    modifier: Modifier = Modifier,
+    barCount: Int = 5,
+    barWidth: Dp = 2.5.dp,
+    barSpacing: Dp = 4.dp,
+    maxHeight: Dp = 16.dp,
+    color: Color = Color.White
+) {
+    val safeCount = barCount.coerceAtLeast(1)
+    val reducedMotion = OndaTheme.reducedMotion
+    var phase by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(reducedMotion) {
+        if (reducedMotion) return@LaunchedEffect
+        var lastNanos = 0L
+        while (true) {
+            withFrameNanos { frameNanos ->
+                if (lastNanos != 0L) {
+                    val dt = ((frameNanos - lastNanos).coerceIn(0L, 50_000_000L)) / 1_000_000_000f
+                    phase = (phase + dt * 5.6f) % (2f * PI.toFloat())
+                }
+                lastNanos = frameNanos
+            }
+        }
+    }
+
+    val totalWidth = barWidth * safeCount + barSpacing * (safeCount - 1)
+    Canvas(modifier = modifier.size(width = totalWidth, height = maxHeight)) {
+        val barWidthPx = barWidth.toPx()
+        val spacingPx = barSpacing.toPx()
+        val fullH = size.height
+        val minH = (fullH * 0.24f).coerceAtLeast(2.dp.toPx())
+        val corner = CornerRadius(barWidthPx * 0.5f, barWidthPx * 0.5f)
+        val halfSpan = ((safeCount - 1) * 0.5f).coerceAtLeast(1f)
+
+        for (i in 0 until safeCount) {
+            val fraction = if (reducedMotion) {
+                StaticAcousticBars[i % StaticAcousticBars.size]
+            } else {
+                val norm = if (safeCount == 1) 0f else (i - (safeCount - 1) * 0.5f) / halfSpan
+                val bell = (1f - 0.52f * norm * norm).coerceIn(0.35f, 1f)
+                val wave = 0.5f + 0.5f * sin(phase - i * 0.72f)
+                (0.26f + 0.74f * wave * bell).coerceIn(0.22f, 1f)
+            }
+            val barH = (minH + (fullH - minH) * fraction).coerceAtMost(fullH)
+            val x = i * (barWidthPx + spacingPx)
+            val y = (fullH - barH) * 0.5f
+            drawRoundRect(
+                color = color.copy(alpha = (0.45f + 0.55f * fraction).coerceIn(0f, 1f)),
+                topLeft = Offset(x, y),
+                size = Size(barWidthPx, barH),
+                cornerRadius = corner
             )
         }
     }

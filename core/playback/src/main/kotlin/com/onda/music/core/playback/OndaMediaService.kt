@@ -50,6 +50,7 @@ import com.onda.music.core.database.toEntity
 import com.onda.music.core.database.toModel
 import com.onda.music.core.model.PlaybackStatus
 import com.onda.music.core.model.RepeatMode
+import com.onda.music.core.model.SourceKind
 import com.onda.music.core.model.Track
 import dagger.hilt.android.AndroidEntryPoint
 import java.io.IOException
@@ -206,8 +207,8 @@ class OndaMediaService : MediaLibraryService() {
     private fun initPlayer() {
         val httpFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(8_000)
-            .setReadTimeoutMs(15_000)
+            .setConnectTimeoutMs(6_000)
+            .setReadTimeoutMs(10_000)
 
         val upstreamFactory: DataSource.Factory = DefaultDataSource.Factory(this, httpFactory)
 
@@ -230,7 +231,7 @@ class OndaMediaService : MediaLibraryService() {
         }.setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
 
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(15_000, 45_000, 500, 1_200)
+            .setBufferDurationsMs(15_000, 45_000, 300, 1_000)
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
@@ -645,7 +646,15 @@ class OndaMediaService : MediaLibraryService() {
         } else {
             Uri.parse(resolved.url)
         }
-        return dataSpec.withUri(parsedUri)
+        val streamUserAgent = resolved.userAgent
+        return if (!streamUserAgent.isNullOrBlank()) {
+            dataSpec.buildUpon()
+                .setUri(parsedUri)
+                .setHttpRequestHeaders(dataSpec.httpRequestHeaders + ("User-Agent" to streamUserAgent))
+                .build()
+        } else {
+            dataSpec.withUri(parsedUri)
+        }
     }
 
     private val playerListener = object : Player.Listener {
@@ -706,6 +715,7 @@ class OndaMediaService : MediaLibraryService() {
 
         override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
             syncPlayerStateToStore()
+            prefetchNextTrackInQueue()
         }
 
         override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
@@ -743,6 +753,28 @@ class OndaMediaService : MediaLibraryService() {
                         }
                     } else {
                         val message = refreshed.exceptionOrNull()?.message ?: "Playback error ($httpCode)"
+                        sessionStore.updateState {
+                            it.copy(status = PlaybackStatus.ERROR, errorMessage = message)
+                        }
+                    }
+                }
+                return
+            }
+
+            if (activeTrack != null && sessionStore.getResolvedStream(activeTrack.id)?.source == SourceKind.MONOCHROME) {
+                val resumePosition = player.currentPosition.coerceAtLeast(0L)
+                serviceScope.launch(Dispatchers.IO) {
+                    val fallback = streamResolver.handleMonochromePlaybackFailure(activeTrack)
+                    if (fallback.isSuccess) {
+                        val option = fallback.getOrThrow()
+                        sessionStore.recordResolvedStream(activeTrack.id, option)
+                        serviceScope.launch(Dispatchers.Main.immediate) {
+                            player.seekTo(player.currentMediaItemIndex, resumePosition)
+                            player.prepare()
+                            player.play()
+                        }
+                    } else {
+                        val message = error.message ?: "Playback error"
                         sessionStore.updateState {
                             it.copy(status = PlaybackStatus.ERROR, errorMessage = message)
                         }
@@ -907,8 +939,8 @@ class OndaMediaService : MediaLibraryService() {
 
     private fun prefetchNextTrackInQueue() {
         if (!::player.isInitialized) return
-        val nextIndex = player.currentMediaItemIndex + 1
-        if (nextIndex !in 0 until player.mediaItemCount) return
+        val nextIndex = player.nextMediaItemIndex
+        if (nextIndex == C.INDEX_UNSET || nextIndex !in 0 until player.mediaItemCount) return
         val nextMediaId = player.getMediaItemAt(nextIndex).mediaId
         if (nextMediaId.isBlank() || nextMediaId == lastPrefetchedTrackId) return
         lastPrefetchedTrackId = nextMediaId

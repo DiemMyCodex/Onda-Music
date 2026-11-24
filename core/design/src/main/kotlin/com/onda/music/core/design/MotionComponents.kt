@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -45,7 +46,9 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -53,6 +56,7 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp as lerpColor
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -60,6 +64,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.util.lerp
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.PI
@@ -649,6 +654,69 @@ fun LikeBurstOverlay(
                     center = center
                 )
             }
+        }
+    }
+}
+
+fun pagerIndicatorDotProgress(
+    index: Int,
+    position: Float,
+    count: Int,
+    loop: Boolean = false
+): Float {
+    if (count <= 0 || index !in 0 until count) return 0f
+    if (count == 1) return 1f
+    return if (loop) {
+        val wrapped = ((position % count) + count) % count
+        val rawDist = abs(wrapped - index.toFloat())
+        val dist = minOf(rawDist, count.toFloat() - rawDist)
+        (1f - dist).coerceIn(0f, 1f)
+    } else {
+        val clamped = position.coerceIn(0f, (count - 1).toFloat())
+        val dist = abs(clamped - index.toFloat())
+        (1f - dist).coerceIn(0f, 1f)
+    }
+}
+
+@Composable
+fun OndaPagerIndicator(
+    count: Int,
+    positionProvider: () -> Float,
+    modifier: Modifier = Modifier,
+    activeWidth: Dp = 18.dp,
+    inactiveWidth: Dp = 6.dp,
+    dotHeight: Dp = 4.dp,
+    spacing: Dp = 6.dp,
+    activeColor: Color = Color.White,
+    inactiveColor: Color = Color(0x44FFFFFF),
+    loop: Boolean = false
+) {
+    if (count <= 1) return
+    val totalWidth = inactiveWidth * (count - 1) + activeWidth + spacing * (count - 1)
+    Canvas(modifier = modifier.size(width = totalWidth, height = dotHeight)) {
+        val position = positionProvider()
+        val inactiveWidthPx = inactiveWidth.toPx()
+        val activeWidthPx = activeWidth.toPx()
+        val spacingPx = spacing.toPx()
+        val h = size.height
+        val corner = CornerRadius(h * 0.5f, h * 0.5f)
+        var x = 0f
+        for (index in 0 until count) {
+            val p = pagerIndicatorDotProgress(
+                index = index,
+                position = position,
+                count = count,
+                loop = loop
+            )
+            val dotWidth = lerp(inactiveWidthPx, activeWidthPx, p)
+            val color = lerpColor(inactiveColor, activeColor, p)
+            drawRoundRect(
+                color = color,
+                topLeft = Offset(x, 0f),
+                size = Size(dotWidth, h),
+                cornerRadius = corner
+            )
+            x += dotWidth + spacingPx
         }
     }
 }

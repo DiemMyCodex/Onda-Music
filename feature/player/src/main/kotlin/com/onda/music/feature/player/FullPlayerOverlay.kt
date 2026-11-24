@@ -3,13 +3,23 @@ package com.onda.music.feature.player
 import androidx.activity.BackEventCompat
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,6 +49,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -71,16 +82,17 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.onda.music.core.design.AgslMeshBackground
+import com.onda.music.core.design.AppMotion
 import com.onda.music.core.design.DockMetrics
 import com.onda.music.core.design.GlassTokens
 import com.onda.music.core.design.LocalOndaColors
 import com.onda.music.core.design.LocalOndaPalette
 import com.onda.music.core.design.LocalOndaToastState
-import com.onda.music.core.design.MorphingCornerClipShape
 import com.onda.music.core.design.OndaArtworkPalette
 import com.onda.music.core.design.OndaMonogramMark
 import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.design.SmoothCornerShape
+import com.onda.music.core.design.pressBounce
 import com.onda.music.core.model.PlayerStyle
 import com.onda.music.core.model.StudioBackdropMode
 import com.onda.music.core.model.Track
@@ -113,7 +125,7 @@ import kotlin.math.abs
 
 @Composable
 fun FullPlayerOverlay(
-    morphFraction: Float,
+    morphFractionProvider: () -> Float,
     onMorphFractionChange: (Float) -> Unit,
     onCollapse: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -121,8 +133,10 @@ fun FullPlayerOverlay(
     viewModel: PlayerViewModel = hiltViewModel()
 ) {
     val scope = rememberCoroutineScope()
-    val clampedMorph = morphFraction.coerceIn(0f, 1f)
-    if (clampedMorph <= 0.005f) return
+    val isPlayerVisible by remember(morphFractionProvider) {
+        derivedStateOf { morphFractionProvider() > 0.005f }
+    }
+    if (!isPlayerVisible) return
 
     val playbackState by viewModel.playbackState.collectAsState()
     val settings by viewModel.userSettings.collectAsState()
@@ -204,14 +218,16 @@ fun FullPlayerOverlay(
         showSpeedSheet ||
         showLyricsOffsetSheet ||
         songMenuTarget != null
-    PredictiveBackHandler(enabled = clampedMorph > 0.05f && !anySheetOpen) { backEvents: Flow<BackEventCompat> ->
+    val canPredictiveBack by remember(morphFractionProvider) {
+        derivedStateOf { morphFractionProvider() > 0.05f }
+    }
+    PredictiveBackHandler(enabled = canPredictiveBack && !anySheetOpen) { backEvents: Flow<BackEventCompat> ->
         MorphGestureArbitrator.claim()
         try {
             backEvents.collect { event ->
                 val targetMorph = (1f - event.progress * 0.85f).coerceIn(0f, 1f)
                 onMorphFractionChange(targetMorph)
             }
-            onMorphFractionChange(0f)
             onCollapse()
         } catch (e: CancellationException) {
             onMorphFractionChange(1f)
@@ -224,14 +240,6 @@ fun FullPlayerOverlay(
         baseColors.copy(
             accent = palette.primary,
             accentSoft = palette.secondary
-        )
-    }
-
-    val morphShape = remember {
-        MorphingCornerClipShape(
-            startRadius = GlassTokens.RadiusLg,
-            endRadius = 0.dp,
-            fractionProvider = { clampedMorph }
         )
     }
 
@@ -320,7 +328,6 @@ fun FullPlayerOverlay(
     }
 
     val collapseTravelOffsetPx = with(density) { 64.dp.toPx() }
-    val contentRevealAlpha = ((clampedMorph - 0.12f) / 0.56f).coerceIn(0f, 1f)
 
     CompositionLocalProvider(
         LocalOndaPalette provides palette,
@@ -331,16 +338,17 @@ fun FullPlayerOverlay(
                 .fillMaxSize()
                 .onSizeChanged { containerHeightPx = it.height.coerceAtLeast(1).toFloat() }
                 .graphicsLayer {
+                    val morph = morphFractionProvider().coerceIn(0f, 1f)
                     val travelRange = (containerHeightPx - collapseTravelOffsetPx).coerceAtLeast(1f)
-                    translationY = (1f - clampedMorph) * travelRange
-                    alpha = (clampedMorph * 2.4f).coerceIn(0f, 1f)
-                    shape = morphShape
-                    clip = true
+                    translationY = (1f - morph) * travelRange
+                    alpha = (morph * 2.4f).coerceIn(0f, 1f)
+                    shape = AppMotion.morphCornerShape(GlassTokens.RadiusLg, 0.dp, morph)
+                    clip = morph < 0.99f
                 }
                 .background(Color(0xFF000000))
                 .verticalCollapseDrag(
                     enabled = !anySheetOpen,
-                    morphFraction = clampedMorph,
+                    morphFractionProvider = morphFractionProvider,
                     containerHeightPx = containerHeightPx,
                     reducedMotion = reducedMotion,
                     onMorphFractionChange = onMorphFractionChange,
@@ -359,12 +367,13 @@ fun FullPlayerOverlay(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
+                        val morph = morphFractionProvider().coerceIn(0f, 1f)
                         if (!reducedMotion) {
-                            val backdropScale = lerp(1.06f, 1f, clampedMorph)
+                            val backdropScale = lerp(1.06f, 1f, morph)
                             scaleX = backdropScale
                             scaleY = backdropScale
                         }
-                        alpha = contentRevealAlpha
+                        alpha = ((morph - 0.12f) / 0.56f).coerceIn(0f, 1f)
                     }
             ) {
                 if (isPosterStyle) {
@@ -451,7 +460,6 @@ fun FullPlayerOverlay(
                             IconButton(
                                 onClick = {
                                     MorphGestureArbitrator.claim()
-                                    onMorphFractionChange(0f)
                                     onCollapse()
                                 },
                                 modifier = Modifier.defaultMinSize(
@@ -506,7 +514,6 @@ fun FullPlayerOverlay(
                             sleepTimerActive = playbackState.sleepTimerRemainingMs != null || playbackState.sleepTimerEndOfTrack,
                             onCollapse = {
                                 MorphGestureArbitrator.claim()
-                                onMorphFractionChange(0f)
                                 onCollapse()
                             },
                             onOpenStudio = { showStudioOverlay = true },
@@ -523,7 +530,19 @@ fun FullPlayerOverlay(
                         ) {
                             AnimatedContent(
                                 targetState = settings.playerStyle,
-                                transitionSpec = { fadeIn() togetherWith fadeOut() },
+                                transitionSpec = {
+                                    if (reducedMotion) {
+                                        fadeIn(tween(100)) togetherWith fadeOut(tween(90))
+                                    } else {
+                                        (fadeIn(tween(220)) + scaleIn(
+                                            animationSpec = spring(dampingRatio = 0.88f, stiffness = 420f),
+                                            initialScale = 0.96f
+                                        )) togetherWith (fadeOut(tween(150)) + scaleOut(
+                                            animationSpec = tween(150),
+                                            targetScale = 1.03f
+                                        ))
+                                    }
+                                },
                                 label = "PlayerStyleStage"
                             ) { style ->
                                 OndaPlayerStyleStage(
@@ -593,7 +612,29 @@ fun FullPlayerOverlay(
                 )
             }
 
-            if (showStudioOverlay) {
+            AnimatedVisibility(
+                visible = showStudioOverlay,
+                enter = if (reducedMotion) {
+                    fadeIn(tween(120))
+                } else {
+                    slideInVertically(
+                        animationSpec = spring(dampingRatio = 0.86f, stiffness = 440f)
+                    ) { it / 8 } + scaleIn(
+                        animationSpec = spring(dampingRatio = 0.86f, stiffness = 440f),
+                        initialScale = 0.96f
+                    ) + fadeIn(tween(200))
+                },
+                exit = if (reducedMotion) {
+                    fadeOut(tween(100))
+                } else {
+                    slideOutVertically(
+                        animationSpec = tween(180)
+                    ) { it / 10 } + scaleOut(
+                        animationSpec = tween(180),
+                        targetScale = 0.97f
+                    ) + fadeOut(tween(150))
+                }
+            ) {
                 OndaStudioOverlay(
                     activeStyle = settings.playerStyle,
                     studioConfig = settings.studioConfig,
@@ -900,7 +941,7 @@ private fun OndaPlayerStyleStage(
 @Composable
 private fun Modifier.verticalCollapseDrag(
     enabled: Boolean,
-    morphFraction: Float,
+    morphFractionProvider: () -> Float,
     containerHeightPx: Float,
     reducedMotion: Boolean,
     onMorphFractionChange: (Float) -> Unit,
@@ -913,7 +954,7 @@ private fun Modifier.verticalCollapseDrag(
     val flickSpeedPx = with(density) { 900.dp.toPx() }
     val flickTravelPx = with(density) { 12.dp.toPx() }
 
-    val currentMorph by rememberUpdatedState(morphFraction)
+    val currentMorphProvider by rememberUpdatedState(morphFractionProvider)
     val currentHeight by rememberUpdatedState(containerHeightPx)
     val currentReducedMotion by rememberUpdatedState(reducedMotion)
     val currentOnMorph by rememberUpdatedState(onMorphFractionChange)
@@ -931,7 +972,7 @@ private fun Modifier.verticalCollapseDrag(
         detectVerticalDragGestures(
             onDragStart = {
                 velocityTracker.resetTracking()
-                startMorph = currentMorph
+                startMorph = currentMorphProvider().coerceIn(0f, 1f)
                 lastMorph = startMorph
                 dragSumY = 0f
                 activeCollapse = false
@@ -976,7 +1017,6 @@ private fun Modifier.verticalCollapseDrag(
                         onStep = { currentOnMorph(it) },
                         onComplete = {
                             if (shouldCollapse) {
-                                currentOnMorph(0f)
                                 currentOnCollapse()
                             } else {
                                 currentOnMorph(1f)
@@ -1006,7 +1046,6 @@ private fun Modifier.verticalCollapseDrag(
                         onStep = { currentOnMorph(it) },
                         onComplete = {
                             if (shouldCollapse) {
-                                currentOnMorph(0f)
                                 currentOnCollapse()
                             } else {
                                 currentOnMorph(1f)
@@ -1034,7 +1073,18 @@ private fun FullPlayerTopHeader(
     onOpenSleepTimer: () -> Unit,
     onOpenActionSheet: () -> Unit
 ) {
+    val reducedMotion = OndaTheme.reducedMotion
     val speedModified = abs(playbackSpeed - 1f) > 0.01f || abs(playbackPitch - 1f) > 0.01f
+    val collapseInteraction = remember { MutableInteractionSource() }
+    val studioInteraction = remember { MutableInteractionSource() }
+    val sleepInteraction = remember { MutableInteractionSource() }
+    val queueInteraction = remember { MutableInteractionSource() }
+    val actionInteraction = remember { MutableInteractionSource() }
+    val sleepIconTint by animateColorAsState(
+        targetValue = if (sleepTimerActive) Color.White else Color(0xFF9E9E9E),
+        animationSpec = if (reducedMotion) snap() else tween(180),
+        label = "SleepTimerIconTint"
+    )
 
     Column(
         modifier = Modifier
@@ -1058,10 +1108,17 @@ private fun FullPlayerTopHeader(
         ) {
             IconButton(
                 onClick = onCollapse,
-                modifier = Modifier.defaultMinSize(
-                    minWidth = DockMetrics.MinTapTarget,
-                    minHeight = DockMetrics.MinTapTarget
-                )
+                interactionSource = collapseInteraction,
+                modifier = Modifier
+                    .defaultMinSize(
+                        minWidth = DockMetrics.MinTapTarget,
+                        minHeight = DockMetrics.MinTapTarget
+                    )
+                    .pressBounce(
+                        interactionSource = collapseInteraction,
+                        pressedScale = 0.88f,
+                        enabled = !reducedMotion
+                    )
             ) {
                 Icon(
                     imageVector = Icons.Rounded.KeyboardArrowDown,
@@ -1080,10 +1137,19 @@ private fun FullPlayerTopHeader(
                     modifier = Modifier
                         .weight(1f, fill = false)
                         .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
+                        .pressBounce(
+                            interactionSource = studioInteraction,
+                            pressedScale = 0.94f,
+                            enabled = !reducedMotion
+                        )
                         .clip(RoundedCornerShape(GlassTokens.RadiusPill))
                         .background(Color(0xFF141414))
                         .border(0.75.dp, Color(0x1EFFFFFF), RoundedCornerShape(GlassTokens.RadiusPill))
-                        .clickable(onClick = onOpenStudio)
+                        .clickable(
+                            interactionSource = studioInteraction,
+                            indication = null,
+                            onClick = onOpenStudio
+                        )
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -1108,7 +1174,25 @@ private fun FullPlayerTopHeader(
                     )
                 }
 
-                if (speedModified) {
+                AnimatedVisibility(
+                    visible = speedModified,
+                    enter = if (reducedMotion) {
+                        fadeIn(tween(100))
+                    } else {
+                        scaleIn(
+                            animationSpec = spring(dampingRatio = 0.78f, stiffness = 500f),
+                            initialScale = 0.8f
+                        ) + fadeIn(tween(150))
+                    },
+                    exit = if (reducedMotion) {
+                        fadeOut(tween(80))
+                    } else {
+                        scaleOut(
+                            animationSpec = tween(120),
+                            targetScale = 0.8f
+                        ) + fadeOut(tween(120))
+                    }
+                ) {
                     Box(
                         modifier = Modifier
                             .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
@@ -1138,25 +1222,39 @@ private fun FullPlayerTopHeader(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(
                     onClick = onOpenSleepTimer,
-                    modifier = Modifier.defaultMinSize(
-                        minWidth = DockMetrics.MinTapTarget,
-                        minHeight = DockMetrics.MinTapTarget
-                    )
+                    interactionSource = sleepInteraction,
+                    modifier = Modifier
+                        .defaultMinSize(
+                            minWidth = DockMetrics.MinTapTarget,
+                            minHeight = DockMetrics.MinTapTarget
+                        )
+                        .pressBounce(
+                            interactionSource = sleepInteraction,
+                            pressedScale = 0.88f,
+                            enabled = !reducedMotion
+                        )
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.Bedtime,
                         contentDescription = "Sleep timer",
-                        tint = if (sleepTimerActive) Color.White else Color(0xFF9E9E9E),
+                        tint = sleepIconTint,
                         modifier = Modifier.size(21.dp)
                     )
                 }
 
                 IconButton(
                     onClick = onOpenQueue,
-                    modifier = Modifier.defaultMinSize(
-                        minWidth = DockMetrics.MinTapTarget,
-                        minHeight = DockMetrics.MinTapTarget
-                    )
+                    interactionSource = queueInteraction,
+                    modifier = Modifier
+                        .defaultMinSize(
+                            minWidth = DockMetrics.MinTapTarget,
+                            minHeight = DockMetrics.MinTapTarget
+                        )
+                        .pressBounce(
+                            interactionSource = queueInteraction,
+                            pressedScale = 0.88f,
+                            enabled = !reducedMotion
+                        )
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.QueueMusic,
@@ -1168,10 +1266,17 @@ private fun FullPlayerTopHeader(
 
                 IconButton(
                     onClick = onOpenActionSheet,
-                    modifier = Modifier.defaultMinSize(
-                        minWidth = DockMetrics.MinTapTarget,
-                        minHeight = DockMetrics.MinTapTarget
-                    )
+                    interactionSource = actionInteraction,
+                    modifier = Modifier
+                        .defaultMinSize(
+                            minWidth = DockMetrics.MinTapTarget,
+                            minHeight = DockMetrics.MinTapTarget
+                        )
+                        .pressBounce(
+                            interactionSource = actionInteraction,
+                            pressedScale = 0.88f,
+                            enabled = !reducedMotion
+                        )
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.MoreVert,

@@ -1,10 +1,12 @@
 package com.onda.music.feature.settings
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -43,7 +45,9 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -95,11 +99,11 @@ fun PlayerStylePickerSheet(
     val rows = remember { PlayerStyle.entries.chunked(2) }
     val reducedMotion = OndaTheme.reducedMotion
 
-    val previewPhase: Float = if (reducedMotion) {
-        0.35f
+    val phaseState: State<Float> = if (reducedMotion) {
+        remember { mutableFloatStateOf(0.35f) }
     } else {
         val transition = rememberInfiniteTransition(label = "StylePreviewPhase")
-        val anim by transition.animateFloat(
+        transition.animateFloat(
             initialValue = 0f,
             targetValue = 1f,
             animationSpec = infiniteRepeatable(
@@ -108,7 +112,6 @@ fun PlayerStylePickerSheet(
             ),
             label = "StylePreviewLoop"
         )
-        anim
     }
 
     ModalBottomSheet(
@@ -178,7 +181,7 @@ fun PlayerStylePickerSheet(
                             PlayerStyleTile(
                                 style = style,
                                 selected = style == selectedStyle,
-                                phaseProvider = { previewPhase },
+                                phaseProvider = { phaseState.value },
                                 onClick = { onSelectStyle(style) },
                                 modifier = Modifier.weight(1f)
                             )
@@ -248,11 +251,20 @@ private fun PlayerStyleTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val tileShape = SmoothCornerShape(20.dp)
-    val previewShape = SmoothCornerShape(14.dp)
+    val reducedMotion = OndaTheme.reducedMotion
+    val tileShape = remember { SmoothCornerShape(20.dp) }
+    val previewShape = remember { SmoothCornerShape(14.dp) }
     val interactionSource = remember { MutableInteractionSource() }
-    val bgColor = if (selected) SettingsOledColors.TextPrimary else SettingsOledColors.IconBadge
-    val titleColor = if (selected) SettingsOledColors.CanvasBlack else SettingsOledColors.TextPrimary
+    val bgColor by animateColorAsState(
+        targetValue = if (selected) SettingsOledColors.TextPrimary else SettingsOledColors.IconBadge,
+        animationSpec = if (reducedMotion) snap() else tween(180),
+        label = "PlayerStyleTileBg"
+    )
+    val titleColor by animateColorAsState(
+        targetValue = if (selected) SettingsOledColors.CanvasBlack else SettingsOledColors.TextPrimary,
+        animationSpec = if (reducedMotion) snap() else tween(180),
+        label = "PlayerStyleTileTitle"
+    )
     val stageBg = if (selected) Color(0xFF101010) else Color(0xFF0A0A0A)
     val accent = Color.White
     val dim = Color(0xFF6B6B6B)
@@ -260,8 +272,7 @@ private fun PlayerStyleTile(
     Column(
         modifier = modifier
             .defaultMinSize(minHeight = 148.dp)
-            .springPress3D(maxTiltDegrees = 5f, pressedScale = 0.97f)
-            .pressBounce(interactionSource, pressedScale = 0.96f)
+            .springPress3D(maxTiltDegrees = 5f, pressedScale = 0.96f)
             .clip(tileShape)
             .background(bgColor)
             .then(

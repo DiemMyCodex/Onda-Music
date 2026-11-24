@@ -1,12 +1,20 @@
 package com.onda.music.feature.home
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -49,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.onda.music.core.design.DockMetrics
+import com.onda.music.core.design.LocalOndaLaunchChoreography
 import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.design.homeRecede
 import com.onda.music.core.design.ondaBlurSource
@@ -157,7 +166,7 @@ internal fun HomeScreen(
         onCloseDetail()
     }
 
-    val detailFraction by animateFloatAsState(
+    val detailFractionState = animateFloatAsState(
         targetValue = if (detailVisible) 1f else 0f,
         animationSpec = if (reducedMotion) {
             snap()
@@ -168,6 +177,9 @@ internal fun HomeScreen(
         },
         label = "HomeDetailFraction"
     )
+    val showDetailOverlay by remember(detailVisible) {
+        derivedStateOf { detailVisible || detailFractionState.value > 0.005f }
+    }
     val bottomClearance = DockMetrics.rememberBottomPadding(hasMiniPlayer = uiState.hasMiniPlayer)
     val heroHeightDp = rememberHomeHeroHeight()
     val heroHeightPx = with(density) { heroHeightDp.toPx() }.coerceAtLeast(1f)
@@ -194,6 +206,14 @@ internal fun HomeScreen(
         uiState.languageCode
     ) {
         buildHeroCarouselCards(uiState, strings)
+    }
+
+    val launchChoreography = LocalOndaLaunchChoreography.current
+    val homeContentReady = heroCards.isNotEmpty() || !uiState.isLoading
+    LaunchedEffect(homeContentReady, launchChoreography) {
+        if (homeContentReady) {
+            launchChoreography?.markContentReady()
+        }
     }
 
     val quickJumpPool = remember(
@@ -233,7 +253,7 @@ internal fun HomeScreen(
             HomeTopGlow(
                 coverUrls = topGlowCovers,
                 depth = 260.dp,
-                visibility = { (1f - heroScrollProgress).coerceIn(0f, 1f) * (1f - detailFraction) },
+                visibility = { (1f - heroScrollProgress).coerceIn(0f, 1f) * (1f - detailFractionState.value) },
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
@@ -249,44 +269,56 @@ internal fun HomeScreen(
                     state = homeBackdropState,
                     isActive = { heroScrollProgress > 0.05f }
                 )
-                .homeRecede(fraction = detailFraction, reducedMotion = reducedMotion),
+                .homeRecede(fractionProvider = { detailFractionState.value }, reducedMotion = reducedMotion),
             contentPadding = PaddingValues(top = 0.dp, bottom = bottomClearance),
             verticalArrangement = Arrangement.spacedBy(28.dp)
         ) {
-            if (heroCards.isNotEmpty()) {
-                item(key = "hero_card") {
-                    Box(modifier = Modifier.ondaLaunchRise(order = 1, distance = 44.dp)) {
-                        HomeHeroCarousel(
-                            cards = heroCards,
-                            strings = strings,
-                            activeTrackId = uiState.activeTrackId,
-                            isPlaying = uiState.isPlaying,
-                            heroScrollProgress = { heroScrollProgress },
-                            blurEnabled = uiState.glassBlurEnabled,
-                            detailVisible = detailVisible,
-                            onPlayTrack = onPlayTrack,
-                            onPlayHero = onPlayHero,
-                            onOpenAlbum = { album, bounds ->
-                                launchOrigin = CardLaunchOrigin(bounds = bounds, cornerRadius = 22.dp)
-                                onOpenAlbum(album)
-                            },
-                            onToggleLike = onToggleLike
-                        )
-                    }
+            item(key = "hero_stage") {
+                val heroStageState = when {
+                    heroCards.isNotEmpty() -> 2
+                    uiState.isLoading -> 1
+                    else -> 0
                 }
-            } else if (uiState.isLoading) {
-                item(key = "hero_skeleton") {
-                    Box(modifier = Modifier.ondaLaunchRise(order = 1, distance = 44.dp)) {
-                        HomeHeroSkeleton()
+                Box(modifier = Modifier.ondaLaunchRise(order = 1, distance = 44.dp)) {
+                    AnimatedContent(
+                        targetState = heroStageState,
+                        transitionSpec = {
+                            if (reducedMotion) {
+                                fadeIn(tween(120)) togetherWith fadeOut(tween(100))
+                            } else {
+                                (fadeIn(tween(300)) + scaleIn(
+                                    animationSpec = spring(dampingRatio = 0.88f, stiffness = 400f),
+                                    initialScale = 0.97f
+                                )) togetherWith fadeOut(tween(180))
+                            }
+                        },
+                        label = "HomeHeroStage"
+                    ) { stage ->
+                        when (stage) {
+                            2 -> HomeHeroCarousel(
+                                cards = heroCards,
+                                strings = strings,
+                                activeTrackId = uiState.activeTrackId,
+                                isPlaying = uiState.isPlaying,
+                                heroScrollProgress = { heroScrollProgress },
+                                blurEnabled = uiState.glassBlurEnabled,
+                                detailVisible = detailVisible,
+                                onPlayTrack = onPlayTrack,
+                                onPlayHero = onPlayHero,
+                                onOpenAlbum = { album, bounds ->
+                                    launchOrigin = CardLaunchOrigin(bounds = bounds, cornerRadius = 22.dp)
+                                    onOpenAlbum(album)
+                                },
+                                onToggleLike = onToggleLike
+                            )
+                            1 -> HomeHeroSkeleton()
+                            else -> Spacer(
+                                modifier = Modifier
+                                    .statusBarsPadding()
+                                    .height(60.dp)
+                            )
+                        }
                     }
-                }
-            } else {
-                item(key = "top_bar_clearance") {
-                    Spacer(
-                        modifier = Modifier
-                            .statusBarsPadding()
-                            .height(60.dp)
-                    )
                 }
             }
 
@@ -339,7 +371,6 @@ internal fun HomeScreen(
                             strings = strings,
                             activeTrackId = uiState.activeTrackId,
                             isPlaying = uiState.isPlaying,
-                            detailFraction = detailFraction,
                             sharedTransitionScope = sharedTransitionScope,
                             animatedVisibilityScope = animatedVisibilityScope,
                             onPlayTrack = { track -> onPlayTrack(track, uiState.recentlyPlayed) }
@@ -378,7 +409,6 @@ internal fun HomeScreen(
                         AlbumHorizontalShelf(
                             albums = uiState.newReleases,
                             strings = strings,
-                            detailFraction = detailFraction,
                             sharedTransitionScope = sharedTransitionScope,
                             animatedVisibilityScope = animatedVisibilityScope,
                             onOpenAlbum = { album, bounds ->
@@ -466,7 +496,6 @@ internal fun HomeScreen(
                                     strings = strings,
                                     activeTrackId = uiState.activeTrackId,
                                     isPlaying = uiState.isPlaying,
-                                    detailFraction = detailFraction,
                                     sharedTransitionScope = sharedTransitionScope,
                                     animatedVisibilityScope = animatedVisibilityScope,
                                     onPlayTrack = { track -> onPlayTrack(track, shelf.tracks) }
@@ -476,7 +505,6 @@ internal fun HomeScreen(
                                 AlbumHorizontalShelf(
                                     albums = shelf.albums,
                                     strings = strings,
-                                    detailFraction = detailFraction,
                                     sharedTransitionScope = sharedTransitionScope,
                                     animatedVisibilityScope = animatedVisibilityScope,
                                     onOpenAlbum = { album, bounds ->
@@ -506,7 +534,6 @@ internal fun HomeScreen(
                                 strings = strings,
                                 activeTrackId = uiState.activeTrackId,
                                 isPlaying = uiState.isPlaying,
-                                detailFraction = detailFraction,
                                 sharedTransitionScope = sharedTransitionScope,
                                 animatedVisibilityScope = animatedVisibilityScope,
                                 onPlayTrack = { track -> onPlayTrack(track, chartShelf.tracks) }
@@ -528,7 +555,6 @@ internal fun HomeScreen(
                             strings = strings,
                             activeTrackId = uiState.activeTrackId,
                             isPlaying = uiState.isPlaying,
-                            detailFraction = detailFraction,
                             sharedTransitionScope = sharedTransitionScope,
                             animatedVisibilityScope = animatedVisibilityScope,
                             onPlayTrack = { track -> onPlayTrack(track, uiState.localTracks) }
@@ -563,11 +589,11 @@ internal fun HomeScreen(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .ondaLaunchRise(order = 0, distance = 16.dp)
-                .homeRecede(fraction = detailFraction, reducedMotion = reducedMotion)
+                .homeRecede(fractionProvider = { detailFractionState.value }, reducedMotion = reducedMotion)
         )
 
         val shownDetail = uiState.detailSheet ?: lastDetail
-        if (shownDetail != null && (detailVisible || detailFraction > 0.005f)) {
+        if (shownDetail != null && showDetailOverlay) {
             AlbumPlaylistDetailSheet(
                 detail = shownDetail,
                 strings = strings,
@@ -577,7 +603,7 @@ internal fun HomeScreen(
                 hasMiniPlayer = uiState.hasMiniPlayer,
                 dynamicMeshEnabled = uiState.dynamicMeshEnabled,
                 glassBlurEnabled = uiState.glassBlurEnabled,
-                detailFraction = detailFraction,
+                detailFractionProvider = { detailFractionState.value },
                 launchOrigin = launchOrigin,
                 sharedTransitionScope = sharedTransitionScope,
                 animatedVisibilityScope = animatedVisibilityScope,
@@ -629,7 +655,7 @@ internal fun DiscoverScreen(
         onCloseDetail()
     }
 
-    val detailFraction by animateFloatAsState(
+    val detailFractionState = animateFloatAsState(
         targetValue = if (detailVisible) 1f else 0f,
         animationSpec = if (reducedMotion) {
             snap()
@@ -640,6 +666,9 @@ internal fun DiscoverScreen(
         },
         label = "DiscoverDetailFraction"
     )
+    val showDetailOverlay by remember(detailVisible) {
+        derivedStateOf { detailVisible || detailFractionState.value > 0.005f }
+    }
     val bottomClearance = DockMetrics.rememberBottomPadding(hasMiniPlayer = uiState.hasMiniPlayer)
     val topBarTriggerPx = with(density) { 48.dp.toPx() }.coerceAtLeast(1f)
     val scrollProgress by remember(listState, topBarTriggerPx) {
@@ -681,7 +710,7 @@ internal fun DiscoverScreen(
             HomeTopGlow(
                 coverUrls = discoverGlowCovers,
                 depth = 220.dp,
-                visibility = { (1f - scrollProgress).coerceIn(0f, 1f) * (1f - detailFraction) },
+                visibility = { (1f - scrollProgress).coerceIn(0f, 1f) * (1f - detailFractionState.value) },
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
@@ -697,7 +726,7 @@ internal fun DiscoverScreen(
                     state = discoverBackdropState,
                     isActive = { scrollProgress > 0.01f }
                 )
-                .homeRecede(fraction = detailFraction, reducedMotion = reducedMotion),
+                .homeRecede(fractionProvider = { detailFractionState.value }, reducedMotion = reducedMotion),
             contentPadding = PaddingValues(top = 0.dp, bottom = bottomClearance),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
@@ -710,34 +739,50 @@ internal fun DiscoverScreen(
             }
 
             item(key = "discover_heading") {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = discoverHeading,
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        letterSpacing = (-0.5).sp,
-                        color = Color.White,
-                        modifier = Modifier.weight(1f)
-                    )
-                    IconButton(
-                        onClick = onRefresh,
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
                         modifier = Modifier
-                            .size(44.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF1A1A1A))
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Refresh,
-                            contentDescription = strings.refreshDescription,
-                            tint = Color.White,
-                            modifier = Modifier.size(20.dp)
+                        Text(
+                            text = discoverHeading,
+                            fontSize = 28.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = (-0.5).sp,
+                            color = Color.White,
+                            modifier = Modifier.weight(1f)
                         )
+                        IconButton(
+                            onClick = onRefresh,
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF1A1A1A))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Refresh,
+                                contentDescription = strings.refreshDescription,
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+
+                    AnimatedVisibility(
+                        visible = uiState.isLoading && !hasDiscoverContent,
+                        exit = if (reducedMotion) {
+                            fadeOut(tween(100))
+                        } else {
+                            fadeOut(tween(180)) + shrinkVertically(tween(200))
+                        }
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Spacer(modifier = Modifier.height(24.dp))
+                            DiscoverSkeleton()
+                        }
                     }
                 }
             }
@@ -748,12 +793,6 @@ internal fun DiscoverScreen(
                         strings = strings,
                         onRetry = onRefresh
                     )
-                }
-            }
-
-            if (uiState.isLoading && !hasDiscoverContent) {
-                item(key = "discover_loading") {
-                    DiscoverSkeleton()
                 }
             }
 
@@ -809,7 +848,6 @@ internal fun DiscoverScreen(
                             strings = strings,
                             activeTrackId = uiState.activeTrackId,
                             isPlaying = uiState.isPlaying,
-                            detailFraction = detailFraction,
                             sharedTransitionScope = null,
                             animatedVisibilityScope = null,
                             onPlayTrack = { track -> onPlayTrack(track, contextualTracks) }
@@ -846,7 +884,6 @@ internal fun DiscoverScreen(
                         AlbumHorizontalShelf(
                             albums = uiState.newReleases,
                             strings = strings,
-                            detailFraction = detailFraction,
                             sharedTransitionScope = null,
                             animatedVisibilityScope = null,
                             onOpenAlbum = { album, bounds ->
@@ -875,7 +912,6 @@ internal fun DiscoverScreen(
                                     strings = strings,
                                     activeTrackId = uiState.activeTrackId,
                                     isPlaying = uiState.isPlaying,
-                                    detailFraction = detailFraction,
                                     sharedTransitionScope = null,
                                     animatedVisibilityScope = null,
                                     onPlayTrack = { track -> onPlayTrack(track, chartShelf.tracks) }
@@ -885,7 +921,6 @@ internal fun DiscoverScreen(
                                 AlbumHorizontalShelf(
                                     albums = chartShelf.albums,
                                     strings = strings,
-                                    detailFraction = detailFraction,
                                     sharedTransitionScope = null,
                                     animatedVisibilityScope = null,
                                     onOpenAlbum = { album, bounds ->
@@ -923,11 +958,11 @@ internal fun DiscoverScreen(
             blurEnabled = uiState.glassBlurEnabled,
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .homeRecede(fraction = detailFraction, reducedMotion = reducedMotion)
+                .homeRecede(fractionProvider = { detailFractionState.value }, reducedMotion = reducedMotion)
         )
 
         val shownDetail = uiState.detailSheet ?: lastDetail
-        if (shownDetail != null && (detailVisible || detailFraction > 0.005f)) {
+        if (shownDetail != null && showDetailOverlay) {
             AlbumPlaylistDetailSheet(
                 detail = shownDetail,
                 strings = strings,
@@ -937,7 +972,7 @@ internal fun DiscoverScreen(
                 hasMiniPlayer = uiState.hasMiniPlayer,
                 dynamicMeshEnabled = uiState.dynamicMeshEnabled,
                 glassBlurEnabled = uiState.glassBlurEnabled,
-                detailFraction = detailFraction,
+                detailFractionProvider = { detailFractionState.value },
                 launchOrigin = launchOrigin,
                 sharedTransitionScope = null,
                 animatedVisibilityScope = null,
@@ -957,7 +992,6 @@ private fun TrackHorizontalShelf(
     strings: HomeStrings,
     activeTrackId: String?,
     isPlaying: Boolean,
-    detailFraction: Float,
     sharedTransitionScope: SharedTransitionScope?,
     animatedVisibilityScope: AnimatedVisibilityScope?,
     onPlayTrack: (Track) -> Unit
@@ -975,7 +1009,6 @@ private fun TrackHorizontalShelf(
                 strings = strings,
                 isActive = track.id == activeTrackId,
                 isPlaying = isPlaying,
-                detailFraction = detailFraction,
                 sharedTransitionScope = sharedTransitionScope,
                 animatedVisibilityScope = animatedVisibilityScope,
                 onClick = { onPlayTrack(track) }
@@ -989,7 +1022,6 @@ private fun TrackHorizontalShelf(
 private fun AlbumHorizontalShelf(
     albums: List<Album>,
     strings: HomeStrings,
-    detailFraction: Float,
     sharedTransitionScope: SharedTransitionScope?,
     animatedVisibilityScope: AnimatedVisibilityScope?,
     onOpenAlbum: (Album, Rect?) -> Unit
@@ -1005,7 +1037,6 @@ private fun AlbumHorizontalShelf(
             AlbumSquareCard(
                 album = album,
                 strings = strings,
-                detailFraction = detailFraction,
                 sharedTransitionScope = sharedTransitionScope,
                 animatedVisibilityScope = animatedVisibilityScope,
                 onClick = { bounds -> onOpenAlbum(album, bounds) }

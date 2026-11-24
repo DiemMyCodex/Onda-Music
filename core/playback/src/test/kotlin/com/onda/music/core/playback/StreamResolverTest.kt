@@ -347,4 +347,93 @@ class StreamResolverTest {
         assertEquals("https://yt/vid_dedup", resolved.getOrThrow().url)
         assertEquals(1, yt.resolveCalls)
     }
+
+    @Test
+    fun fastYoutubeUsesShortGraceAndCancelsSlowMonochrome() = runTest {
+        val monochrome = FakeMonochromeSource {
+            delay(2_500L)
+            option("https://mono/too_late.flac", SourceKind.MONOCHROME)
+        }
+        val yt = FakeYtInnerTubeSource { id, _ ->
+            delay(20L)
+            option("https://yt/$id")
+        }
+        val resolver = StreamResolver(
+            localFileChecker = FakeLocalChecker(),
+            downloadedCacheLookup = FakeDownloadedLookup(),
+            monochromeSource = monochrome,
+            ytInnerTubeSource = yt,
+            newPipeSource = FakeNewPipeSource(),
+            preferencesProvider = FakePrefs(monochromeEnabled = true)
+        )
+
+        val track = Track(id = "yt_fast_default", title = "Song", artist = "Artist", ytId = "vid_fast_default")
+        val result = resolver.resolve(track)
+
+        assertTrue(result.isSuccess)
+        assertEquals("https://yt/vid_fast_default", result.getOrThrow().url)
+        assertEquals(1, monochrome.calls)
+        assertEquals(1, yt.resolveCalls)
+    }
+
+    @Test
+    fun fastMonochromeWinsRaceBeforeYoutube() = runTest {
+        val monochrome = FakeMonochromeSource {
+            delay(20L)
+            option("https://mono/fast.flac", SourceKind.MONOCHROME)
+        }
+        val yt = FakeYtInnerTubeSource { id, _ ->
+            delay(200L)
+            option("https://yt/$id")
+        }
+        val resolver = StreamResolver(
+            localFileChecker = FakeLocalChecker(),
+            downloadedCacheLookup = FakeDownloadedLookup(),
+            monochromeSource = monochrome,
+            ytInnerTubeSource = yt,
+            newPipeSource = FakeNewPipeSource(),
+            preferencesProvider = FakePrefs(monochromeEnabled = true)
+        )
+
+        val track = Track(id = "mono_wins", title = "Song", artist = "Artist", ytId = "vid_slow")
+        val result = resolver.resolve(track)
+
+        assertTrue(result.isSuccess)
+        assertEquals("https://mono/fast.flac", result.getOrThrow().url)
+        assertEquals(SourceKind.MONOCHROME, result.getOrThrow().source)
+    }
+
+    @Test
+    fun monochromePlaybackFailureFallsBackToYoutubeOnce() = runTest {
+        val monochrome = FakeMonochromeSource {
+            option("https://mono/stalled.flac", SourceKind.MONOCHROME)
+        }
+        val yt = FakeYtInnerTubeSource { id, _ ->
+            option("https://yt/$id")
+        }
+        val resolver = StreamResolver(
+            localFileChecker = FakeLocalChecker(),
+            downloadedCacheLookup = FakeDownloadedLookup(),
+            monochromeSource = monochrome,
+            ytInnerTubeSource = yt,
+            newPipeSource = FakeNewPipeSource(),
+            preferencesProvider = FakePrefs(monochromeEnabled = true)
+        )
+
+        val track = Track(id = "mono_failover", title = "Song", artist = "Artist", ytId = "vid_fallback")
+        val initial = resolver.resolve(track)
+        assertEquals("https://mono/stalled.flac", initial.getOrThrow().url)
+        assertEquals(1, monochrome.calls)
+
+        val fallback = resolver.handleMonochromePlaybackFailure(track)
+        assertTrue(fallback.isSuccess)
+        assertEquals("https://yt/vid_fallback", fallback.getOrThrow().url)
+        assertEquals(SourceKind.YOUTUBE, fallback.getOrThrow().source)
+        assertEquals(1, monochrome.calls)
+        assertEquals(1, yt.resolveCalls)
+
+        val secondAttempt = resolver.handleMonochromePlaybackFailure(track)
+        assertTrue(secondAttempt.isFailure)
+        assertEquals(1, yt.resolveCalls)
+    }
 }

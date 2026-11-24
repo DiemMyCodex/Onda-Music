@@ -52,8 +52,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.util.lerp
+import com.onda.music.core.design.AppMotion
 import com.onda.music.core.design.DockMetrics
 import com.onda.music.core.design.GlassElevation
 import com.onda.music.core.design.GlassSurface
@@ -75,7 +75,7 @@ fun CollectionDrillDownSheet(
     onRetry: () -> Unit,
     onDismiss: () -> Unit,
     hasMiniPlayer: Boolean = false,
-    openFraction: Float = 1f,
+    openFractionProvider: () -> Float = { 1f },
     launchOrigin: SearchLaunchOrigin = SearchLaunchOrigin()
 ) {
     val reducedMotion = OndaTheme.reducedMotion
@@ -97,7 +97,7 @@ fun CollectionDrillDownSheet(
             .fillMaxSize()
             .onSizeChanged { rootSize = it }
             .graphicsLayer {
-                val p = openFraction.coerceIn(0f, 1f)
+                val p = openFractionProvider().coerceIn(0f, 1f)
                 val origin = launchOrigin.bounds
                 if (!reducedMotion && origin != null && rootSize.width > 0 && rootSize.height > 0) {
                     val fw = rootSize.width.toFloat()
@@ -109,9 +109,9 @@ fun CollectionDrillDownSheet(
                     translationX = lerp(origin.center.x - fw * 0.5f, 0f, p)
                     translationY = lerp(origin.center.y - fh * 0.5f, 0f, p)
                     transformOrigin = TransformOrigin.Center
-                    val cornerPx = lerp(launchOrigin.cornerRadius, 0.dp, p).coerceAtLeast(0.dp).toPx()
-                    shape = RoundedCornerShape(cornerPx)
-                    clip = cornerPx > 0.5f
+                    val radiusDp = AppMotion.morphCornerRadius(launchOrigin.cornerRadius, 0.dp, p)
+                    shape = AppMotion.morphCornerShape(launchOrigin.cornerRadius, 0.dp, p)
+                    clip = radiusDp.value > 0.25f
                 }
                 alpha = searchSmoothstep(0f, 0.14f, p)
             }
@@ -129,7 +129,7 @@ fun CollectionDrillDownSheet(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    alpha = searchSmoothstep(0.08f, 0.42f, openFraction.coerceIn(0f, 1f))
+                    alpha = searchSmoothstep(0.08f, 0.42f, openFractionProvider().coerceIn(0f, 1f))
                 }
         ) {
             LazyColumn(

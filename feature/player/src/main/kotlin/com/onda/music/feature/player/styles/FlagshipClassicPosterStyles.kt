@@ -11,6 +11,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
@@ -95,6 +97,7 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp as colorLerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -116,6 +119,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
 import com.onda.music.core.design.AppMotion
 import com.onda.music.core.design.GlassTokens
+import com.onda.music.core.design.OndaAcousticBarLoader
 import com.onda.music.core.design.OndaArtworkPalette
 import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.design.RoundedHighlight
@@ -140,6 +144,7 @@ import com.onda.music.feature.player.playerPressBounce
 import com.onda.music.feature.player.queue.OndaBottomDeck
 import com.onda.music.feature.player.rememberSmoothLyricClock
 import com.onda.music.feature.player.rememberSongCarouselPagerState
+import com.onda.music.feature.player.synthesizeWordTimings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -158,7 +163,9 @@ fun FlagshipPlayerStyle(
     val state = ctx.playbackState
     val track = state.currentTrack
     val studio = ctx.settings.studioConfig
+    val palette = OndaTheme.palette
     val isPlaying = state.status == PlaybackStatus.PLAYING
+    val reducedMotion = OndaTheme.reducedMotion
     val pagerState = rememberSongCarouselPagerState(
         queue = state.queue,
         currentIndex = state.currentIndex,
@@ -201,7 +208,19 @@ fun FlagshipPlayerStyle(
         ) {
             AnimatedContent(
                 targetState = ctx.showInlineLyrics,
-                transitionSpec = { fadeIn() togetherWith fadeOut() },
+                transitionSpec = {
+                    if (reducedMotion) {
+                        fadeIn(snap()) togetherWith fadeOut(snap())
+                    } else {
+                        (fadeIn(tween(200)) + scaleIn(
+                            animationSpec = spring(dampingRatio = 0.86f, stiffness = 460f),
+                            initialScale = 0.94f
+                        )) togetherWith (fadeOut(tween(140)) + scaleOut(
+                            animationSpec = tween(140),
+                            targetScale = 0.96f
+                        ))
+                    }
+                },
                 label = "FlagshipHeroToggle"
             ) { showingLyrics ->
                 if (showingLyrics) {
@@ -227,7 +246,8 @@ fun FlagshipPlayerStyle(
                             onAdjustOffsetMs = ctx.onAdjustLyricsOffset,
                             onLongPressLine = { lineIdx -> ctx.onOpenShare(lineIdx) },
                             playbackSpeed = state.playbackSpeed,
-                            trackKey = track?.id
+                            trackKey = track?.id,
+                            accentColor = palette.primary
                         )
                     }
                 } else {
@@ -324,7 +344,9 @@ fun ClassicPlayerStyle(
     val state = ctx.playbackState
     val track = state.currentTrack
     val studio = ctx.settings.studioConfig
+    val palette = OndaTheme.palette
     val isPlaying = state.status == PlaybackStatus.PLAYING
+    val reducedMotion = OndaTheme.reducedMotion
     val pagerState = rememberSongCarouselPagerState(
         queue = state.queue,
         currentIndex = state.currentIndex,
@@ -365,43 +387,62 @@ fun ClassicPlayerStyle(
                 .fillMaxWidth(),
             contentAlignment = Alignment.Center
         ) {
-            if (ctx.showInlineLyrics) {
-                LyricsPane(
-                    lyrics = ctx.lyrics,
-                    positionMs = state.positionMs,
-                    lyricsOffsetMs = ctx.lyricsOffsetMs,
-                    isPlaying = isPlaying,
-                    isLoading = ctx.isLyricsLoading,
-                    errorMessage = ctx.lyricsError,
-                    lyricsMotionEnabled = ctx.settings.lyricsMotionEnabled,
-                    lyricsFontScale = ctx.settings.lyricsFontScale,
-                    hapticsEnabled = ctx.settings.hapticsEnabled,
-                    onSeekToMs = ctx.onSeekToMs,
-                    onRefreshLyrics = ctx.onRefreshLyrics,
-                    onAdjustOffsetMs = ctx.onAdjustLyricsOffset,
-                    onLongPressLine = { lineIdx -> ctx.onOpenShare(lineIdx) },
-                    playbackSpeed = state.playbackSpeed,
-                    trackKey = track?.id
-                )
-            } else {
-                SongCarousel(
-                    queue = state.queue,
-                    currentIndex = state.currentIndex,
-                    currentTrack = track,
-                    onSelectIndex = ctx.onSelectQueueIndex,
-                    artworkShape = RoundedCornerShape(GlassTokens.RadiusLg),
-                    contentPadding = PaddingValues(horizontal = 8.dp),
-                    pageSpacing = 12.dp,
-                    enablePress3D = false,
-                    isPlaying = isPlaying,
-                    pagerState = pagerState,
-                    onArtworkDoubleTap = ctx.onLikeFromDoubleTap,
-                    artworkFrame = studio.artworkFrame,
-                    modifier = Modifier
-                        .widthIn(max = 336.dp)
-                        .fillMaxWidth()
-                        .aspectRatio(1f)
-                )
+            AnimatedContent(
+                targetState = ctx.showInlineLyrics,
+                transitionSpec = {
+                    if (reducedMotion) {
+                        fadeIn(snap()) togetherWith fadeOut(snap())
+                    } else {
+                        (fadeIn(tween(200)) + scaleIn(
+                            animationSpec = spring(dampingRatio = 0.86f, stiffness = 460f),
+                            initialScale = 0.94f
+                        )) togetherWith (fadeOut(tween(140)) + scaleOut(
+                            animationSpec = tween(140),
+                            targetScale = 0.96f
+                        ))
+                    }
+                },
+                label = "ClassicHeroToggle"
+            ) { showingLyrics ->
+                if (showingLyrics) {
+                    LyricsPane(
+                        lyrics = ctx.lyrics,
+                        positionMs = state.positionMs,
+                        lyricsOffsetMs = ctx.lyricsOffsetMs,
+                        isPlaying = isPlaying,
+                        isLoading = ctx.isLyricsLoading,
+                        errorMessage = ctx.lyricsError,
+                        lyricsMotionEnabled = ctx.settings.lyricsMotionEnabled,
+                        lyricsFontScale = ctx.settings.lyricsFontScale,
+                        hapticsEnabled = ctx.settings.hapticsEnabled,
+                        onSeekToMs = ctx.onSeekToMs,
+                        onRefreshLyrics = ctx.onRefreshLyrics,
+                        onAdjustOffsetMs = ctx.onAdjustLyricsOffset,
+                        onLongPressLine = { lineIdx -> ctx.onOpenShare(lineIdx) },
+                        playbackSpeed = state.playbackSpeed,
+                        trackKey = track?.id,
+                        accentColor = palette.primary
+                    )
+                } else {
+                    SongCarousel(
+                        queue = state.queue,
+                        currentIndex = state.currentIndex,
+                        currentTrack = track,
+                        onSelectIndex = ctx.onSelectQueueIndex,
+                        artworkShape = RoundedCornerShape(GlassTokens.RadiusLg),
+                        contentPadding = PaddingValues(horizontal = 8.dp),
+                        pageSpacing = 12.dp,
+                        enablePress3D = false,
+                        isPlaying = isPlaying,
+                        pagerState = pagerState,
+                        onArtworkDoubleTap = ctx.onLikeFromDoubleTap,
+                        artworkFrame = studio.artworkFrame,
+                        modifier = Modifier
+                            .widthIn(max = 336.dp)
+                            .fillMaxWidth()
+                            .aspectRatio(1f)
+                    )
+                }
             }
         }
 
@@ -1113,7 +1154,8 @@ fun PosterPlayerStyle(
                                 onLongPressLine = { lineIdx -> ctx.onOpenShare(lineIdx) },
                                 modifier = Modifier.fillMaxSize(),
                                 playbackSpeed = state.playbackSpeed,
-                                trackKey = track?.id
+                                trackKey = track?.id,
+                                accentColor = palette.primary
                             )
                         }
                     }
@@ -1477,13 +1519,6 @@ private fun PosterGlassActionPill(
     }
 }
 
-@Immutable
-private data class SpotlightWordSlice(
-    val text: String,
-    val startTimeMs: Long,
-    val endTimeMs: Long
-)
-
 @OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 private fun PosterKineticLyrics(
@@ -1502,10 +1537,14 @@ private fun PosterKineticLyrics(
     onLongPressLine: ((Int) -> Unit)? = null,
     modifier: Modifier = Modifier,
     playbackSpeed: Float = 1.0f,
-    trackKey: Any? = null
+    trackKey: Any? = null,
+    accentColor: Color = Color.White
 ) {
     val reducedMotion = OndaTheme.reducedMotion
     val motionActive = lyricsMotionEnabled && !reducedMotion
+    val glowTint = remember(accentColor) {
+        colorLerp(Color.White, accentColor, 0.34f)
+    }
     val haptics = LocalHapticFeedback.current
     val density = LocalDensity.current
     val listState = rememberLazyListState()
@@ -1602,18 +1641,26 @@ private fun PosterKineticLyrics(
 
     when {
         isLoading && lines.isEmpty() -> {
-            Box(
+            Row(
                 modifier = modifier,
-                contentAlignment = Alignment.CenterStart
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                OndaAcousticBarLoader(
+                    barCount = 5,
+                    barWidth = 3.dp,
+                    barSpacing = 4.dp,
+                    maxHeight = 20.dp,
+                    color = glowTint
+                )
                 Text(
                     text = "Loading lyrics...",
                     style = MaterialTheme.typography.headlineMedium.copy(
-                        fontSize = 26.sp,
-                        lineHeight = 34.sp,
+                        fontSize = 24.sp,
+                        lineHeight = 32.sp,
                         fontWeight = FontWeight.ExtraBold
                     ),
-                    color = Color(0x73FFFFFF)
+                    color = Color(0x8CFFFFFF)
                 )
             }
         }
@@ -1671,12 +1718,16 @@ private fun PosterKineticLyrics(
                             fadeIn(tween(120)) togetherWith fadeOut(tween(90))
                         } else {
                             val curve = CubicBezierEasing(0.22f, 1f, 0.36f, 1f)
-                            (fadeIn(tween(360, easing = curve)) + slideInVertically(
-                                animationSpec = tween(360, easing = curve)
-                            ) { fullHeight -> (fullHeight * 0.22f).roundToInt() }) togetherWith
-                                (fadeOut(tween(220, easing = curve)) + slideOutVertically(
-                                    animationSpec = tween(220, easing = curve)
-                                ) { fullHeight -> -(fullHeight * 0.18f).roundToInt() })
+                            (fadeIn(tween(340, easing = curve)) +
+                                scaleIn(animationSpec = tween(340, easing = curve), initialScale = 0.94f) +
+                                slideInVertically(
+                                    animationSpec = tween(340, easing = curve)
+                                ) { fullHeight -> (fullHeight * 0.24f).roundToInt() }) togetherWith
+                                (fadeOut(tween(210, easing = curve)) +
+                                    scaleOut(animationSpec = tween(210, easing = curve), targetScale = 0.96f) +
+                                    slideOutVertically(
+                                        animationSpec = tween(210, easing = curve)
+                                    ) { fullHeight -> -(fullHeight * 0.18f).roundToInt() })
                         }
                     },
                     label = "PosterSpotlightStanza"
@@ -1688,7 +1739,8 @@ private fun PosterKineticLyrics(
                         hasWordTiming = hasWordTiming,
                         smoothPositionProvider = smoothPositionProvider,
                         isPlaying = isPlaying,
-                        motionActive = motionActive
+                        motionActive = motionActive,
+                        glowColor = glowTint
                     )
                 }
             }
@@ -1726,12 +1778,15 @@ private fun PosterKineticLyrics(
                     ) { index, line ->
                         val isActive = isSynced && index == activeIndex
                         val distance = if (activeIndex >= 0) abs(index - activeIndex).coerceAtMost(8) else 0
+                        val nextLineStartMs = lines.getOrNull(index + 1)?.startTimeMs
                         PosterLyricRow(
                             line = line,
+                            nextLineStartMs = nextLineStartMs,
                             isActive = isActive,
                             isSynced = isSynced,
                             hasWordTiming = hasWordTiming,
                             smoothPositionProvider = smoothPositionProvider,
+                            glowColor = glowTint,
                             distanceFromActive = distance,
                             isUserScrolling = userDetachedScroll,
                             isPlaying = isPlaying,
@@ -1806,7 +1861,8 @@ private fun PosterSpotlightStanza(
     hasWordTiming: Boolean,
     smoothPositionProvider: () -> Long,
     isPlaying: Boolean,
-    motionActive: Boolean
+    motionActive: Boolean,
+    glowColor: Color = Color.White
 ) {
     val spotlightStyle = MaterialTheme.typography.headlineMedium.copy(
         fontSize = 30.sp,
@@ -1832,7 +1888,7 @@ private fun PosterSpotlightStanza(
                 isPlaying = isPlaying,
                 motionActive = motionActive,
                 progress = interludeProgress,
-                accentColor = Color.White,
+                accentColor = glowColor,
                 visible = true
             )
         }
@@ -1851,47 +1907,12 @@ private fun PosterSpotlightStanza(
     }
 
     val wordSlices = remember(line, nextLineStartMs, hasWordTiming) {
-        if (hasWordTiming && line.words.isNotEmpty()) {
-            line.words.map { w ->
-                SpotlightWordSlice(
-                    text = w.text,
-                    startTimeMs = w.startTimeMs,
-                    endTimeMs = w.endTimeMs.coerceAtLeast(w.startTimeMs + 80L)
-                )
-            }
-        } else {
-            val rawTokens = line.text.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
-            val boundedTokens = if (rawTokens.size > 16) {
-                rawTokens.take(15) + listOf("${rawTokens[15]}...")
-            } else {
-                rawTokens
-            }
-            val startMs = line.startTimeMs
-            val resolvedEndMs = when {
-                line.endTimeMs > startMs + 250L -> line.endTimeMs
-                nextLineStartMs != null && nextLineStartMs > startMs + 250L -> nextLineStartMs
-                else -> startMs + 3_200L
-            }
-            val spanMs = (resolvedEndMs - startMs).coerceIn(600L, 9_000L)
-            val totalChars = boundedTokens.sumOf { it.length.coerceAtLeast(2) }.coerceAtLeast(1)
-            var cursorMs = startMs
-            boundedTokens.mapIndexed { idx, token ->
-                val weight = token.length.coerceAtLeast(2).toFloat() / totalChars.toFloat()
-                val sliceDuration = (spanMs * weight).toLong().coerceAtLeast(90L)
-                val sliceStart = cursorMs
-                val sliceEnd = if (idx == boundedTokens.lastIndex) {
-                    max(sliceStart + 90L, startMs + spanMs)
-                } else {
-                    sliceStart + sliceDuration
-                }
-                cursorMs = sliceEnd
-                SpotlightWordSlice(
-                    text = token,
-                    startTimeMs = sliceStart,
-                    endTimeMs = sliceEnd
-                )
-            }
-        }
+        synthesizeWordTimings(
+            line = line,
+            nextLineStartMs = nextLineStartMs,
+            preferExplicit = hasWordTiming,
+            maxTokens = 16
+        )
     }
 
     FlowRow(
@@ -1907,8 +1928,9 @@ private fun PosterSpotlightStanza(
                 endTimeMs = slice.endTimeMs,
                 positionProvider = smoothPositionProvider,
                 activeColor = Color.White,
-                baseColor = Color(0x66FFFFFF),
-                motionActive = motionActive
+                baseColor = Color(0x52FFFFFF),
+                motionActive = motionActive,
+                glowColor = glowColor
             )
         }
     }
@@ -1918,10 +1940,12 @@ private fun PosterSpotlightStanza(
 @Composable
 private fun PosterLyricRow(
     line: LyricsLine,
+    nextLineStartMs: Long?,
     isActive: Boolean,
     isSynced: Boolean,
     hasWordTiming: Boolean,
     smoothPositionProvider: () -> Long,
+    glowColor: Color,
     distanceFromActive: Int,
     isUserScrolling: Boolean,
     isPlaying: Boolean,
@@ -1945,7 +1969,7 @@ private fun PosterLyricRow(
                 isPlaying = isPlaying,
                 motionActive = motionActive,
                 progress = interludeProgress,
-                accentColor = Color.White,
+                accentColor = glowColor,
                 visible = isActive
             )
         }
@@ -1962,13 +1986,19 @@ private fun PosterLyricRow(
         label = "PosterLyricFocus"
     )
 
-    val rowAlpha = if (!isSynced) 1f else lerp(0.46f, 1f, focus)
-    val rowScale = if (motionActive && isSynced) lerp(0.96f, 1.03f, focus) else 1f
+    val inactiveAlpha = when {
+        distanceFromActive <= 1 -> 0.56f
+        distanceFromActive == 2 -> 0.36f
+        else -> 0.22f
+    }
+    val rowAlpha = if (!isSynced) 1f else lerp(inactiveAlpha, 1f, focus)
+    val rowScale = if (motionActive && isSynced) lerp(0.94f, 1.035f, focus) else 1f
     val rowBlurPx = when {
         !motionActive || !isSynced || isActive || isUserScrolling || Build.VERSION.SDK_INT < Build.VERSION_CODES.S -> 0f
-        distanceFromActive <= 1 -> 0f
+        distanceFromActive <= 1 -> 1.0f
         distanceFromActive == 2 -> 2.5f
-        else -> 4.5f
+        distanceFromActive == 3 -> 4.0f
+        else -> 5.5f
     }
 
     val textStyle = MaterialTheme.typography.headlineMedium.copy(
@@ -1977,6 +2007,18 @@ private fun PosterLyricRow(
         fontWeight = FontWeight.ExtraBold
     )
     val rowInteraction = remember { MutableInteractionSource() }
+    val showWordSweep = isSynced && line.text.isNotBlank() && (isActive || focus > 0.08f)
+    val resolvedWords = remember(line, nextLineStartMs, hasWordTiming) {
+        if (isSynced && line.text.isNotBlank()) {
+            synthesizeWordTimings(
+                line = line,
+                nextLineStartMs = nextLineStartMs,
+                preferExplicit = hasWordTiming
+            )
+        } else {
+            emptyList()
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -2010,13 +2052,13 @@ private fun PosterLyricRow(
             .padding(horizontal = 4.dp, vertical = 2.dp),
         contentAlignment = Alignment.CenterStart
     ) {
-        if (hasWordTiming && line.words.isNotEmpty() && isActive) {
+        if (showWordSweep && resolvedWords.isNotEmpty()) {
             FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(7.dp, Alignment.Start),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+                verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
-                line.words.forEach { word ->
+                resolvedWords.forEach { word ->
                     FeatheredSweepWord(
                         text = word.text,
                         style = textStyle,
@@ -2024,8 +2066,9 @@ private fun PosterLyricRow(
                         endTimeMs = word.endTimeMs.coerceAtLeast(word.startTimeMs + 80L),
                         positionProvider = smoothPositionProvider,
                         activeColor = Color.White,
-                        baseColor = Color(0x66FFFFFF),
-                        motionActive = motionActive
+                        baseColor = Color(0x52FFFFFF),
+                        motionActive = motionActive,
+                        glowColor = glowColor
                     )
                 }
             }

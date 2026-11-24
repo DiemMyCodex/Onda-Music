@@ -1,6 +1,8 @@
 package com.onda.music.feature.player.queue
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -30,7 +32,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.QueueMusic
@@ -57,7 +58,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -565,6 +565,11 @@ private fun OndaHistoryTogglePill(
     val haptics = LocalHapticFeedback.current
     val interactionSource = remember { MutableInteractionSource() }
     val shape = remember { SmoothCornerShape(14.dp) }
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = if (reducedMotion) snap() else spring(dampingRatio = 0.82f, stiffness = 500f),
+        label = "QueueHistoryChevron"
+    )
 
     Row(
         modifier = Modifier
@@ -605,10 +610,12 @@ private fun OndaHistoryTogglePill(
             overflow = TextOverflow.Ellipsis
         )
         Icon(
-            imageVector = if (expanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+            imageVector = Icons.Rounded.KeyboardArrowDown,
             contentDescription = if (expanded) "Hide played earlier" else "Show played earlier",
             tint = GlassTokens.TextSecondary,
-            modifier = Modifier.size(20.dp)
+            modifier = Modifier
+                .size(20.dp)
+                .graphicsLayer { rotationZ = chevronRotation }
         )
     }
 }
@@ -628,7 +635,7 @@ private fun OndaHistoryTrackRow(
         modifier = Modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = 60.dp)
-            .alpha(0.76f)
+            .graphicsLayer { alpha = 0.76f }
             .clip(rowShape)
             .background(QueueRowSurface, rowShape)
             .border(1.dp, QueueHairlineBorder, rowShape)

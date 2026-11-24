@@ -22,8 +22,13 @@ import io.ktor.http.isSuccess
 import io.ktor.http.parseQueryString
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -139,9 +144,14 @@ enum class YtClientKind(
     );
 
     companion object {
-        val defaultOrder: List<YtClientKind> = listOf(ANDROID_VR, IOS, VISIONOS, WEB_REMIX, TVHTML5)
+        val defaultOrder: List<YtClientKind> = listOf(IOS, VISIONOS, ANDROID_VR, WEB_REMIX, TVHTML5)
     }
 }
+
+data class ResolvedClientStreams(
+    val client: YtClientKind,
+    val streams: List<StreamOption>
+)
 
 enum class YtSearchFilter(val params: String?) {
     ALL(null),
@@ -669,28 +679,89 @@ class YtMusicClient @Inject constructor(
 
     suspend fun resolveStreams(
         videoId: String,
-        clientOrder: List<YtClientKind> = YtClientKind.defaultOrder
-    ): Result<List<StreamOption>> = runCatching {
+        clientOrder: List<YtClientKind> = YtClientKind.defaultOrder,
+        allowNewPipeFallback: Boolean = true
+    ): Result<List<StreamOption>> = resolveStreamsWithClient(
+        videoId = videoId,
+        clientOrder = clientOrder,
+        allowNewPipeFallback = allowNewPipeFallback
+    ).map { it.streams }
+
+    suspend fun resolveStreamsWithClient(
+        videoId: String,
+        clientOrder: List<YtClientKind> = YtClientKind.defaultOrder,
+        allowNewPipeFallback: Boolean = true
+    ): Result<ResolvedClientStreams> = runCatching {
         var lastError: Throwable? = null
-        for (client in clientOrder) {
+        val useHedgedPair = clientOrder.size >= 2 &&
+            clientOrder[0] in FAST_DIRECT_CLIENTS &&
+            clientOrder[1] in FAST_DIRECT_CLIENTS
+        val fastPair = if (useHedgedPair) clientOrder.take(2) else emptyList()
+        val remainingClients = if (fastPair.isNotEmpty()) clientOrder.drop(2) else clientOrder
+
+        if (fastPair.isNotEmpty()) {
+            val (winner, pairError) = resolveHedgedPair(videoId, fastPair)
+            if (winner != null) return@runCatching winner
+            if (pairError != null) lastError = pairError
+        }
+
+        for (client in remainingClients) {
             try {
-                val streams = if (clientOrder.size > 1) {
-                    withTimeout(5_500L) {
-                        fetchPlayerStreams(videoId, client)
-                    }
-                } else {
+                val streams = withTimeout(PER_CLIENT_TIMEOUT_MS) {
                     fetchPlayerStreams(videoId, client)
                 }
-                if (streams.isNotEmpty()) return@runCatching streams
+                if (streams.isNotEmpty()) {
+                    return@runCatching ResolvedClientStreams(client = client, streams = streams)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
                 lastError = e
             }
         }
-        val newPipeStreams = extractWithNewPipe(videoId).getOrDefault(emptyList())
-        if (newPipeStreams.isNotEmpty()) return@runCatching newPipeStreams
+        if (allowNewPipeFallback) {
+            val newPipeStreams = extractWithNewPipe(videoId).getOrDefault(emptyList())
+            if (newPipeStreams.isNotEmpty()) {
+                return@runCatching ResolvedClientStreams(client = YtClientKind.WEB, streams = newPipeStreams)
+            }
+        }
         throw lastError ?: IllegalStateException("No playable YouTube stream found for $videoId")
+    }
+
+    private suspend fun resolveHedgedPair(
+        videoId: String,
+        clients: List<YtClientKind>
+    ): Pair<ResolvedClientStreams?, Throwable?> = supervisorScope {
+        val results = Channel<Pair<YtClientKind, Result<List<StreamOption>>>>(clients.size)
+        val jobs = clients.mapIndexed { index, client ->
+            launch {
+                if (index > 0) {
+                    delay(HEDGED_LAUNCH_STAGGER_MS * index)
+                }
+                val outcome = try {
+                    val streams = withTimeout(PER_CLIENT_TIMEOUT_MS) {
+                        fetchPlayerStreams(videoId, client)
+                    }
+                    Result.success(streams)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (t: Throwable) {
+                    Result.failure(t)
+                }
+                results.trySend(client to outcome)
+            }
+        }
+        var lastError: Throwable? = null
+        repeat(clients.size) {
+            val (client, outcome) = results.receive()
+            val streams = outcome.getOrNull()
+            if (!streams.isNullOrEmpty()) {
+                jobs.forEach { it.cancel() }
+                return@supervisorScope ResolvedClientStreams(client = client, streams = streams) to null
+            }
+            outcome.exceptionOrNull()?.let { lastError = it }
+        }
+        null to lastError
     }
 
     suspend fun resolveBestStream(
@@ -730,7 +801,8 @@ class YtMusicClient @Inject constructor(
                             codec = codec,
                             qualityLabel = "NewPipe · $kbps kbps",
                             expiresAtMs = expiresAt,
-                            source = SourceKind.YOUTUBE
+                            source = SourceKind.YOUTUBE,
+                            userAgent = USER_AGENT_WEB
                         )
                     }
                     .sortedByDescending { it.bitrateKbps }
@@ -798,29 +870,57 @@ class YtMusicClient @Inject constructor(
         val adaptive = streamingData.arr("adaptiveFormats").orEmpty()
         val combined = streamingData.arr("formats").orEmpty()
 
-        val audioOptions = (adaptive + combined).mapNotNull { element ->
+        val audioFormats = (adaptive + combined).mapNotNull { element ->
             val format = element as? JsonObject ?: return@mapNotNull null
             val rawMime = format.str("mimeType") ?: return@mapNotNull null
             if (!rawMime.startsWith("audio/")) return@mapNotNull null
-            val directUrl = format.str("url")
-            val resolvedUrl = directUrl ?: format.str("signatureCipher")?.let { cipher ->
-                deobfuscateCipherUrl(videoId, cipher)
-            } ?: return@mapNotNull null
-            val bitrateBps = format.intVal("bitrate") ?: format.intVal("averageBitrate") ?: 128_000
-            val bitrateKbps = (bitrateBps / 1000).coerceAtLeast(32)
-            val mimeType = rawMime.substringBefore(';').trim()
-            val codec = CODEC_REGEX.find(rawMime)?.groupValues?.get(1) ?: mimeType.substringAfter('/')
-            StreamOption(
-                url = resolvedUrl,
-                mimeType = mimeType,
-                bitrateKbps = bitrateKbps,
-                codec = codec,
-                qualityLabel = "${client.clientName} · $bitrateKbps kbps",
-                expiresAtMs = expiresAtMs,
-                source = SourceKind.YOUTUBE
-            )
+            format to rawMime
         }
-        return audioOptions.sortedByDescending { it.bitrateKbps }
+
+        val directOptions = audioFormats.mapNotNull { (format, rawMime) ->
+            val directUrl = format.str("url") ?: return@mapNotNull null
+            buildAudioStreamOption(format, rawMime, directUrl, client, expiresAtMs)
+        }
+        if (directOptions.isNotEmpty()) {
+            return directOptions.sortedByDescending { it.bitrateKbps }
+        }
+
+        val cipherCandidates = audioFormats
+            .filter { (format, _) -> format.str("signatureCipher") != null }
+            .sortedByDescending { (format, _) ->
+                format.intVal("bitrate") ?: format.intVal("averageBitrate") ?: 0
+            }
+        val resolvedCiphered = mutableListOf<StreamOption>()
+        for ((format, rawMime) in cipherCandidates) {
+            val cipher = format.str("signatureCipher") ?: continue
+            val deobfuscated = deobfuscateCipherUrl(videoId, cipher) ?: continue
+            resolvedCiphered += buildAudioStreamOption(format, rawMime, deobfuscated, client, expiresAtMs)
+            if (resolvedCiphered.size >= MAX_CIPHER_DEOBFUSCATIONS) break
+        }
+        return resolvedCiphered
+    }
+
+    private fun buildAudioStreamOption(
+        format: JsonObject,
+        rawMime: String,
+        url: String,
+        client: YtClientKind,
+        expiresAtMs: Long
+    ): StreamOption {
+        val bitrateBps = format.intVal("bitrate") ?: format.intVal("averageBitrate") ?: 128_000
+        val bitrateKbps = (bitrateBps / 1000).coerceAtLeast(32)
+        val mimeType = rawMime.substringBefore(';').trim()
+        val codec = CODEC_REGEX.find(rawMime)?.groupValues?.get(1) ?: mimeType.substringAfter('/')
+        return StreamOption(
+            url = url,
+            mimeType = mimeType,
+            bitrateKbps = bitrateKbps,
+            codec = codec,
+            qualityLabel = "${client.clientName} · $bitrateKbps kbps",
+            expiresAtMs = expiresAtMs,
+            source = SourceKind.YOUTUBE,
+            userAgent = client.userAgent
+        )
     }
 
     private fun deobfuscateCipherUrl(videoId: String, signatureCipher: String): String? = runCatching {
@@ -836,17 +936,19 @@ class YtMusicClient @Inject constructor(
 
     private suspend fun ensureClientVisitorId(client: YtClientKind): String? {
         clientVisitorIds[client]?.let { return it }
-        val minted = runCatching {
-            val root = postInnerTube(
-                endpoint = "visitor_id",
-                client = client,
-                body = buildJsonObject {
-                    put("context", buildContext(client, visitorOverride = null))
-                },
-                visitorOverride = null
-            )
-            root.obj("responseContext")?.str("visitorData")
-        }.getOrNull()
+        val minted = withTimeoutOrNull(VISITOR_MINT_TIMEOUT_MS) {
+            runCatching {
+                val root = postInnerTube(
+                    endpoint = "visitor_id",
+                    client = client,
+                    body = buildJsonObject {
+                        put("context", buildContext(client, visitorOverride = null))
+                    },
+                    visitorOverride = null
+                )
+                root.obj("responseContext")?.str("visitorData")
+            }.getOrNull()
+        }
         if (!minted.isNullOrBlank()) {
             clientVisitorIds[client] = minted
         }
@@ -1324,6 +1426,15 @@ class YtMusicClient @Inject constructor(
 
     companion object {
         private const val DEFAULT_STREAM_LIFE_MS = 5 * 60_000L
+        private const val PER_CLIENT_TIMEOUT_MS = 3_200L
+        private const val HEDGED_LAUNCH_STAGGER_MS = 120L
+        private const val VISITOR_MINT_TIMEOUT_MS = 1_500L
+        private const val MAX_CIPHER_DEOBFUSCATIONS = 2
+        private val FAST_DIRECT_CLIENTS = setOf(
+            YtClientKind.IOS,
+            YtClientKind.VISIONOS,
+            YtClientKind.ANDROID_VR
+        )
         private val CODEC_REGEX = Regex("""codecs="([^"]+)"""")
     }
 }

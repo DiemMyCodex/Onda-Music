@@ -95,12 +95,20 @@ class RealYtInnerTubeStreamSource @Inject constructor(
         val currentIdx = Math.floorMod(clientIndex.get(), clients.size)
         val rotatedOrder = clients.drop(currentIdx) + clients.take(currentIdx)
 
-        val result = ytMusicClient.resolveStreams(
+        val result = ytMusicClient.resolveStreamsWithClient(
             videoId = videoId,
-            clientOrder = listOf(rotatedOrder.first())
+            clientOrder = rotatedOrder,
+            allowNewPipeFallback = false
         )
         if (result.isSuccess) {
-            return result.getOrNull()?.maxByOrNull { it.bitrateKbps }
+            val resolved = result.getOrThrow()
+            if (resolved.client != rotatedOrder.first()) {
+                val winnerIdx = clients.indexOf(resolved.client)
+                if (winnerIdx >= 0) {
+                    clientIndex.set(winnerIdx)
+                }
+            }
+            return resolved.streams.maxByOrNull { it.bitrateKbps }
         }
         val error = result.exceptionOrNull()
         if (error is CancellationException) throw error
@@ -110,18 +118,6 @@ class RealYtInnerTubeStreamSource @Inject constructor(
         }
         if ("HTTP 410" in message) {
             throw StreamHttpException(410, message)
-        }
-        val fallbackRemaining = rotatedOrder.drop(1)
-        if (fallbackRemaining.isNotEmpty()) {
-            val secondary = ytMusicClient.resolveStreams(videoId, fallbackRemaining)
-            if (secondary.isSuccess) {
-                return secondary.getOrNull()?.maxByOrNull { it.bitrateKbps }
-            }
-            val secondaryError = secondary.exceptionOrNull()
-            if (secondaryError is CancellationException) throw secondaryError
-            val secondaryMsg = secondaryError?.message.orEmpty()
-            if ("HTTP 403" in secondaryMsg) throw StreamHttpException(403, secondaryMsg)
-            if ("HTTP 410" in secondaryMsg) throw StreamHttpException(410, secondaryMsg)
         }
         if (error != null) throw error
         return null

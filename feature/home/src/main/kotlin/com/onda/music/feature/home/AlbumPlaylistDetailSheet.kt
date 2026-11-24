@@ -58,12 +58,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.util.lerp
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.onda.music.core.design.AgslMeshBackground
+import com.onda.music.core.design.AppMotion
 import com.onda.music.core.design.DockMetrics
 import com.onda.music.core.design.GlassElevation
 import com.onda.music.core.design.GlassSurface
@@ -86,7 +86,7 @@ internal fun AlbumPlaylistDetailSheet(
     hasMiniPlayer: Boolean,
     dynamicMeshEnabled: Boolean,
     glassBlurEnabled: Boolean,
-    detailFraction: Float,
+    detailFractionProvider: () -> Float,
     launchOrigin: CardLaunchOrigin,
     sharedTransitionScope: SharedTransitionScope?,
     animatedVisibilityScope: AnimatedVisibilityScope?,
@@ -113,7 +113,7 @@ internal fun AlbumPlaylistDetailSheet(
             .fillMaxSize()
             .onSizeChanged { rootSize = it }
             .graphicsLayer {
-                val p = detailFraction.coerceIn(0f, 1f)
+                val p = detailFractionProvider().coerceIn(0f, 1f)
                 val origin = launchOrigin.bounds
                 if (!reducedMotion && origin != null && rootSize.width > 0 && rootSize.height > 0) {
                     val fw = rootSize.width.toFloat()
@@ -125,9 +125,9 @@ internal fun AlbumPlaylistDetailSheet(
                     translationX = lerp(origin.center.x - fw * 0.5f, 0f, p)
                     translationY = lerp(origin.center.y - fh * 0.5f, 0f, p)
                     transformOrigin = TransformOrigin.Center
-                    val cornerPx = lerp(launchOrigin.cornerRadius, 0.dp, p).coerceAtLeast(0.dp).toPx()
-                    shape = RoundedCornerShape(cornerPx)
-                    clip = cornerPx > 0.5f
+                    val radiusDp = AppMotion.morphCornerRadius(launchOrigin.cornerRadius, 0.dp, p)
+                    shape = AppMotion.morphCornerShape(launchOrigin.cornerRadius, 0.dp, p)
+                    clip = radiusDp.value > 0.25f
                 }
                 alpha = homeSmoothstep(0f, 0.14f, p)
             }
@@ -155,7 +155,7 @@ internal fun AlbumPlaylistDetailSheet(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    alpha = homeSmoothstep(0.08f, 0.42f, detailFraction.coerceIn(0f, 1f))
+                    alpha = homeSmoothstep(0.08f, 0.42f, detailFractionProvider().coerceIn(0f, 1f))
                 }
         ) {
             LazyColumn(

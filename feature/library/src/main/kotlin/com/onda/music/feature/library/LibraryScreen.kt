@@ -5,10 +5,15 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -82,6 +87,7 @@ import com.onda.music.core.design.GlassTokens
 import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.design.SmoothCornerShape
 import com.onda.music.core.design.dockBottomPadding
+import com.onda.music.core.design.homeRecede
 import com.onda.music.core.design.ondaBlurSource
 import com.onda.music.core.design.rememberOndaBackdropState
 import com.onda.music.core.model.DownloadStatus
@@ -259,40 +265,40 @@ fun LibraryScreen(
     val libraryBackdropState = rememberOndaBackdropState()
     val reducedMotion = OndaTheme.reducedMotion
 
+    val activePlaylist = uiState.selectedPlaylist
+    val playlistVisible = uiState.selectedPlaylistId != null && activePlaylist != null
+    var lastPlaylist by remember { mutableStateOf<Playlist?>(null) }
+    var lastPlaylistTracks by remember { mutableStateOf<List<Track>>(emptyList()) }
+    LaunchedEffect(activePlaylist, uiState.selectedPlaylistTracks) {
+        if (activePlaylist != null) {
+            lastPlaylist = activePlaylist
+            lastPlaylistTracks = uiState.selectedPlaylistTracks
+        }
+    }
+    val playlistOpenFractionState = animateFloatAsState(
+        targetValue = if (playlistVisible) 1f else 0f,
+        animationSpec = if (reducedMotion) snap() else spring(dampingRatio = 0.88f, stiffness = 420f),
+        label = "LibraryPlaylistOpen"
+    )
+
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        val activePlaylist = uiState.selectedPlaylist
-        if (uiState.selectedPlaylistId != null && activePlaylist != null) {
-            PlaylistDetailView(
-                playlist = activePlaylist,
-                tracks = uiState.selectedPlaylistTracks,
-                activeTrackId = uiState.activeTrackId,
-                isPlaying = uiState.isPlaying,
-                hasMiniPlayer = uiState.hasMiniPlayer,
-                bottomDockClearance = bottomDockClearance,
-                onBack = onClosePlaylist,
-                onPlayAll = { shuffled -> onPlayAll(uiState.selectedPlaylistTracks, shuffled) },
-                onPlayTrack = { track -> onPlayTrack(track, uiState.selectedPlaylistTracks) },
-                onToggleLike = onToggleLike,
-                onAddTracksClick = { showAddTracksSheetForPlaylist = activePlaylist },
-                onRenameClick = { renameTarget = activePlaylist },
-                onDeleteClick = { deleteTarget = activePlaylist },
-                onRemoveTrack = { songId -> onRemoveTrackFromPlaylist(activePlaylist.id, songId) },
-                onReorderTracks = { reordered -> onReorderPlaylistTracks(activePlaylist.id, reordered) },
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .homeRecede(
+                    fractionProvider = { playlistOpenFractionState.value },
+                    reducedMotion = reducedMotion
+                )
+        ) {
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .statusBarsPadding()
-            )
-        } else {
-            Box(modifier = Modifier.fillMaxSize()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .ondaBlurSource(libraryBackdropState)
-                ) {
+                    .ondaBlurSource(libraryBackdropState)
+            ) {
                     AnimatedContent(
                         targetState = uiState.selectedTab,
                         transitionSpec = {
@@ -452,6 +458,49 @@ fun LibraryScreen(
                     onCreatePlaylist = { showCreateDialog = true },
                     onOpenSettings = onOpenSettings,
                     modifier = Modifier.align(Alignment.TopCenter)
+                )
+        }
+
+        AnimatedVisibility(
+            visible = playlistVisible,
+            enter = if (reducedMotion) {
+                fadeIn(tween(100))
+            } else {
+                slideInHorizontally(
+                    animationSpec = spring(dampingRatio = 0.88f, stiffness = 460f)
+                ) { it / 5 } + fadeIn(tween(190))
+            },
+            exit = if (reducedMotion) {
+                fadeOut(tween(90))
+            } else {
+                slideOutHorizontally(
+                    animationSpec = tween(200)
+                ) { it / 5 } + fadeOut(tween(150))
+            }
+        ) {
+            val shownPlaylist = activePlaylist ?: lastPlaylist
+            if (shownPlaylist != null) {
+                val shownTracks = if (activePlaylist != null) uiState.selectedPlaylistTracks else lastPlaylistTracks
+                PlaylistDetailView(
+                    playlist = shownPlaylist,
+                    tracks = shownTracks,
+                    activeTrackId = uiState.activeTrackId,
+                    isPlaying = uiState.isPlaying,
+                    hasMiniPlayer = uiState.hasMiniPlayer,
+                    bottomDockClearance = bottomDockClearance,
+                    onBack = onClosePlaylist,
+                    onPlayAll = { shuffled -> onPlayAll(shownTracks, shuffled) },
+                    onPlayTrack = { track -> onPlayTrack(track, shownTracks) },
+                    onToggleLike = onToggleLike,
+                    onAddTracksClick = { showAddTracksSheetForPlaylist = shownPlaylist },
+                    onRenameClick = { renameTarget = shownPlaylist },
+                    onDeleteClick = { deleteTarget = shownPlaylist },
+                    onRemoveTrack = { songId -> onRemoveTrackFromPlaylist(shownPlaylist.id, songId) },
+                    onReorderTracks = { reordered -> onReorderPlaylistTracks(shownPlaylist.id, reordered) },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black)
+                        .statusBarsPadding()
                 )
             }
         }

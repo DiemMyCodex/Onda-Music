@@ -291,7 +291,8 @@ fun TimelinePlayerStyle(
                     centered = false,
                     showControls = true,
                     playbackSpeed = state.playbackSpeed,
-                    trackKey = track?.id
+                    trackKey = track?.id,
+                    accentColor = palette.primary
                 )
             }
         } else {
@@ -633,7 +634,8 @@ fun LyricsStagePlayerStyle(
                 centered = true,
                 showControls = true,
                 playbackSpeed = state.playbackSpeed,
-                trackKey = track?.id
+                trackKey = track?.id,
+                accentColor = palette.primary
             )
         }
 
@@ -1575,7 +1577,8 @@ fun BedsideTilesPlayerStyle(
                                     centered = true,
                                     showControls = false,
                                     playbackSpeed = state.playbackSpeed,
-                                    trackKey = track?.id
+                                    trackKey = track?.id,
+                                    accentColor = palette.primary
                                 )
                             }
                         }
@@ -1716,7 +1719,8 @@ fun BedsideTilesPlayerStyle(
                             centered = false,
                             showControls = false,
                             playbackSpeed = state.playbackSpeed,
-                            trackKey = track?.id
+                            trackKey = track?.id,
+                            accentColor = palette.primary
                         )
                     }
                 }

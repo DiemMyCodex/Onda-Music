@@ -42,6 +42,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -256,7 +257,7 @@ fun UnifiedDock(
     tabIcons: List<ImageVector>,
     selectedTabIndex: Int,
     onSelectTab: (Int) -> Unit,
-    morphFraction: Float,
+    morphFractionProvider: () -> Float,
     onMorphFractionChange: (Float) -> Unit,
     onExpandPlayer: () -> Unit,
     modifier: Modifier = Modifier,
@@ -278,11 +279,12 @@ fun UnifiedDock(
     val scope = rememberCoroutineScope()
     var isVerticalDragging by remember { mutableStateOf(false) }
     var isSettlingMorph by remember { mutableStateOf(false) }
-    val clampedMorph = morphFraction.coerceIn(0f, 1f)
-    val dockAlpha = (1f - clampedMorph * 1.75f).coerceIn(0f, 1f)
     val density = LocalDensity.current
 
-    if (dockAlpha <= 0.01f && !isVerticalDragging && !isSettlingMorph) return
+    val isDockVisible by remember(morphFractionProvider) {
+        derivedStateOf { morphFractionProvider() < 0.566f }
+    }
+    if (!isDockVisible && !isVerticalDragging && !isSettlingMorph) return
 
     val queue = playbackState.queue
     val currentIndex = playbackState.currentIndex
@@ -306,7 +308,10 @@ fun UnifiedDock(
             Spacer(
                 modifier = Modifier
                     .matchParentSize()
-                    .graphicsLayer { alpha = dockAlpha }
+                    .graphicsLayer {
+                        val m = morphFractionProvider().coerceIn(0f, 1f)
+                        alpha = (1f - m * 1.75f).coerceIn(0f, 1f)
+                    }
                     .drawBehind { drawRect(brush = bottomScrimBrush) }
             )
 
@@ -316,22 +321,38 @@ fun UnifiedDock(
                     .padding(top = 42.dp)
                     .navigationBarsPadding()
                     .padding(start = 24.dp, end = 24.dp, bottom = 10.dp)
-                    .graphicsLayer { alpha = dockAlpha },
+                    .graphicsLayer {
+                        val m = morphFractionProvider().coerceIn(0f, 1f)
+                        alpha = (1f - m * 1.75f).coerceIn(0f, 1f)
+                    },
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 AnimatedVisibility(
                     visible = playbackState.currentTrack != null,
-                    enter = fadeIn() + slideInVertically { it / 2 },
-                    exit = fadeOut() + slideOutVertically { it / 2 }
+                    enter = if (reducedMotion) {
+                        fadeIn(tween(120))
+                    } else {
+                        slideInVertically(
+                            animationSpec = spring(dampingRatio = 0.82f, stiffness = 460f)
+                        ) { it / 2 } + fadeIn(tween(180))
+                    },
+                    exit = if (reducedMotion) {
+                        fadeOut(tween(100))
+                    } else {
+                        slideOutVertically(
+                            animationSpec = tween(160)
+                        ) { it / 2 } + fadeOut(tween(140))
+                    }
                 ) {
                     playbackState.currentTrack?.let { track ->
                         val durationMs = playbackState.durationMs.coerceAtLeast(1L)
                         val progress = (playbackState.positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
                         Box(
                             modifier = Modifier.graphicsLayer {
-                                translationY = -with(density) { 38.dp.toPx() } * clampedMorph
+                                val m = morphFractionProvider().coerceIn(0f, 1f)
+                                translationY = -with(density) { 38.dp.toPx() } * m
                                 if (!reducedMotion) {
-                                    val s = lerp(1f, 1.03f, clampedMorph)
+                                    val s = lerp(1f, 1.03f, m)
                                     scaleX = s
                                     scaleY = s
                                 }
@@ -345,7 +366,7 @@ fun UnifiedDock(
                                 progress = progress,
                                 blurEnabled = settings.glassBlurEnabled,
                                 hapticsEnabled = settings.hapticsEnabled,
-                                morphFraction = clampedMorph,
+                                morphFractionProvider = morphFractionProvider,
                                 onMorphFractionChange = onMorphFractionChange,
                                 onExpandPlayer = onExpandPlayer,
                                 onTogglePlayPause = viewModel::togglePlayPause,
@@ -361,9 +382,10 @@ fun UnifiedDock(
 
                 Box(
                     modifier = Modifier.graphicsLayer {
-                        val tabFade = (1f - clampedMorph * 2.3f).coerceIn(0f, 1f)
+                        val m = morphFractionProvider().coerceIn(0f, 1f)
+                        val tabFade = (1f - m * 2.3f).coerceIn(0f, 1f)
                         alpha = tabFade
-                        translationY = with(density) { 42.dp.toPx() } * clampedMorph
+                        translationY = with(density) { 42.dp.toPx() } * m
                     }
                 ) {
                     DockTabPill(
@@ -390,7 +412,7 @@ private fun MiniPlayerBar(
     progress: Float,
     blurEnabled: Boolean,
     hapticsEnabled: Boolean,
-    morphFraction: Float,
+    morphFractionProvider: () -> Float,
     onMorphFractionChange: (Float) -> Unit,
     onExpandPlayer: () -> Unit,
     onTogglePlayPause: () -> Unit,
@@ -419,7 +441,7 @@ private fun MiniPlayerBar(
     val horizontalFlingPx = with(density) { 420.dp.toPx() }
     val shape = SmoothCornerShape(20.dp)
 
-    val currentMorph by rememberUpdatedState(morphFraction)
+    val currentMorphProvider by rememberUpdatedState(morphFractionProvider)
     val currentOnMorph by rememberUpdatedState(onMorphFractionChange)
     val currentOnExpand by rememberUpdatedState(onExpandPlayer)
     val currentOnSkipNext by rememberUpdatedState(onSkipNext)
@@ -455,7 +477,7 @@ private fun MiniPlayerBar(
             .pointerInput(track.id) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
-                    if (currentMorph > 0.65f) return@awaitEachGesture
+                    if (currentMorphProvider() > 0.65f) return@awaitEachGesture
                     val velocityTracker = VelocityTracker()
                     velocityTracker.addPointerInputChange(down)
 
@@ -573,8 +595,8 @@ private fun MiniPlayerBar(
                                     axis = if (abs(totalDx) >= abs(totalDy)) {
                                         skipJob?.cancel()
                                         MiniDragAxis.HORIZONTAL
-                                    } else if (totalDy < 0f || currentMorph > 0.01f) {
-                                        startMorph = currentMorph
+                                    } else if (totalDy < 0f || currentMorphProvider() > 0.01f) {
+                                        startMorph = currentMorphProvider().coerceIn(0f, 1f)
                                         lastMorph = startMorph
                                         MorphGestureArbitrator.claim()
                                         settleJob?.cancel()

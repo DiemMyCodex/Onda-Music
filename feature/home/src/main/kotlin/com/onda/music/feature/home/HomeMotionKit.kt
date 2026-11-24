@@ -116,6 +116,7 @@ import coil3.toBitmap
 import com.onda.music.core.design.DockMetrics
 import com.onda.music.core.design.GlassTokens
 import com.onda.music.core.design.OndaArtworkPalette
+import com.onda.music.core.design.OndaMonogramMark
 import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.design.SmoothCornerShape
 import kotlinx.coroutines.CancellationException
@@ -371,16 +372,18 @@ internal fun HomeBonesHost(
                         .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                         .drawWithContent {
                             drawContent()
+                            val w = size.width
                             val h = size.height
-                            val band = h * 0.78f + 1f
-                            val center = -band + phase.value * (h + band * 2f)
+                            val band = maxOf(w, h) * 0.55f + 1f
+                            val centerX = -band + phase.value * (w + band * 2f)
+                            val centerY = -band + phase.value * (h + band * 2f)
                             drawRect(
-                                brush = Brush.verticalGradient(
-                                    0f to Color.Black.copy(alpha = 0.42f),
+                                brush = Brush.linearGradient(
+                                    0f to Color.Black.copy(alpha = 0.48f),
                                     0.5f to Color.Black,
-                                    1f to Color.Black.copy(alpha = 0.42f),
-                                    startY = center - band,
-                                    endY = center + band
+                                    1f to Color.Black.copy(alpha = 0.48f),
+                                    start = Offset(centerX - band * 0.55f, centerY - band * 0.55f),
+                                    end = Offset(centerX + band * 0.55f, centerY + band * 0.55f)
                                 ),
                                 blendMode = BlendMode.DstIn
                             )
@@ -420,9 +423,23 @@ internal fun HomeHeroSkeleton(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(OledFallbackSurface)
+                .background(
+                    Brush.verticalGradient(
+                        0.0f to Color(0xFF141416),
+                        0.55f to Color(0xFF0B0B0D),
+                        1.0f to Color(0xFF000000)
+                    )
+                )
                 .padding(horizontal = 24.dp, vertical = 24.dp)
         ) {
+            OndaMonogramMark(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(52.dp)
+                    .graphicsLayer { alpha = 0.22f },
+                tint = Color.White,
+                filled = false
+            )
             Column(
                 modifier = Modifier.align(Alignment.BottomStart),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -431,6 +448,13 @@ internal fun HomeHeroSkeleton(
                 HomeBone(width = 244.dp, height = 28.dp, shape = RoundedCornerShape(10.dp))
                 HomeBone(width = 148.dp, height = 14.dp, shape = RoundedCornerShape(7.dp))
                 HomeBone(width = 92.dp, height = 36.dp, shape = RoundedCornerShape(999.dp))
+            }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(bottom = 20.dp)
+            ) {
+                HomeBone(width = 34.dp, height = 2.dp, shape = RoundedCornerShape(50))
             }
         }
     }

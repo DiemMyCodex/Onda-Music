@@ -157,7 +157,7 @@ fun SearchScreen(
     val focusedHistoryListState = rememberLazyListState()
 
     val isActiveSearch = isSearchFocused || uiState.query.isNotBlank()
-    val activeProgress by animateFloatAsState(
+    val activeProgressState = animateFloatAsState(
         targetValue = if (isActiveSearch) 1f else 0f,
         animationSpec = if (reducedMotion) snap() else tween(360, easing = CubicBezierEasing(0.4f, 0f, 0.1f, 1f)),
         label = "searchActiveFade"
@@ -167,9 +167,9 @@ fun SearchScreen(
         isSearchFocused -> focusedHistoryListState
         else -> browseListState
     }
-    val scrollCollapse by rememberSearchCollapseProgress(activeListState)
-    val barCollapseProvider = remember(scrollCollapse, activeProgress) {
-        { maxOf(scrollCollapse, activeProgress) }
+    val scrollCollapseState = rememberSearchCollapseProgress(activeListState)
+    val barCollapseProvider = remember(scrollCollapseState, activeProgressState) {
+        { maxOf(scrollCollapseState.value, activeProgressState.value) }
     }
 
     val drillDownVisible = uiState.drillDownState.isVisible
@@ -180,7 +180,7 @@ fun SearchScreen(
             lastDrillDown = uiState.drillDownState
         }
     }
-    val drillDownFraction by animateFloatAsState(
+    val drillDownFractionState = animateFloatAsState(
         targetValue = if (drillDownVisible) 1f else 0f,
         animationSpec = if (reducedMotion) {
             snap()
@@ -201,8 +201,11 @@ fun SearchScreen(
         keyboardController?.hide()
     }
 
-    val showBrowse by remember { derivedStateOf { activeProgress < 0.995f } }
-    val showActive by remember { derivedStateOf { activeProgress > 0.005f } }
+    val showBrowse by remember { derivedStateOf { activeProgressState.value < 0.995f } }
+    val showActive by remember { derivedStateOf { activeProgressState.value > 0.005f } }
+    val showDrillDownOverlay by remember(drillDownVisible) {
+        derivedStateOf { drillDownVisible || drillDownFractionState.value > 0.005f }
+    }
     val topBarExpandedPadding = searchExpandedTopPadding(hasFilterRow = uiState.query.isNotBlank())
 
     Box(
@@ -213,13 +216,16 @@ fun SearchScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .homeRecede(fraction = drillDownFraction, reducedMotion = reducedMotion)
+                .homeRecede(
+                    fractionProvider = { drillDownFractionState.value },
+                    reducedMotion = reducedMotion
+                )
         ) {
             if (showBrowse) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .graphicsLayer { alpha = 1f - activeProgress }
+                        .graphicsLayer { alpha = 1f - activeProgressState.value }
                 ) {
                     SearchBrowseBody(
                         uiState = uiState,
@@ -248,7 +254,7 @@ fun SearchScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .graphicsLayer { alpha = activeProgress }
+                        .graphicsLayer { alpha = activeProgressState.value }
                 ) {
                     if (uiState.query.isBlank()) {
                         SearchFocusedIdleBody(
@@ -351,13 +357,13 @@ fun SearchScreen(
         }
 
         val shownDrillDown = if (drillDownVisible) uiState.drillDownState else lastDrillDown
-        if (shownDrillDown != null && shownDrillDown.isVisible && (drillDownVisible || drillDownFraction > 0.005f)) {
+        if (shownDrillDown != null && shownDrillDown.isVisible && showDrillDownOverlay) {
             CollectionDrillDownSheet(
                 state = shownDrillDown,
                 currentTrackId = uiState.currentTrackId,
                 isPlaying = uiState.isPlaying,
                 hasMiniPlayer = uiState.hasMiniPlayer,
-                openFraction = drillDownFraction,
+                openFractionProvider = { drillDownFractionState.value },
                 launchOrigin = launchOrigin,
                 onPlayAll = onPlayDrillDownAll,
                 onShufflePlay = onShuffleDrillDown,

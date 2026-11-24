@@ -1,5 +1,6 @@
 package com.onda.music.feature.player
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutLinearInEasing
@@ -8,6 +9,11 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -124,6 +130,7 @@ import com.onda.music.core.model.RepeatMode
 import com.onda.music.core.model.StudioArtworkFrame
 import com.onda.music.core.model.StudioSeekbarStyle
 import com.onda.music.core.model.Track
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
@@ -932,9 +939,25 @@ fun PlayerTransportControls(
     val nextInteraction = remember { MutableInteractionSource() }
     val repeatInteraction = remember { MutableInteractionSource() }
 
+    val shuffleKick = remember { Animatable(0f) }
     val prevKick = remember { Animatable(0f) }
     val nextKick = remember { Animatable(0f) }
     val repeatSpin = remember { Animatable(0f) }
+    var shuffleKickJob by remember { mutableStateOf<Job?>(null) }
+    var prevKickJob by remember { mutableStateOf<Job?>(null) }
+    var nextKickJob by remember { mutableStateOf<Job?>(null) }
+    var repeatSpinJob by remember { mutableStateOf<Job?>(null) }
+
+    val shuffleTint by animateColorAsState(
+        targetValue = if (playbackState.shuffleEnabled) Color.White else Color(0xFF9E9E9E),
+        animationSpec = if (reducedMotion) snap() else tween(180),
+        label = "ShuffleTint"
+    )
+    val repeatTint by animateColorAsState(
+        targetValue = if (playbackState.repeatMode != RepeatMode.OFF) Color.White else Color(0xFF9E9E9E),
+        animationSpec = if (reducedMotion) snap() else tween(180),
+        label = "RepeatTint"
+    )
 
     var displayedPlaying by remember { mutableStateOf(isPlaying) }
     val playSquash = remember { Animatable(1f) }
@@ -959,6 +982,14 @@ fun PlayerTransportControls(
         IconButton(
             onClick = {
                 if (hapticsEnabled) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                if (!reducedMotion) {
+                    shuffleKickJob?.cancel()
+                    shuffleKickJob = scope.launch {
+                        shuffleKick.snapTo(0f)
+                        shuffleKick.animateTo(1f, tween(75))
+                        shuffleKick.animateTo(0f, spring(dampingRatio = 0.48f, stiffness = 500f))
+                    }
+                }
                 onToggleShuffle()
             },
             interactionSource = shuffleInteraction,
@@ -975,8 +1006,14 @@ fun PlayerTransportControls(
             Icon(
                 imageVector = Icons.Rounded.Shuffle,
                 contentDescription = "Shuffle",
-                tint = if (playbackState.shuffleEnabled) Color.White else Color(0xFF9E9E9E),
-                modifier = Modifier.size(22.dp)
+                tint = shuffleTint,
+                modifier = Modifier
+                    .size(22.dp)
+                    .graphicsLayer {
+                        val s = 1f + shuffleKick.value * 0.14f
+                        scaleX = s
+                        scaleY = s
+                    }
             )
         }
 
@@ -984,7 +1021,8 @@ fun PlayerTransportControls(
             onClick = {
                 if (hapticsEnabled) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 if (!reducedMotion) {
-                    scope.launch {
+                    prevKickJob?.cancel()
+                    prevKickJob = scope.launch {
                         prevKick.animateTo(-1f, tween(80))
                         prevKick.animateTo(0f, spring(dampingRatio = 0.55f, stiffness = 460f))
                     }
@@ -1040,28 +1078,41 @@ fun PlayerTransportControls(
                 },
             contentAlignment = Alignment.Center
         ) {
-            if (isBuffering) {
-                CircularProgressIndicator(
-                    color = Color.Black,
-                    strokeWidth = 2.5.dp,
-                    modifier = Modifier.size(26.dp)
-                )
-            } else {
-                OndaAnimatedPlayGlyph(
-                    isPlaying = isPlaying,
-                    reducedMotion = reducedMotion,
-                    tint = Color.Black,
-                    modifier = Modifier
-                        .size(if (compact) 26.dp else 30.dp)
-                        .semantics {
-                            contentDescription = if (isPlaying) "Pause" else "Play"
-                        }
-                        .graphicsLayer {
-                            val s = if (reducedMotion) 1f else playSquash.value
-                            scaleX = s
-                            scaleY = s
-                        }
-                )
+            AnimatedContent(
+                targetState = isBuffering,
+                transitionSpec = {
+                    if (reducedMotion) {
+                        fadeIn(snap()) togetherWith fadeOut(snap())
+                    } else {
+                        (fadeIn(tween(140)) + scaleIn(tween(140), initialScale = 0.8f)) togetherWith
+                            (fadeOut(tween(120)) + scaleOut(tween(120), targetScale = 0.8f))
+                    }
+                },
+                label = "PlayBufferState"
+            ) { buffering ->
+                if (buffering) {
+                    CircularProgressIndicator(
+                        color = Color.Black,
+                        strokeWidth = 2.5.dp,
+                        modifier = Modifier.size(26.dp)
+                    )
+                } else {
+                    OndaAnimatedPlayGlyph(
+                        isPlaying = isPlaying,
+                        reducedMotion = reducedMotion,
+                        tint = Color.Black,
+                        modifier = Modifier
+                            .size(if (compact) 26.dp else 30.dp)
+                            .semantics {
+                                contentDescription = if (isPlaying) "Pause" else "Play"
+                            }
+                            .graphicsLayer {
+                                val s = if (reducedMotion) 1f else playSquash.value
+                                scaleX = s
+                                scaleY = s
+                            }
+                    )
+                }
             }
         }
 
@@ -1069,7 +1120,8 @@ fun PlayerTransportControls(
             onClick = {
                 if (hapticsEnabled) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 if (!reducedMotion) {
-                    scope.launch {
+                    nextKickJob?.cancel()
+                    nextKickJob = scope.launch {
                         nextKick.animateTo(1f, tween(80))
                         nextKick.animateTo(0f, spring(dampingRatio = 0.55f, stiffness = 460f))
                     }
@@ -1103,7 +1155,8 @@ fun PlayerTransportControls(
             onClick = {
                 if (hapticsEnabled) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 if (!reducedMotion) {
-                    scope.launch {
+                    repeatSpinJob?.cancel()
+                    repeatSpinJob = scope.launch {
                         repeatSpin.animateTo(1f, tween(110, easing = FastOutSlowInEasing))
                         repeatSpin.animateTo(0f, spring(dampingRatio = 0.40f, stiffness = 260f))
                     }
@@ -1129,7 +1182,7 @@ fun PlayerTransportControls(
             Icon(
                 imageVector = repeatIcon,
                 contentDescription = "Repeat mode",
-                tint = if (playbackState.repeatMode != RepeatMode.OFF) Color.White else Color(0xFF9E9E9E),
+                tint = repeatTint,
                 modifier = Modifier
                     .size(22.dp)
                     .graphicsLayer {

@@ -4,7 +4,6 @@ import android.Manifest
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ObjectAnimator
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -46,6 +45,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -103,8 +103,8 @@ class MainActivity : ComponentActivity() {
         playbackController.warmUp()
         splashScreen.setOnExitAnimationListener { provider ->
             val fadeOut = ObjectAnimator.ofFloat(provider.view, View.ALPHA, 1f, 0f)
-            fadeOut.duration = 110L
-            fadeOut.interpolator = PathInterpolator(0.4f, 0f, 1f, 1f)
+            fadeOut.duration = 80L
+            fadeOut.interpolator = PathInterpolator(0.2f, 0f, 0f, 1f)
             fadeOut.addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
                     provider.remove()
@@ -112,7 +112,7 @@ class MainActivity : ComponentActivity() {
             })
             fadeOut.start()
         }
-        val playLaunchIntro = savedInstanceState == null && intent?.action == Intent.ACTION_MAIN
+        val playLaunchIntro = savedInstanceState == null
         WindowCompat.setDecorFitsSystemWindows(window, false)
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
@@ -253,7 +253,10 @@ private fun OndaRootShell(
         showSettings = true
     }
 
-    BackHandler(enabled = showSettings && morphAnimatable.value <= 0.05f) {
+    val canCloseSettingsByBack by remember {
+        derivedStateOf { showSettings && morphAnimatable.value <= 0.05f }
+    }
+    BackHandler(enabled = canCloseSettingsByBack) {
         showSettings = false
     }
 
@@ -349,7 +352,7 @@ private fun OndaRootShell(
                     selectedTabIndex = index
                     showSettings = false
                 },
-                morphFraction = morphAnimatable.value,
+                morphFractionProvider = { morphAnimatable.value },
                 onMorphFractionChange = onMorphFractionChange,
                 onExpandPlayer = { onMorphFractionChange(1f) },
                 modifier = Modifier
@@ -359,7 +362,7 @@ private fun OndaRootShell(
             )
 
             FullPlayerOverlay(
-                morphFraction = morphAnimatable.value,
+                morphFractionProvider = { morphAnimatable.value },
                 onMorphFractionChange = onMorphFractionChange,
                 onCollapse = { onMorphFractionChange(0f) },
                 onOpenSettings = openSettingsFromAny,

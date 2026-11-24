@@ -12,7 +12,8 @@ data class StreamOption(
     val codec: String,
     val qualityLabel: String,
     val expiresAtMs: Long? = null,
-    val source: SourceKind = SourceKind.YOUTUBE
+    val source: SourceKind = SourceKind.YOUTUBE,
+    val userAgent: String? = null
 )
 
 @Serializable

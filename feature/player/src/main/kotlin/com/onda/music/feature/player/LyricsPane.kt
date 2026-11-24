@@ -7,7 +7,6 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -41,7 +40,6 @@ import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Remove
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -65,12 +63,14 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp as colorLerp
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
@@ -83,6 +83,7 @@ import androidx.compose.ui.util.lerp
 import com.onda.music.core.design.AppMotion
 import com.onda.music.core.design.DockMetrics
 import com.onda.music.core.design.GlassTokens
+import com.onda.music.core.design.OndaAcousticBarLoader
 import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.design.RoundedHighlight
 import com.onda.music.core.model.LyricsDocument
@@ -213,10 +214,14 @@ fun LyricsPane(
     showControls: Boolean = true,
     onLongPressLine: ((Int) -> Unit)? = null,
     playbackSpeed: Float = 1.0f,
-    trackKey: Any? = null
+    trackKey: Any? = null,
+    accentColor: Color = Color.White
 ) {
     val reducedMotion = OndaTheme.reducedMotion
     val motionActive = lyricsMotionEnabled && !reducedMotion
+    val glowTint = remember(accentColor) {
+        colorLerp(Color.White, accentColor, 0.32f)
+    }
     val haptics = LocalHapticFeedback.current
     val density = LocalDensity.current
     val listState = rememberLazyListState()
@@ -400,12 +405,14 @@ fun LyricsPane(
                     ) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
-                            CircularProgressIndicator(
-                                color = Color.White,
-                                strokeWidth = 2.5.dp,
-                                modifier = Modifier.size(28.dp)
+                            OndaAcousticBarLoader(
+                                barCount = 5,
+                                barWidth = 3.dp,
+                                barSpacing = 5.dp,
+                                maxHeight = 22.dp,
+                                color = glowTint
                             )
                             Text(
                                 text = "Loading synced lyrics...",
@@ -484,15 +491,18 @@ fun LyricsPane(
                             val isActive = isSynced && index == activeIndex
                             val isPast = isSynced && activeIndex >= 0 && index < activeIndex
                             val distance = if (activeIndex >= 0) abs(index - activeIndex).coerceAtMost(8) else 0
+                            val nextLineStartMs = lines.getOrNull(index + 1)?.startTimeMs
 
                             LyricsLineRow(
                                 rowIndex = index,
                                 line = line,
+                                nextLineStartMs = nextLineStartMs,
                                 isActive = isActive,
                                 isPast = isPast,
                                 isSynced = isSynced,
                                 hasWordTiming = hasWordTiming,
                                 smoothPositionProvider = smoothPositionProvider,
+                                glowColor = glowTint,
                                 distanceFromActive = distance,
                                 isUserScrolling = userDetachedScroll,
                                 isPlaying = isPlaying,
@@ -569,11 +579,13 @@ fun LyricsPane(
 private fun LyricsLineRow(
     rowIndex: Int,
     line: LyricsLine,
+    nextLineStartMs: Long?,
     isActive: Boolean,
     isPast: Boolean,
     isSynced: Boolean,
     hasWordTiming: Boolean,
     smoothPositionProvider: () -> Long,
+    glowColor: Color,
     distanceFromActive: Int,
     isUserScrolling: Boolean,
     isPlaying: Boolean,
@@ -604,7 +616,7 @@ private fun LyricsLineRow(
                 isPlaying = isPlaying,
                 motionActive = motionActive,
                 progress = interludeProgress,
-                accentColor = Color.White,
+                accentColor = glowColor,
                 visible = isActive
             )
         }
@@ -621,14 +633,19 @@ private fun LyricsLineRow(
         label = "LyricRowFocus"
     )
 
-    val inactiveAlpha = if (isPast) 0.34f else 0.48f
+    val inactiveAlpha = when {
+        distanceFromActive <= 1 -> if (isPast) 0.40f else 0.58f
+        distanceFromActive == 2 -> if (isPast) 0.26f else 0.38f
+        else -> if (isPast) 0.16f else 0.24f
+    }
     val rowAlpha = if (!isSynced) 1f else lerp(inactiveAlpha, 1f, focus)
-    val rowScale = if (motionActive && isSynced) lerp(0.95f, 1.03f, focus) else 1f
+    val rowScale = if (motionActive && isSynced) lerp(0.935f, 1.035f, focus) else 1f
     val rowBlurPx = when {
         !motionActive || !isSynced || isActive || isUserScrolling || Build.VERSION.SDK_INT < Build.VERSION_CODES.S -> 0f
-        distanceFromActive <= 1 -> 0f
+        distanceFromActive <= 1 -> 1.0f
         distanceFromActive == 2 -> 2.5f
-        else -> 4.5f
+        distanceFromActive == 3 -> 4.0f
+        else -> 5.5f
     }
 
     val alignment = if (centered) Alignment.CenterHorizontally else Alignment.Start
@@ -636,7 +653,19 @@ private fun LyricsLineRow(
     val rowInteraction = remember { MutableInteractionSource() }
     val density = LocalDensity.current
     val pillRadiusPx = with(density) { GlassTokens.RadiusSm.toPx() }
-    val showWordSweep = hasWordTiming && line.words.isNotEmpty() && isActive
+    val pillarWidthPx = with(density) { 2.5.dp.toPx() }
+    val showWordSweep = isSynced && line.text.isNotBlank() && (isActive || (isPast && focus > 0.08f))
+    val resolvedWords = remember(line, nextLineStartMs, hasWordTiming) {
+        if (isSynced && line.text.isNotBlank()) {
+            synthesizeWordTimings(
+                line = line,
+                nextLineStartMs = nextLineStartMs,
+                preferExplicit = hasWordTiming
+            )
+        } else {
+            emptyList()
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -674,27 +703,49 @@ private fun LyricsLineRow(
                 }
             }
             .drawBehind {
-                val glowAlpha = 0.08f * focus
+                val glowAlpha = 0.10f * focus
                 if (isSynced && glowAlpha > 0.002f) {
+                    val spotlightBrush = if (centered) {
+                        Brush.horizontalGradient(
+                            0.0f to Color.Transparent,
+                            0.5f to glowColor.copy(alpha = glowAlpha),
+                            1.0f to Color.Transparent
+                        )
+                    } else {
+                        Brush.horizontalGradient(
+                            0.0f to glowColor.copy(alpha = glowAlpha),
+                            0.65f to glowColor.copy(alpha = glowAlpha * 0.42f),
+                            1.0f to Color.Transparent
+                        )
+                    }
                     drawRoundRect(
-                        color = Color.White.copy(alpha = glowAlpha),
+                        brush = spotlightBrush,
                         cornerRadius = CornerRadius(pillRadiusPx, pillRadiusPx)
                     )
+                    if (!centered) {
+                        drawRoundRect(
+                            color = glowColor.copy(alpha = 0.72f * focus),
+                            topLeft = Offset(0f, size.height * 0.16f),
+                            size = Size(pillarWidthPx, size.height * 0.68f),
+                            cornerRadius = CornerRadius(pillarWidthPx * 0.5f, pillarWidthPx * 0.5f)
+                        )
+                    }
                 }
             }
             .padding(horizontal = 12.dp, vertical = 10.dp),
         horizontalAlignment = alignment,
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        if (showWordSweep) {
+        if (showWordSweep && resolvedWords.isNotEmpty()) {
             WordSweepLine(
-                words = line.words,
+                words = resolvedWords,
                 smoothPositionProvider = smoothPositionProvider,
                 fontScale = fontScale,
                 centered = centered,
                 motionActive = motionActive,
                 activeColor = Color.White,
-                baseColor = Color(0x66FFFFFF)
+                baseColor = Color(0x52FFFFFF),
+                glowColor = glowColor
             )
         } else {
             Text(
@@ -747,18 +798,24 @@ private fun WordSweepLine(
     centered: Boolean,
     motionActive: Boolean,
     activeColor: Color,
-    baseColor: Color
+    baseColor: Color,
+    glowColor: Color
 ) {
     val style = MaterialTheme.typography.headlineMedium.copy(
         fontSize = (21f * fontScale).sp,
         lineHeight = (28f * fontScale).sp,
         fontWeight = FontWeight.Bold
     )
+    val wordGap = (5.5f * fontScale.coerceIn(0.8f, 1.4f)).dp
 
     FlowRow(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (centered) Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally) else Arrangement.spacedBy(6.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
+        horizontalArrangement = if (centered) {
+            Arrangement.spacedBy(wordGap, Alignment.CenterHorizontally)
+        } else {
+            Arrangement.spacedBy(wordGap)
+        },
+        verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
         words.forEach { word ->
             FeatheredSweepWord(
@@ -769,7 +826,8 @@ private fun WordSweepLine(
                 positionProvider = smoothPositionProvider,
                 activeColor = activeColor,
                 baseColor = baseColor,
-                motionActive = motionActive
+                motionActive = motionActive,
+                glowColor = glowColor
             )
         }
     }

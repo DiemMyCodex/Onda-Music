@@ -5,7 +5,6 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
@@ -89,6 +88,7 @@ import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.onda.music.core.design.GlassTokens
+import com.onda.music.core.design.OndaPagerIndicator
 import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.design.SmoothCornerShape
 import com.onda.music.core.design.damageBoundary
@@ -388,32 +388,26 @@ internal fun HomeHeroCarousel(
             }
 
             if (cards.size > 1) {
-                val activeIndex = pagerState.currentPage % cards.size
-                Row(
+                OndaPagerIndicator(
+                    count = cards.size,
+                    positionProvider = {
+                        if (reducedMotion) {
+                            (pagerState.currentPage % cards.size).toFloat()
+                        } else {
+                            pagerState.currentPage + pagerState.currentPageOffsetFraction
+                        }
+                    },
+                    activeWidth = 16.dp,
+                    inactiveWidth = 6.dp,
+                    dotHeight = 2.dp,
+                    spacing = 4.dp,
+                    activeColor = Color.White,
+                    inactiveColor = Color(0x44FFFFFF),
+                    loop = true,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(end = 24.dp, bottom = 44.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    cards.forEachIndexed { idx, _ ->
-                        val selected = idx == activeIndex
-                        val segmentWidth by animateDpAsState(
-                            targetValue = if (selected) 16.dp else 6.dp,
-                            animationSpec = if (reducedMotion) snap() else tween(200),
-                            label = "heroSegmentWidth"
-                        )
-                        Box(
-                            modifier = Modifier
-                                .height(2.dp)
-                                .width(segmentWidth)
-                                .clip(RoundedCornerShape(50))
-                                .background(
-                                    if (selected) Color.White else Color(0x44FFFFFF)
-                                )
-                        )
-                    }
-                }
+                        .padding(end = 24.dp, bottom = 44.dp)
+                )
             }
         }
     }

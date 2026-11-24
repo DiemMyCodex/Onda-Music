@@ -50,6 +50,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -94,11 +95,13 @@ import com.onda.music.core.design.press3D
 import com.onda.music.core.model.PlaybackStatus
 import com.onda.music.core.model.Track
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 private enum class MiniDragAxis {
     NONE,
@@ -106,19 +109,132 @@ private enum class MiniDragAxis {
     VERTICAL
 }
 
-private val NavHighlightLead = spring<Float>(dampingRatio = 0.82f, stiffness = 700f)
-private val NavHighlightTrail = spring<Float>(dampingRatio = 0.82f, stiffness = 320f)
 private val PillRiseSpring = spring<Float>(dampingRatio = 0.55f, stiffness = 420f)
 private val PillSettleSpring = spring<Float>(dampingRatio = 0.72f, stiffness = 320f)
 private val NavHighlightInset = 8.dp
 private val NavHighlightGap = 6.dp
+private const val HighlightLeadStiffness = 700f
+private const val HighlightTrailStiffness = 320f
+private const val HighlightDampingRatio = 0.82f
+private const val HighlightSettleEpsilon = 0.0005f
+
+internal data class DockHighlightStep(
+    val start: Float,
+    val startVel: Float,
+    val end: Float,
+    val endVel: Float
+)
+
+internal fun stepDockHighlightSpring(
+    start: Float,
+    startVel: Float,
+    end: Float,
+    endVel: Float,
+    target: Float,
+    dtSeconds: Float
+): DockHighlightStep {
+    val movingRight = target > (start + end) * 0.5f
+    val startStiffness = if (movingRight) HighlightTrailStiffness else HighlightLeadStiffness
+    val endStiffness = if (movingRight) HighlightLeadStiffness else HighlightTrailStiffness
+    val startDamping = 2f * HighlightDampingRatio * sqrt(startStiffness)
+    val endDamping = 2f * HighlightDampingRatio * sqrt(endStiffness)
+    val subDt = dtSeconds.coerceIn(0.001f, 0.032f) * 0.5f
+
+    var s = start
+    var sv = startVel
+    var e = end
+    var ev = endVel
+
+    for (substep in 0..1) {
+        val sa = startStiffness * (target - s) - startDamping * sv
+        sv += sa * subDt
+        s += sv * subDt
+
+        val ea = endStiffness * (target - e) - endDamping * ev
+        ev += ea * subDt
+        e += ev * subDt
+    }
+
+    return DockHighlightStep(
+        start = s,
+        startVel = sv,
+        end = e,
+        endVel = ev
+    )
+}
 
 @Stable
 private class DockHighlightState(initialIndex: Int) {
-    val start = Animatable(initialIndex.coerceAtLeast(0).toFloat())
-    val end = Animatable(initialIndex.coerceAtLeast(0).toFloat())
+    private val initialValue = initialIndex.coerceAtLeast(0).toFloat()
+    var start by mutableFloatStateOf(initialValue)
+    var end by mutableFloatStateOf(initialValue)
     val shown = Animatable(if (initialIndex >= 0) 1f else 0f)
     val lift = Animatable(0f)
+
+    private var startVel = 0f
+    private var endVel = 0f
+    private var targetValue = initialValue
+    private val wakeSignal = Channel<Unit>(Channel.CONFLATED)
+
+    fun snapTo(target: Float) {
+        targetValue = target
+        start = target
+        end = target
+        startVel = 0f
+        endVel = 0f
+    }
+
+    fun setTarget(target: Float, reducedMotion: Boolean) {
+        if (reducedMotion) {
+            snapTo(target)
+            return
+        }
+        targetValue = target
+        val needsStep = abs(target - start) >= HighlightSettleEpsilon ||
+            abs(target - end) >= HighlightSettleEpsilon ||
+            abs(startVel) >= HighlightSettleEpsilon ||
+            abs(endVel) >= HighlightSettleEpsilon
+        if (needsStep) {
+            wakeSignal.trySend(Unit)
+        }
+    }
+
+    suspend fun runPhysicsLoop() {
+        while (true) {
+            wakeSignal.receive()
+            var lastNanos = 0L
+            while (true) {
+                val frameNanos = withFrameNanos { it }
+                val dtSeconds = if (lastNanos == 0L) {
+                    1f / 120f
+                } else {
+                    ((frameNanos - lastNanos) / 1_000_000_000f).coerceIn(0.001f, 0.032f)
+                }
+                lastNanos = frameNanos
+                val target = targetValue
+                val next = stepDockHighlightSpring(
+                    start = start,
+                    startVel = startVel,
+                    end = end,
+                    endVel = endVel,
+                    target = target,
+                    dtSeconds = dtSeconds
+                )
+                start = next.start
+                startVel = next.startVel
+                end = next.end
+                endVel = next.endVel
+                val settled = abs(target - start) < HighlightSettleEpsilon &&
+                    abs(target - end) < HighlightSettleEpsilon &&
+                    abs(startVel) < HighlightSettleEpsilon &&
+                    abs(endVel) < HighlightSettleEpsilon
+                if (settled) {
+                    snapTo(target)
+                    break
+                }
+            }
+        }
+    }
 
     fun rect(rowSize: Size, tabCount: Int, density: Density): Rect? {
         if (tabCount <= 0 || shown.value <= 0.001f) return null
@@ -126,32 +242,11 @@ private class DockHighlightState(initialIndex: Int) {
         val halfGap = with(density) { NavHighlightGap.toPx() } * 0.5f
         val inset = with(density) { NavHighlightInset.toPx() }
         return Rect(
-            left = start.value * slot + halfGap,
+            left = start * slot + halfGap,
             top = inset,
-            right = (end.value + 1f) * slot - halfGap,
+            right = (end + 1f) * slot - halfGap,
             bottom = (rowSize.height - inset).coerceAtLeast(inset + 1f)
         )
-    }
-
-    suspend fun moveTo(target: Float, reducedMotion: Boolean) {
-        if (reducedMotion) {
-            start.snapTo(target)
-            end.snapTo(target)
-            return
-        }
-        coroutineScope {
-            val movingRight = target > (start.value + end.value) * 0.5f
-            launch {
-                start.animateTo(
-                    targetValue = target,
-                    animationSpec = if (movingRight) NavHighlightTrail else NavHighlightLead
-                )
-            }
-            end.animateTo(
-                targetValue = target,
-                animationSpec = if (movingRight) NavHighlightLead else NavHighlightTrail
-            )
-        }
     }
 }
 
@@ -775,8 +870,11 @@ private fun DockTabPill(
     val itemCount = minOf(tabLabels.size, tabIcons.size)
     if (itemCount == 0) return
 
-    var hoveredDragTab by remember { mutableIntStateOf(-1) }
     val pillState = remember { DockHighlightState(selectedTabIndex) }
+
+    LaunchedEffect(pillState) {
+        pillState.runPhysicsLoop()
+    }
 
     LaunchedEffect(selectedTabIndex, reducedMotion) {
         if (selectedTabIndex < 0) {
@@ -785,15 +883,14 @@ private fun DockTabPill(
         }
         val target = selectedTabIndex.coerceIn(0, itemCount - 1).toFloat()
         if (pillState.shown.value == 0f) {
-            pillState.start.snapTo(target)
-            pillState.end.snapTo(target)
+            pillState.snapTo(target)
         }
         if (reducedMotion) {
             pillState.shown.snapTo(1f)
         } else {
             launch { pillState.shown.animateTo(1f, tween(200)) }
         }
-        pillState.moveTo(target, reducedMotion)
+        pillState.setTarget(target, reducedMotion)
     }
 
     val currentSelected by rememberUpdatedState(selectedTabIndex)
@@ -841,7 +938,6 @@ private fun DockTabPill(
                 }
                 .pointerInput(pillState, itemCount) {
                     coroutineScope {
-                        var moveJob: Job? = null
                         var liftJob: Job? = null
                         var revertJob: Job? = null
 
@@ -855,8 +951,7 @@ private fun DockTabPill(
                                 liftJob?.cancel()
                                 liftJob = launch { pillState.lift.animateTo(1f, PillRiseSpring) }
                             }
-                            moveJob?.cancel()
-                            moveJob = launch { pillState.moveTo(tabAt(down.position.x), currentReducedMotion) }
+                            pillState.setTarget(tabAt(down.position.x), currentReducedMotion)
 
                             var dragging = false
                             var travel = 0f
@@ -876,26 +971,22 @@ private fun DockTabPill(
                                     change.consume()
                                     val mapped = tabAt(currentX)
                                     val hoveredTab = mapped.roundToInt()
-                                    hoveredDragTab = hoveredTab
                                     if (hoveredTab != lastHoveredTab) {
                                         lastHoveredTab = hoveredTab
                                         if (currentHaptics) {
                                             haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                         }
                                     }
-                                    moveJob?.cancel()
-                                    moveJob = launch { pillState.moveTo(mapped, currentReducedMotion) }
+                                    pillState.setTarget(mapped, currentReducedMotion)
                                 }
                             }
 
-                            hoveredDragTab = -1
                             if (!currentReducedMotion) {
                                 liftJob?.cancel()
                                 liftJob = launch { pillState.lift.animateTo(0f, PillSettleSpring) }
                             }
                             val target = tabAt(currentX).roundToInt().coerceIn(0, itemCount - 1)
-                            moveJob?.cancel()
-                            moveJob = launch { pillState.moveTo(target.toFloat(), currentReducedMotion) }
+                            pillState.setTarget(target.toFloat(), currentReducedMotion)
                             if (dragging) {
                                 if (currentHaptics) {
                                     haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -906,8 +997,7 @@ private fun DockTabPill(
                                     delay(450L)
                                     val lit = currentSelected
                                     if (lit in 0 until itemCount && lit != target) {
-                                        moveJob?.cancel()
-                                        pillState.moveTo(lit.toFloat(), currentReducedMotion)
+                                        pillState.setTarget(lit.toFloat(), currentReducedMotion)
                                     }
                                 }
                             }
@@ -918,13 +1008,12 @@ private fun DockTabPill(
         ) {
             for (index in 0 until itemCount) {
                 val selected = index == selectedTabIndex
-                val isLit = selected || index == hoveredDragTab
                 val label = tabLabels[index]
                 val activeIcon = tabIcons[index]
                 val inactiveIcon = inactiveTabIcons.getOrElse(index) { activeIcon }
                 val interactionSource = remember { MutableInteractionSource() }
                 val litProgress = animateFloatAsState(
-                    targetValue = if (isLit) 1f else 0f,
+                    targetValue = if (selected) 1f else 0f,
                     animationSpec = if (reducedMotion) snap() else tween(180),
                     label = "DockTabLit"
                 )
@@ -956,7 +1045,10 @@ private fun DockTabPill(
                             modifier = Modifier
                                 .size(23.dp)
                                 .graphicsLayer {
-                                    alpha = 1f - litProgress.value
+                                    val pillCenter = (pillState.start + pillState.end) * 0.5f
+                                    val dragLit = (1f - abs(pillCenter - index)).coerceIn(0f, 1f) * pillState.shown.value
+                                    val effectiveLit = maxOf(litProgress.value, dragLit)
+                                    alpha = 1f - effectiveLit
                                     compositingStrategy = CompositingStrategy.ModulateAlpha
                                 }
                         )
@@ -967,7 +1059,10 @@ private fun DockTabPill(
                             modifier = Modifier
                                 .size(23.dp)
                                 .graphicsLayer {
-                                    alpha = litProgress.value
+                                    val pillCenter = (pillState.start + pillState.end) * 0.5f
+                                    val dragLit = (1f - abs(pillCenter - index)).coerceIn(0f, 1f) * pillState.shown.value
+                                    val effectiveLit = maxOf(litProgress.value, dragLit)
+                                    alpha = effectiveLit
                                     compositingStrategy = CompositingStrategy.ModulateAlpha
                                 }
                         )

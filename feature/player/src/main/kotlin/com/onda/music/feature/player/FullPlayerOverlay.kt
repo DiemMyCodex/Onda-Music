@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -28,15 +29,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.QueueMusic
-import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Style
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -54,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -65,18 +63,36 @@ import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.input.pointer.util.addPointerInputChange
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import com.onda.music.core.design.AgslMeshBackground
 import com.onda.music.core.design.DockMetrics
 import com.onda.music.core.design.GlassTokens
 import com.onda.music.core.design.LocalOndaColors
 import com.onda.music.core.design.LocalOndaPalette
+import com.onda.music.core.design.LocalOndaToastState
 import com.onda.music.core.design.MorphingCornerClipShape
+import com.onda.music.core.design.OndaArtworkPalette
+import com.onda.music.core.design.OndaMonogramMark
 import com.onda.music.core.design.OndaTheme
+import com.onda.music.core.design.SmoothCornerShape
 import com.onda.music.core.model.PlayerStyle
+import com.onda.music.core.model.StudioBackdropMode
+import com.onda.music.core.model.Track
+import com.onda.music.feature.player.queue.OndaQueueOverlay
+import com.onda.music.feature.player.share.OndaShareSheet
+import com.onda.music.feature.player.sheets.OndaLyricsOffsetSheet
+import com.onda.music.feature.player.sheets.OndaPlaybackSpeedSheet
+import com.onda.music.feature.player.sheets.OndaPlayerActionSheet
+import com.onda.music.feature.player.sheets.OndaSleepTimerSheet
+import com.onda.music.feature.player.sheets.OndaSongMenuSheet
+import com.onda.music.feature.player.sheets.OndaStreamTelemetrySheet
+import com.onda.music.feature.player.studio.OndaStudioOverlay
 import com.onda.music.feature.player.styles.BedsidePlayerStyle
 import com.onda.music.feature.player.styles.BedsideTilesPlayerStyle
 import com.onda.music.feature.player.styles.ClassicPlayerStyle
@@ -92,6 +108,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
+import java.util.Locale
+import kotlin.math.abs
 
 @Composable
 fun FullPlayerOverlay(
@@ -116,15 +134,23 @@ fun FullPlayerOverlay(
     val liked by viewModel.currentTrackLiked.collectAsState()
     val downloadItem by viewModel.currentDownload.collectAsState()
     val activePlayer by viewModel.activePlayerFlow.collectAsState()
+    val eqConfig by viewModel.eqConfig.collectAsState()
 
     val reducedMotion = OndaTheme.reducedMotion
     val density = LocalDensity.current
+    val toastState = LocalOndaToastState.current
 
     var showInlineLyrics by remember { mutableStateOf(false) }
     var showQueueSheet by remember { mutableStateOf(false) }
     var showSleepTimerSheet by remember { mutableStateOf(false) }
-    var showStylePickerSheet by remember { mutableStateOf(false) }
-    var showPosterOverflowMenu by remember { mutableStateOf(false) }
+    var showStudioOverlay by remember { mutableStateOf(false) }
+    var showShareSheet by remember { mutableStateOf(false) }
+    var shareInitialLineIndex by remember { mutableStateOf<Int?>(null) }
+    var showActionSheet by remember { mutableStateOf(false) }
+    var showStreamInfoSheet by remember { mutableStateOf(false) }
+    var showSpeedSheet by remember { mutableStateOf(false) }
+    var showLyricsOffsetSheet by remember { mutableStateOf(false) }
+    var songMenuTarget by remember { mutableStateOf<Pair<Track, Int?>?>(null) }
 
     var containerHeightPx by remember { mutableFloatStateOf(1600f) }
     var likeCenterInWindow by remember { mutableStateOf<Offset?>(null) }
@@ -169,7 +195,15 @@ fun FullPlayerOverlay(
         }
     }
 
-    val anySheetOpen = showQueueSheet || showSleepTimerSheet || showStylePickerSheet || showPosterOverflowMenu
+    val anySheetOpen = showQueueSheet ||
+        showSleepTimerSheet ||
+        showStudioOverlay ||
+        showShareSheet ||
+        showActionSheet ||
+        showStreamInfoSheet ||
+        showSpeedSheet ||
+        showLyricsOffsetSheet ||
+        songMenuTarget != null
     PredictiveBackHandler(enabled = clampedMorph > 0.05f && !anySheetOpen) { backEvents: Flow<BackEventCompat> ->
         MorphGestureArbitrator.claim()
         try {
@@ -216,7 +250,8 @@ fun FullPlayerOverlay(
         showInlineLyrics,
         likeBurstState,
         onLikeFromButton,
-        onLikeFromDoubleTap
+        onLikeFromDoubleTap,
+        eqConfig
     ) {
         PlayerStageContext(
             playbackState = playbackState,
@@ -243,15 +278,44 @@ fun FullPlayerOverlay(
             onToggleRepeat = viewModel::toggleRepeatMode,
             onOpenQueue = { showQueueSheet = true },
             onOpenSleepTimer = { showSleepTimerSheet = true },
-            onOpenStylePicker = { showStylePickerSheet = true },
+            onOpenStylePicker = { showStudioOverlay = true },
             onRefreshLyrics = viewModel::refreshLyrics,
             onAdjustLyricsOffset = viewModel::adjustLyricsOffset,
             onAttachSurfaceView = viewModel::attachVideoSurfaceView,
             onAttachTextureView = viewModel::attachVideoTextureView,
-            onOpenOverflowMenu = { showPosterOverflowMenu = true },
+            onOpenOverflowMenu = { showActionSheet = true },
             likeBurstState = likeBurstState,
             onLikeFromButton = onLikeFromButton,
-            onLikeFromDoubleTap = onLikeFromDoubleTap
+            onLikeFromDoubleTap = onLikeFromDoubleTap,
+            eqConfig = eqConfig,
+            onOpenStudio = { showStudioOverlay = true },
+            onOpenShare = { lineIndex ->
+                shareInitialLineIndex = lineIndex
+                showShareSheet = true
+            },
+            onOpenSpeedSheet = { showSpeedSheet = true },
+            onOpenStreamInfo = { showStreamInfoSheet = true },
+            onOpenLyricsOffset = { showLyricsOffsetSheet = true },
+            onOpenSongMenu = { targetTrack, queueIdx ->
+                songMenuTarget = targetTrack to queueIdx
+            },
+            onPlayNext = { targetTrack ->
+                viewModel.playNextTrack(targetTrack)
+                toastState?.show(
+                    title = "Playing next",
+                    subtitle = targetTrack.title,
+                    artworkUrl = targetTrack.artworkUrl
+                )
+            },
+            onAddToQueue = { targetTrack ->
+                viewModel.addTrackToQueue(targetTrack)
+                toastState?.show(
+                    title = "Added to queue",
+                    subtitle = targetTrack.title,
+                    artworkUrl = targetTrack.artworkUrl
+                )
+            },
+            onUpdateStudioConfig = viewModel::updateStudioConfig
         )
     }
 
@@ -283,6 +347,14 @@ fun FullPlayerOverlay(
                     onCollapse = onCollapse
                 )
         ) {
+            OndaPlayerBackdropLayer(
+                mode = settings.studioConfig.backdropMode,
+                palette = palette,
+                dynamicMeshEnabled = settings.dynamicMeshEnabled,
+                reducedMotion = reducedMotion,
+                modifier = Modifier.fillMaxSize()
+            )
+
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -313,134 +385,111 @@ fun FullPlayerOverlay(
                                 .background(Color(0x38FFFFFF))
                         )
 
-                        IconButton(
-                            onClick = {
-                                MorphGestureArbitrator.claim()
-                                onMorphFractionChange(0f)
-                                onCollapse()
-                            },
+                        Box(
                             modifier = Modifier
-                                .align(Alignment.TopEnd)
+                                .align(Alignment.TopStart)
                                 .statusBarsPadding()
-                                .padding(top = 6.dp, end = 12.dp)
-                                .defaultMinSize(
-                                    minWidth = DockMetrics.MinTapTarget,
-                                    minHeight = DockMetrics.MinTapTarget
-                                )
+                                .padding(top = 6.dp, start = 12.dp)
+                                .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
+                                .clip(SmoothCornerShape(999.dp))
+                                .clickable { showStudioOverlay = true },
+                            contentAlignment = Alignment.Center
                         ) {
-                            Box(
+                            Row(
                                 modifier = Modifier
-                                    .size(32.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0x24FFFFFF)),
-                                contentAlignment = Alignment.Center
+                                    .clip(SmoothCornerShape(999.dp))
+                                    .background(Color(0x24FFFFFF))
+                                    .border(0.75.dp, Color(0x26FFFFFF), SmoothCornerShape(999.dp))
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(14.dp)
-                                        .drawWithCache {
-                                            val chevronPath = Path().apply {
-                                                moveTo(size.width * 0.18f, size.height * 0.34f)
-                                                lineTo(size.width * 0.50f, size.height * 0.68f)
-                                                lineTo(size.width * 0.82f, size.height * 0.34f)
-                                            }
-                                            val chevronStroke = Stroke(
-                                                width = 1.85.dp.toPx(),
-                                                cap = StrokeCap.Round,
-                                                join = StrokeJoin.Round
-                                            )
-                                            onDrawBehind {
-                                                drawPath(
-                                                    path = chevronPath,
-                                                    color = Color.White,
-                                                    style = chevronStroke
-                                                )
-                                            }
-                                        }
+                                OndaMonogramMark(
+                                    modifier = Modifier.size(14.dp),
+                                    tint = Color.White,
+                                    filled = false
+                                )
+                                Text(
+                                    text = "Studio",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    color = Color.White
                                 )
                             }
                         }
 
-                        Box(
+                        Row(
                             modifier = Modifier
-                                .align(Alignment.BottomStart)
-                                .navigationBarsPadding()
-                                .padding(start = 20.dp, bottom = 72.dp)
+                                .align(Alignment.TopEnd)
+                                .statusBarsPadding()
+                                .padding(top = 6.dp, end = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
-                            DropdownMenu(
-                                expanded = showPosterOverflowMenu,
-                                onDismissRequest = { showPosterOverflowMenu = false },
-                                containerColor = Color(0xFF141414)
+                            IconButton(
+                                onClick = { showActionSheet = true },
+                                modifier = Modifier.defaultMinSize(
+                                    minWidth = DockMetrics.MinTapTarget,
+                                    minHeight = DockMetrics.MinTapTarget
+                                )
                             ) {
-                                DropdownMenuItem(
-                                    text = { Text("Player Style", color = Color.White) },
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Style,
-                                            contentDescription = null,
-                                            tint = Color.White
-                                        )
-                                    },
-                                    colors = MenuDefaults.itemColors(textColor = Color.White),
-                                    onClick = {
-                                        showPosterOverflowMenu = false
-                                        showStylePickerSheet = true
-                                    }
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0x24FFFFFF)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.MoreVert,
+                                        contentDescription = "Player actions",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    MorphGestureArbitrator.claim()
+                                    onMorphFractionChange(0f)
+                                    onCollapse()
+                                },
+                                modifier = Modifier.defaultMinSize(
+                                    minWidth = DockMetrics.MinTapTarget,
+                                    minHeight = DockMetrics.MinTapTarget
                                 )
-                                DropdownMenuItem(
-                                    text = { Text("Up Next Queue", color = Color.White) },
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = Icons.Rounded.QueueMusic,
-                                            contentDescription = null,
-                                            tint = Color.White
-                                        )
-                                    },
-                                    colors = MenuDefaults.itemColors(textColor = Color.White),
-                                    onClick = {
-                                        showPosterOverflowMenu = false
-                                        showQueueSheet = true
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            text = if (playbackState.sleepTimerRemainingMs != null) {
-                                                "Sleep Timer (${formatDurationMs(playbackState.sleepTimerRemainingMs ?: 0L)})"
-                                            } else {
-                                                "Sleep Timer"
-                                            },
-                                            color = Color.White
-                                        )
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Bedtime,
-                                            contentDescription = null,
-                                            tint = Color.White
-                                        )
-                                    },
-                                    colors = MenuDefaults.itemColors(textColor = Color.White),
-                                    onClick = {
-                                        showPosterOverflowMenu = false
-                                        showSleepTimerSheet = true
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Settings", color = Color.White) },
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Settings,
-                                            contentDescription = null,
-                                            tint = Color.White
-                                        )
-                                    },
-                                    colors = MenuDefaults.itemColors(textColor = Color.White),
-                                    onClick = {
-                                        showPosterOverflowMenu = false
-                                        onOpenSettings()
-                                    }
-                                )
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0x24FFFFFF)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(14.dp)
+                                            .drawWithCache {
+                                                val chevronPath = Path().apply {
+                                                    moveTo(size.width * 0.18f, size.height * 0.34f)
+                                                    lineTo(size.width * 0.50f, size.height * 0.68f)
+                                                    lineTo(size.width * 0.82f, size.height * 0.34f)
+                                                }
+                                                val chevronStroke = Stroke(
+                                                    width = 1.85.dp.toPx(),
+                                                    cap = StrokeCap.Round,
+                                                    join = StrokeJoin.Round
+                                                )
+                                                onDrawBehind {
+                                                    drawPath(
+                                                        path = chevronPath,
+                                                        color = Color.White,
+                                                        style = chevronStroke
+                                                    )
+                                                }
+                                            }
+                                    )
+                                }
                             }
                         }
                     }
@@ -452,16 +501,19 @@ fun FullPlayerOverlay(
                     ) {
                         FullPlayerTopHeader(
                             activeStyle = settings.playerStyle,
-                            sleepTimerRemainingMs = playbackState.sleepTimerRemainingMs,
+                            playbackSpeed = playbackState.playbackSpeed,
+                            playbackPitch = playbackState.playbackPitch,
+                            sleepTimerActive = playbackState.sleepTimerRemainingMs != null || playbackState.sleepTimerEndOfTrack,
                             onCollapse = {
                                 MorphGestureArbitrator.claim()
                                 onMorphFractionChange(0f)
                                 onCollapse()
                             },
-                            onOpenStylePicker = { showStylePickerSheet = true },
+                            onOpenStudio = { showStudioOverlay = true },
+                            onOpenSpeedSheet = { showSpeedSheet = true },
                             onOpenQueue = { showQueueSheet = true },
                             onOpenSleepTimer = { showSleepTimerSheet = true },
-                            onOpenSettings = onOpenSettings
+                            onOpenActionSheet = { showActionSheet = true }
                         )
 
                         Box(
@@ -474,18 +526,10 @@ fun FullPlayerOverlay(
                                 transitionSpec = { fadeIn() togetherWith fadeOut() },
                                 label = "PlayerStyleStage"
                             ) { style ->
-                                when (style) {
-                                    PlayerStyle.FLAGSHIP -> FlagshipPlayerStyle(ctx = stageContext)
-                                    PlayerStyle.CLASSIC -> ClassicPlayerStyle(ctx = stageContext)
-                                    PlayerStyle.POSTER -> PosterPlayerStyle(ctx = stageContext)
-                                    PlayerStyle.TURNTABLE -> TurntablePlayerStyle(ctx = stageContext)
-                                    PlayerStyle.VIDEO -> VideoPlayerStyle(ctx = stageContext)
-                                    PlayerStyle.IPOD -> IpodPlayerStyle(ctx = stageContext)
-                                    PlayerStyle.TIMELINE -> TimelinePlayerStyle(ctx = stageContext)
-                                    PlayerStyle.LYRICS -> LyricsStagePlayerStyle(ctx = stageContext)
-                                    PlayerStyle.BEDSIDE -> BedsidePlayerStyle(ctx = stageContext)
-                                    PlayerStyle.BEDSIDE_TILES -> BedsideTilesPlayerStyle(ctx = stageContext)
-                                }
+                                OndaPlayerStyleStage(
+                                    style = style,
+                                    ctx = stageContext
+                                )
                             }
                         }
                     }
@@ -498,34 +542,357 @@ fun FullPlayerOverlay(
             )
 
             if (showQueueSheet) {
-                QueueSheet(
+                val activeStreamLabel = playbackState.activeStream?.let { stream ->
+                    val codecText = stream.codec.uppercase(Locale.US)
+                    if (stream.bitrateKbps > 0) {
+                        "$codecText ${stream.bitrateKbps}k"
+                    } else {
+                        "$codecText · ${stream.qualityLabel}"
+                    }
+                }
+                OndaQueueOverlay(
                     queue = playbackState.queue,
                     currentIndex = playbackState.currentIndex,
+                    isPlaying = playbackState.status == com.onda.music.core.model.PlaybackStatus.PLAYING,
+                    shuffleEnabled = playbackState.shuffleEnabled,
+                    repeatMode = playbackState.repeatMode,
+                    activeStreamLabel = activeStreamLabel,
                     hapticsEnabled = settings.hapticsEnabled,
                     onSelectIndex = viewModel::skipToQueueIndex,
                     onMoveItem = viewModel::moveQueueItem,
                     onRemoveItem = viewModel::removeQueueItem,
+                    onPlayNext = { targetTrack ->
+                        val insertTarget = (playbackState.currentIndex + 1).coerceAtMost(playbackState.queue.lastIndex)
+                        val existingIdx = playbackState.queue.indexOfFirst { it.id == targetTrack.id }
+                        if (existingIdx > playbackState.currentIndex + 1 && insertTarget in playbackState.queue.indices) {
+                            viewModel.moveQueueItem(existingIdx, insertTarget)
+                        } else if (existingIdx == -1) {
+                            viewModel.playNextTrack(targetTrack)
+                        }
+                    },
+                    onClearUpNext = viewModel::clearUpNext,
+                    onToggleShuffle = viewModel::toggleShuffle,
+                    onToggleRepeat = viewModel::toggleRepeatMode,
+                    onOpenSongMenu = { targetTrack, queueIdx ->
+                        songMenuTarget = targetTrack to queueIdx
+                    },
                     onDismiss = { showQueueSheet = false }
                 )
             }
 
             if (showSleepTimerSheet) {
-                SleepTimerSheet(
+                OndaSleepTimerSheet(
                     remainingMs = playbackState.sleepTimerRemainingMs,
+                    endOfTrack = playbackState.sleepTimerEndOfTrack,
                     onSelectDurationMs = viewModel::startSleepTimer,
+                    onSelectEndOfTrack = viewModel::startSleepTimerEndOfTrack,
+                    onAdjustDurationMs = viewModel::adjustSleepTimer,
                     onCancelTimer = viewModel::cancelSleepTimer,
                     onDismiss = { showSleepTimerSheet = false }
                 )
             }
 
-            if (showStylePickerSheet) {
-                PlayerStyleSelectorSheet(
+            if (showStudioOverlay) {
+                OndaStudioOverlay(
                     activeStyle = settings.playerStyle,
+                    studioConfig = settings.studioConfig,
+                    currentTrack = playbackState.currentTrack,
+                    palette = palette,
+                    hapticsEnabled = settings.hapticsEnabled,
                     onSelectStyle = viewModel::switchPlayerStyle,
-                    onDismiss = { showStylePickerSheet = false }
+                    onUpdateConfig = viewModel::updateStudioConfig,
+                    onDismiss = { showStudioOverlay = false },
+                    liveStagePreview = { previewStyle ->
+                        val previewCtx = if (previewStyle == PlayerStyle.VIDEO) {
+                            stageContext.copy(activePlayer = null)
+                        } else {
+                            stageContext
+                        }
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            OndaPlayerBackdropLayer(
+                                mode = settings.studioConfig.backdropMode,
+                                palette = palette,
+                                dynamicMeshEnabled = false,
+                                reducedMotion = reducedMotion,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                            OndaPlayerStyleStage(
+                                style = previewStyle,
+                                ctx = previewCtx,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
+                )
+            }
+
+            val shareTrack = playbackState.currentTrack
+            if (showShareSheet && shareTrack != null) {
+                OndaShareSheet(
+                    track = shareTrack,
+                    lyrics = lyrics,
+                    palette = palette,
+                    initialLineIndex = shareInitialLineIndex,
+                    hapticsEnabled = settings.hapticsEnabled,
+                    onDismiss = {
+                        showShareSheet = false
+                        shareInitialLineIndex = null
+                    }
+                )
+            }
+
+            if (showActionSheet) {
+                OndaPlayerActionSheet(
+                    track = playbackState.currentTrack,
+                    liked = liked,
+                    downloadItem = downloadItem,
+                    playbackState = playbackState,
+                    lyricsOffsetMs = lyricsOffsetMs,
+                    hapticsEnabled = settings.hapticsEnabled,
+                    onOpenShare = {
+                        shareInitialLineIndex = null
+                        showShareSheet = true
+                    },
+                    onOpenStudio = { showStudioOverlay = true },
+                    onOpenQueue = { showQueueSheet = true },
+                    onOpenStreamInfo = { showStreamInfoSheet = true },
+                    onOpenSpeedSheet = { showSpeedSheet = true },
+                    onOpenLyricsOffset = { showLyricsOffsetSheet = true },
+                    onOpenSleepTimer = { showSleepTimerSheet = true },
+                    onDownloadClick = viewModel::downloadCurrentTrack,
+                    onToggleLike = onLikeFromButton,
+                    onPlayNext = { targetTrack ->
+                        viewModel.playNextTrack(targetTrack)
+                        toastState?.show(
+                            title = "Playing next",
+                            subtitle = targetTrack.title,
+                            artworkUrl = targetTrack.artworkUrl
+                        )
+                    },
+                    onAddToQueue = { targetTrack ->
+                        viewModel.addTrackToQueue(targetTrack)
+                        toastState?.show(
+                            title = "Added to queue",
+                            subtitle = targetTrack.title,
+                            artworkUrl = targetTrack.artworkUrl
+                        )
+                    },
+                    onRefreshLyrics = {
+                        viewModel.refreshLyrics()
+                        toastState?.show("Refreshing lyrics")
+                    },
+                    onOpenSettings = {
+                        showActionSheet = false
+                        onOpenSettings()
+                    },
+                    onDismiss = { showActionSheet = false }
+                )
+            }
+
+            if (showStreamInfoSheet) {
+                OndaStreamTelemetrySheet(
+                    track = playbackState.currentTrack,
+                    playbackState = playbackState,
+                    eqConfig = eqConfig,
+                    onOpenSettings = {
+                        showStreamInfoSheet = false
+                        onOpenSettings()
+                    },
+                    onDismiss = { showStreamInfoSheet = false }
+                )
+            }
+
+            if (showSpeedSheet) {
+                OndaPlaybackSpeedSheet(
+                    speed = playbackState.playbackSpeed,
+                    pitch = playbackState.playbackPitch,
+                    hapticsEnabled = settings.hapticsEnabled,
+                    onSetSpeedAndPitch = viewModel::setPlaybackSpeedAndPitch,
+                    onReset = {
+                        viewModel.resetPlaybackSpeedAndPitch()
+                        toastState?.show(
+                            title = "Playback speed reset",
+                            subtitle = "1.00x speed · 1.00x pitch"
+                        )
+                    },
+                    onDismiss = { showSpeedSheet = false }
+                )
+            }
+
+            if (showLyricsOffsetSheet) {
+                OndaLyricsOffsetSheet(
+                    lyrics = lyrics,
+                    positionMs = playbackState.positionMs,
+                    offsetMs = lyricsOffsetMs,
+                    hapticsEnabled = settings.hapticsEnabled,
+                    onAdjustOffset = viewModel::adjustLyricsOffset,
+                    onSetOffset = viewModel::setLyricsOffsetMs,
+                    onRefreshLyrics = viewModel::refreshLyrics,
+                    onDismiss = { showLyricsOffsetSheet = false }
+                )
+            }
+
+            val activeSongMenu = songMenuTarget
+            if (activeSongMenu != null) {
+                val (menuTrack, menuQueueIdx) = activeSongMenu
+                val isCurrentTrack = menuTrack.id == playbackState.currentTrack?.id
+                val canRemove = menuQueueIdx != null && menuQueueIdx in playbackState.queue.indices
+                OndaSongMenuSheet(
+                    track = menuTrack,
+                    liked = if (isCurrentTrack) liked else menuTrack.liked,
+                    canRemoveFromQueue = canRemove,
+                    onPlayNext = {
+                        if (menuQueueIdx != null && menuQueueIdx > playbackState.currentIndex + 1) {
+                            viewModel.moveQueueItem(menuQueueIdx, playbackState.currentIndex + 1)
+                        } else {
+                            viewModel.playNextTrack(menuTrack)
+                        }
+                        toastState?.show(
+                            title = "Playing next",
+                            subtitle = menuTrack.title,
+                            artworkUrl = menuTrack.artworkUrl
+                        )
+                    },
+                    onAddToQueue = {
+                        viewModel.addTrackToQueue(menuTrack)
+                        toastState?.show(
+                            title = "Added to queue",
+                            subtitle = menuTrack.title,
+                            artworkUrl = menuTrack.artworkUrl
+                        )
+                    },
+                    onToggleLike = {
+                        if (isCurrentTrack) {
+                            onLikeFromButton()
+                        } else {
+                            viewModel.toggleLikeForTrack(menuTrack)
+                        }
+                    },
+                    onDownload = {
+                        viewModel.downloadTrack(menuTrack)
+                        toastState?.show(
+                            title = "Download queued",
+                            subtitle = menuTrack.title,
+                            artworkUrl = menuTrack.artworkUrl
+                        )
+                    },
+                    onShare = {
+                        shareInitialLineIndex = null
+                        if (isCurrentTrack) {
+                            showShareSheet = true
+                        } else {
+                            toastState?.show("Open track in player to share Soundcard")
+                        }
+                    },
+                    onStreamInfo = { showStreamInfoSheet = true },
+                    onRemoveFromQueue = if (canRemove && menuQueueIdx != null) {
+                        {
+                            viewModel.removeQueueItem(menuQueueIdx)
+                            toastState?.show(
+                                title = "Removed from queue",
+                                subtitle = menuTrack.title
+                            )
+                        }
+                    } else {
+                        null
+                    },
+                    onDismiss = { songMenuTarget = null }
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun OndaPlayerBackdropLayer(
+    mode: StudioBackdropMode,
+    palette: OndaArtworkPalette,
+    dynamicMeshEnabled: Boolean,
+    reducedMotion: Boolean,
+    modifier: Modifier = Modifier
+) {
+    when (mode) {
+        StudioBackdropMode.OLED_PURE -> {
+            Box(modifier = modifier.background(Color(0xFF000000)))
+        }
+
+        StudioBackdropMode.ACOUSTIC_MIST -> {
+            Box(
+                modifier = modifier
+                    .background(Color(0xFF000000))
+                    .drawWithCache {
+                        val topMist = Brush.radialGradient(
+                            colors = listOf(
+                                palette.primary.copy(alpha = 0.24f),
+                                palette.secondary.copy(alpha = 0.10f),
+                                Color.Transparent
+                            ),
+                            center = Offset(size.width * 0.5f, size.height * 0.24f),
+                            radius = maxOf(size.width, size.height) * 0.72f
+                        )
+                        val lowerMist = Brush.radialGradient(
+                            colors = listOf(
+                                palette.secondary.copy(alpha = 0.14f),
+                                Color.Transparent
+                            ),
+                            center = Offset(size.width * 0.2f, size.height * 0.78f),
+                            radius = maxOf(size.width, size.height) * 0.55f
+                        )
+                        onDrawBehind {
+                            drawRect(brush = topMist)
+                            drawRect(brush = lowerMist)
+                        }
+                    }
+            )
+        }
+
+        StudioBackdropMode.AGSL_MESH -> {
+            AgslMeshBackground(
+                palette = palette,
+                animated = dynamicMeshEnabled && !reducedMotion,
+                dimAlpha = 0.72f,
+                modifier = modifier
+            )
+        }
+
+        StudioBackdropMode.VINYL_DARK -> {
+            Box(
+                modifier = modifier.drawWithCache {
+                    val vignette = Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFF1B1B20),
+                            Color(0xFF09090B),
+                            Color(0xFF000000)
+                        ),
+                        center = Offset(size.width * 0.5f, size.height * 0.36f),
+                        radius = maxOf(size.width, size.height) * 0.85f
+                    )
+                    onDrawBehind {
+                        drawRect(brush = vignette)
+                    }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun OndaPlayerStyleStage(
+    style: PlayerStyle,
+    ctx: PlayerStageContext,
+    modifier: Modifier = Modifier
+) {
+    when (style) {
+        PlayerStyle.FLAGSHIP -> FlagshipPlayerStyle(ctx = ctx, modifier = modifier)
+        PlayerStyle.CLASSIC -> ClassicPlayerStyle(ctx = ctx, modifier = modifier)
+        PlayerStyle.POSTER -> PosterPlayerStyle(ctx = ctx, modifier = modifier)
+        PlayerStyle.TURNTABLE -> TurntablePlayerStyle(ctx = ctx, modifier = modifier)
+        PlayerStyle.VIDEO -> VideoPlayerStyle(ctx = ctx, modifier = modifier)
+        PlayerStyle.IPOD -> IpodPlayerStyle(ctx = ctx, modifier = modifier)
+        PlayerStyle.TIMELINE -> TimelinePlayerStyle(ctx = ctx, modifier = modifier)
+        PlayerStyle.LYRICS -> LyricsStagePlayerStyle(ctx = ctx, modifier = modifier)
+        PlayerStyle.BEDSIDE -> BedsidePlayerStyle(ctx = ctx, modifier = modifier)
+        PlayerStyle.BEDSIDE_TILES -> BedsideTilesPlayerStyle(ctx = ctx, modifier = modifier)
     }
 }
 
@@ -656,13 +1023,18 @@ private fun Modifier.verticalCollapseDrag(
 @Composable
 private fun FullPlayerTopHeader(
     activeStyle: PlayerStyle,
-    sleepTimerRemainingMs: Long?,
+    playbackSpeed: Float,
+    playbackPitch: Float,
+    sleepTimerActive: Boolean,
     onCollapse: () -> Unit,
-    onOpenStylePicker: () -> Unit,
+    onOpenStudio: () -> Unit,
+    onOpenSpeedSheet: () -> Unit,
     onOpenQueue: () -> Unit,
     onOpenSleepTimer: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenActionSheet: () -> Unit
 ) {
+    val speedModified = abs(playbackSpeed - 1f) > 0.01f || abs(playbackPitch - 1f) > 0.01f
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -699,35 +1071,67 @@ private fun FullPlayerTopHeader(
             }
 
             Row(
-                modifier = Modifier
-                    .weight(1f, fill = false)
-                    .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
-                    .clip(RoundedCornerShape(GlassTokens.RadiusPill))
-                    .background(Color(0xFF141414))
-                    .clickable(onClick = onOpenStylePicker)
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                modifier = Modifier.weight(1f),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.Style,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(16.dp)
-                )
-                Text(
-                    text = activeStyle.label,
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
-                    color = Color.White,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Icon(
-                    imageVector = Icons.Rounded.KeyboardArrowUp,
-                    contentDescription = null,
-                    tint = Color(0xFF9E9E9E),
-                    modifier = Modifier.size(16.dp)
-                )
+                Row(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
+                        .clip(RoundedCornerShape(GlassTokens.RadiusPill))
+                        .background(Color(0xFF141414))
+                        .border(0.75.dp, Color(0x1EFFFFFF), RoundedCornerShape(GlassTokens.RadiusPill))
+                        .clickable(onClick = onOpenStudio)
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    OndaMonogramMark(
+                        modifier = Modifier.size(14.dp),
+                        tint = Color.White,
+                        filled = false
+                    )
+                    Text(
+                        text = activeStyle.label,
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Icon(
+                        imageVector = Icons.Rounded.KeyboardArrowUp,
+                        contentDescription = null,
+                        tint = Color(0xFF9E9E9E),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+
+                if (speedModified) {
+                    Box(
+                        modifier = Modifier
+                            .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
+                            .clip(RoundedCornerShape(GlassTokens.RadiusPill))
+                            .clickable(onClick = onOpenSpeedSheet),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = String.format(Locale.US, "%.2fx", playbackSpeed),
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.SemiBold,
+                                fontFeatureSettings = "tnum",
+                                fontSize = 11.sp
+                            ),
+                            color = Color.White,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(GlassTokens.RadiusPill))
+                                .background(Color(0xFF1C1C1E))
+                                .border(0.75.dp, Color(0x2AFFFFFF), RoundedCornerShape(GlassTokens.RadiusPill))
+                                .padding(horizontal = 8.dp, vertical = 5.dp)
+                        )
+                    }
+                }
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -741,7 +1145,7 @@ private fun FullPlayerTopHeader(
                     Icon(
                         imageVector = Icons.Rounded.Bedtime,
                         contentDescription = "Sleep timer",
-                        tint = if (sleepTimerRemainingMs != null) Color.White else Color(0xFF9E9E9E),
+                        tint = if (sleepTimerActive) Color.White else Color(0xFF9E9E9E),
                         modifier = Modifier.size(21.dp)
                     )
                 }
@@ -762,16 +1166,16 @@ private fun FullPlayerTopHeader(
                 }
 
                 IconButton(
-                    onClick = onOpenSettings,
+                    onClick = onOpenActionSheet,
                     modifier = Modifier.defaultMinSize(
                         minWidth = DockMetrics.MinTapTarget,
                         minHeight = DockMetrics.MinTapTarget
                     )
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.Settings,
-                        contentDescription = "Settings",
-                        tint = Color(0xFF9E9E9E),
+                        imageVector = Icons.Rounded.MoreVert,
+                        contentDescription = "Player actions",
+                        tint = Color.White,
                         modifier = Modifier.size(21.dp)
                     )
                 }

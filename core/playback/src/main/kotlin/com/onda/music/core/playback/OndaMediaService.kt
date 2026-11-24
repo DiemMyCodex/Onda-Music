@@ -15,6 +15,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
@@ -56,6 +57,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlin.math.abs
 
 @UnstableApi
 @AndroidEntryPoint
@@ -248,6 +250,13 @@ class OndaMediaService : MediaLibraryService() {
                 if (player.shuffleModeEnabled != userSettings.shuffleEnabled) {
                     player.shuffleModeEnabled = userSettings.shuffleEnabled
                 }
+                val targetSpeed = userSettings.playbackSpeed.coerceIn(0.5f, 2.0f)
+                val targetPitch = userSettings.playbackPitch.coerceIn(0.5f, 2.0f)
+                if (abs(player.playbackParameters.speed - targetSpeed) > 0.005f ||
+                    abs(player.playbackParameters.pitch - targetPitch) > 0.005f
+                ) {
+                    player.playbackParameters = PlaybackParameters(targetSpeed, targetPitch)
+                }
             }
         }
     }
@@ -321,6 +330,7 @@ class OndaMediaService : MediaLibraryService() {
             if (playbackState == Player.STATE_ENDED) {
                 recordElapsedPlayTime()
                 persistCheckpointNow()
+                pauseAndClearEndOfTrackTimer()
             }
             syncPlayerStateToStore()
         }
@@ -330,6 +340,11 @@ class OndaMediaService : MediaLibraryService() {
             currentTrackStartTimeMs = System.currentTimeMillis()
             lastTrackedId = mediaItem?.mediaId
             audioEffectsEngine.crossfadeController.onTrackStarted()
+            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
+                reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT
+            ) {
+                pauseAndClearEndOfTrackTimer()
+            }
             syncPlayerStateToStore()
             persistCheckpointNow()
         }
@@ -344,6 +359,21 @@ class OndaMediaService : MediaLibraryService() {
 
         override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
             syncPlayerStateToStore()
+        }
+
+        override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
+            syncPlayerStateToStore()
+        }
+
+        private fun pauseAndClearEndOfTrackTimer() {
+            if (!sessionStore.playbackState.value.sleepTimerEndOfTrack) return
+            player.pause()
+            sessionStore.updateState {
+                it.copy(
+                    sleepTimerEndOfTrack = false,
+                    sleepTimerRemainingMs = null
+                )
+            }
         }
 
         override fun onPlayerError(error: PlaybackException) {
@@ -508,7 +538,9 @@ class OndaMediaService : MediaLibraryService() {
                 repeatMode = repeatMode,
                 shuffleEnabled = player.shuffleModeEnabled,
                 activeStream = activeStream,
-                errorMessage = if (status == PlaybackStatus.ERROR) existing.errorMessage else null
+                errorMessage = if (status == PlaybackStatus.ERROR) existing.errorMessage else null,
+                playbackSpeed = player.playbackParameters.speed,
+                playbackPitch = player.playbackParameters.pitch
             )
         }
     }

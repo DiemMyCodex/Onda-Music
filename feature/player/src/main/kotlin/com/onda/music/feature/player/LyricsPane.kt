@@ -13,8 +13,10 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -205,7 +207,8 @@ fun LyricsPane(
     onAdjustOffsetMs: (Long) -> Unit,
     modifier: Modifier = Modifier,
     centered: Boolean = true,
-    showControls: Boolean = true
+    showControls: Boolean = true,
+    onLongPressLine: ((Int) -> Unit)? = null
 ) {
     val reducedMotion = OndaTheme.reducedMotion
     val motionActive = lyricsMotionEnabled && !reducedMotion
@@ -464,6 +467,16 @@ fun LyricsPane(
                                         userDetachedScroll = false
                                         onSeekToMs((line.startTimeMs - lyricsOffsetMs).coerceAtLeast(0L))
                                     }
+                                },
+                                onLongClick = if (onLongPressLine != null) {
+                                    {
+                                        if (hapticsEnabled) {
+                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        }
+                                        onLongPressLine(index)
+                                    }
+                                } else {
+                                    null
                                 }
                             )
                         }
@@ -504,6 +517,7 @@ fun LyricsPane(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun LyricsLineRow(
     rowIndex: Int,
@@ -520,7 +534,8 @@ private fun LyricsLineRow(
     stagger: OndaLyricsStagger,
     fontScale: Float,
     centered: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null
 ) {
     if (line.isInterlude) {
         val interludeDuration = (line.endTimeMs - line.startTimeMs).coerceAtLeast(1L)
@@ -586,7 +601,15 @@ private fun LyricsLineRow(
             .fillMaxWidth()
             .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
             .clip(RoundedCornerShape(GlassTokens.RadiusSm))
-            .clickable(enabled = isSynced, onClick = onClick)
+            .combinedClickable(
+                enabled = isSynced || onLongClick != null,
+                onClick = {
+                    if (isSynced) {
+                        onClick()
+                    }
+                },
+                onLongClick = onLongClick
+            )
             .graphicsLayer {
                 scaleX = animatedScale
                 scaleY = animatedScale

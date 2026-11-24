@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -51,8 +52,11 @@ import androidx.core.view.WindowCompat
 import com.onda.music.core.database.OndaPreferences
 import com.onda.music.core.database.OndaUserSettings
 import com.onda.music.core.design.AppMotion
+import com.onda.music.core.design.LocalOndaToastState
 import com.onda.music.core.design.OndaTheme
+import com.onda.music.core.design.OndaTopToastHost
 import com.onda.music.core.design.homeRecede
+import com.onda.music.core.design.rememberOndaToastState
 import com.onda.music.feature.home.DiscoverRoute
 import com.onda.music.feature.home.HomeRoute
 import com.onda.music.feature.library.LibraryRoute
@@ -122,6 +126,7 @@ private fun OndaRootShell(languageCode: String) {
     val morphAnimatable = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
     val reducedMotion = OndaTheme.reducedMotion
+    val toastState = rememberOndaToastState()
 
     val tabLabels = remember(languageCode) {
         if (languageCode.startsWith("vi", ignoreCase = true)) {
@@ -176,80 +181,87 @@ private fun OndaRootShell(languageCode: String) {
         showSettings = false
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFF000000))
-    ) {
-        SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .homeRecede(
-                        fractionProvider = { morphAnimatable.value },
-                        reducedMotion = reducedMotion
-                    )
-            ) {
-                AnimatedContent(
-                    targetState = selectedTabIndex,
-                    transitionSpec = {
-                        fadeIn() togetherWith fadeOut()
-                    },
-                    label = "root_tab_content"
-                ) { tabIndex ->
-                    when (tabIndex) {
-                        0 -> HomeRoute(
-                            onOpenSettings = openSettingsFromAny,
-                            onOpenSearch = { selectedTabIndex = 1 },
-                            sharedTransitionScope = this@SharedTransitionLayout,
-                            animatedVisibilityScope = this
+    CompositionLocalProvider(LocalOndaToastState provides toastState) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFF000000))
+        ) {
+            SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .homeRecede(
+                            fractionProvider = { morphAnimatable.value },
+                            reducedMotion = reducedMotion
                         )
-                        1 -> SearchRoute(
-                            onOpenSettings = openSettingsFromAny
-                        )
-                        2 -> LibraryRoute(
-                            onOpenSettings = openSettingsFromAny
-                        )
-                        else -> DiscoverRoute(
-                            onOpenSettings = openSettingsFromAny
+                ) {
+                    AnimatedContent(
+                        targetState = selectedTabIndex,
+                        transitionSpec = {
+                            fadeIn() togetherWith fadeOut()
+                        },
+                        label = "root_tab_content"
+                    ) { tabIndex ->
+                        when (tabIndex) {
+                            0 -> HomeRoute(
+                                onOpenSettings = openSettingsFromAny,
+                                onOpenSearch = { selectedTabIndex = 1 },
+                                sharedTransitionScope = this@SharedTransitionLayout,
+                                animatedVisibilityScope = this
+                            )
+                            1 -> SearchRoute(
+                                onOpenSettings = openSettingsFromAny
+                            )
+                            2 -> LibraryRoute(
+                                onOpenSettings = openSettingsFromAny
+                            )
+                            else -> DiscoverRoute(
+                                onOpenSettings = openSettingsFromAny
+                            )
+                        }
+                    }
+
+                    AnimatedVisibility(
+                        visible = showSettings,
+                        enter = fadeIn() + slideInHorizontally { it / 4 },
+                        exit = fadeOut() + slideOutHorizontally { it / 4 }
+                    ) {
+                        SettingsRoute(
+                            onBack = { showSettings = false },
+                            modifier = Modifier.fillMaxSize()
                         )
                     }
                 }
-
-                AnimatedVisibility(
-                    visible = showSettings,
-                    enter = fadeIn() + slideInHorizontally { it / 4 },
-                    exit = fadeOut() + slideOutHorizontally { it / 4 }
-                ) {
-                    SettingsRoute(
-                        onBack = { showSettings = false },
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
             }
+
+            UnifiedDock(
+                tabLabels = tabLabels,
+                tabIcons = tabIcons,
+                selectedTabIndex = selectedTabIndex,
+                onSelectTab = { index ->
+                    selectedTabIndex = index
+                    showSettings = false
+                },
+                morphFraction = morphAnimatable.value,
+                onMorphFractionChange = onMorphFractionChange,
+                onExpandPlayer = { onMorphFractionChange(1f) },
+                modifier = Modifier.align(Alignment.BottomCenter),
+                inactiveTabIcons = inactiveTabIcons
+            )
+
+            FullPlayerOverlay(
+                morphFraction = morphAnimatable.value,
+                onMorphFractionChange = onMorphFractionChange,
+                onCollapse = { onMorphFractionChange(0f) },
+                onOpenSettings = openSettingsFromAny,
+                modifier = Modifier.fillMaxSize()
+            )
+
+            OndaTopToastHost(
+                state = toastState,
+                modifier = Modifier.align(Alignment.TopCenter)
+            )
         }
-
-        UnifiedDock(
-            tabLabels = tabLabels,
-            tabIcons = tabIcons,
-            selectedTabIndex = selectedTabIndex,
-            onSelectTab = { index ->
-                selectedTabIndex = index
-                showSettings = false
-            },
-            morphFraction = morphAnimatable.value,
-            onMorphFractionChange = onMorphFractionChange,
-            onExpandPlayer = { onMorphFractionChange(1f) },
-            modifier = Modifier.align(Alignment.BottomCenter),
-            inactiveTabIcons = inactiveTabIcons
-        )
-
-        FullPlayerOverlay(
-            morphFraction = morphAnimatable.value,
-            onMorphFractionChange = onMorphFractionChange,
-            onCollapse = { onMorphFractionChange(0f) },
-            onOpenSettings = openSettingsFromAny,
-            modifier = Modifier.fillMaxSize()
-        )
     }
 }

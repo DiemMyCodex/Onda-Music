@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.onda.music.core.model.EqConfig
+import com.onda.music.core.model.PlayerStudioConfig
 import com.onda.music.core.model.PlayerStyle
 import com.onda.music.core.model.RepeatMode
 import kotlinx.coroutines.flow.Flow
@@ -40,7 +41,10 @@ data class OndaUserSettings(
     val maxCacheMb: Int = 512,
     val downloadTreeUri: String? = null,
     val username: String = "",
-    val avatarPath: String? = null
+    val avatarPath: String? = null,
+    val playbackSpeed: Float = 1.0f,
+    val playbackPitch: Float = 1.0f,
+    val studioConfig: PlayerStudioConfig = PlayerStudioConfig()
 )
 
 @Serializable
@@ -74,6 +78,9 @@ class OndaPreferences @Inject constructor(
         val username = stringPreferencesKey("username")
         val avatarPath = stringPreferencesKey("avatar_path")
         val playbackCheckpointJson = stringPreferencesKey("playback_checkpoint_json")
+        val playbackSpeed = floatPreferencesKey("playback_speed")
+        val playbackPitch = floatPreferencesKey("playback_pitch")
+        val studioConfigJson = stringPreferencesKey("studio_config_json")
     }
 
     private val safePreferences: Flow<Preferences> = dataStore.data.catch { exception ->
@@ -183,6 +190,27 @@ class OndaPreferences @Inject constructor(
         }
     }
 
+    suspend fun setPlaybackSpeed(speed: Float) {
+        dataStore.edit { it[Keys.playbackSpeed] = clampPlaybackFactor(speed) }
+    }
+
+    suspend fun setPlaybackPitch(pitch: Float) {
+        dataStore.edit { it[Keys.playbackPitch] = clampPlaybackFactor(pitch) }
+    }
+
+    suspend fun setPlaybackSpeedAndPitch(speed: Float, pitch: Float) {
+        val safeSpeed = clampPlaybackFactor(speed)
+        val safePitch = clampPlaybackFactor(pitch)
+        dataStore.edit { prefs ->
+            prefs[Keys.playbackSpeed] = safeSpeed
+            prefs[Keys.playbackPitch] = safePitch
+        }
+    }
+
+    suspend fun setStudioConfig(config: PlayerStudioConfig) {
+        dataStore.edit { it[Keys.studioConfigJson] = databaseJson.encodeToString(config.sanitized()) }
+    }
+
     suspend fun savePlaybackCheckpoint(checkpoint: PlaybackCheckpoint) {
         dataStore.edit { it[Keys.playbackCheckpointJson] = databaseJson.encodeToString(checkpoint) }
     }
@@ -221,7 +249,10 @@ class OndaPreferences @Inject constructor(
             maxCacheMb = (prefs[Keys.maxCacheMb] ?: 512).coerceAtLeast(64),
             downloadTreeUri = prefs[Keys.downloadTreeUri],
             username = prefs[Keys.username] ?: "",
-            avatarPath = prefs[Keys.avatarPath]
+            avatarPath = prefs[Keys.avatarPath],
+            playbackSpeed = clampPlaybackFactor(prefs[Keys.playbackSpeed] ?: 1.0f),
+            playbackPitch = clampPlaybackFactor(prefs[Keys.playbackPitch] ?: 1.0f),
+            studioConfig = decodeStudioConfig(prefs[Keys.studioConfigJson])
         )
     }
 
@@ -259,6 +290,20 @@ class OndaPreferences @Inject constructor(
         } else {
             prefs[Keys.avatarPath] = settings.avatarPath
         }
+        prefs[Keys.playbackSpeed] = clampPlaybackFactor(settings.playbackSpeed)
+        prefs[Keys.playbackPitch] = clampPlaybackFactor(settings.playbackPitch)
+        prefs[Keys.studioConfigJson] = databaseJson.encodeToString(settings.studioConfig.sanitized())
+    }
+
+    private fun clampPlaybackFactor(value: Float): Float {
+        return (value.takeIf { it.isFinite() } ?: 1.0f).coerceIn(0.5f, 2.0f)
+    }
+
+    private fun decodeStudioConfig(raw: String?): PlayerStudioConfig {
+        if (raw.isNullOrBlank()) return PlayerStudioConfig()
+        return runCatching {
+            databaseJson.decodeFromString<PlayerStudioConfig>(raw).sanitized()
+        }.getOrDefault(PlayerStudioConfig())
     }
 
     private fun normalizeLanguageCode(code: String?): String {

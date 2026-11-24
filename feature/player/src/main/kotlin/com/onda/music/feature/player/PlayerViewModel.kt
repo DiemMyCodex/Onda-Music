@@ -19,8 +19,10 @@ import com.onda.music.core.design.OndaPaletteExtractor
 import com.onda.music.core.lyrics.LyricsRepository
 import com.onda.music.core.model.DownloadItem
 import com.onda.music.core.model.DownloadStatus
+import com.onda.music.core.model.EqConfig
 import com.onda.music.core.model.LyricsDocument
 import com.onda.music.core.model.PlaybackState
+import com.onda.music.core.model.PlayerStudioConfig
 import com.onda.music.core.model.PlayerStyle
 import com.onda.music.core.model.RepeatMode
 import com.onda.music.core.model.Track
@@ -58,6 +60,8 @@ class PlayerViewModel @Inject constructor(
     val playbackState: StateFlow<PlaybackState> = playbackController.playbackState
 
     val activePlayerFlow: StateFlow<Player?> = playbackController.activePlayerFlow
+
+    val eqConfig: StateFlow<EqConfig> = playbackController.eqConfig
 
     val userSettings: StateFlow<OndaUserSettings> = ondaPreferences.settings.stateIn(
         scope = viewModelScope,
@@ -335,6 +339,87 @@ class PlayerViewModel @Inject constructor(
             } else {
                 songDao.setLyricsOffset(track.id, nextOffset)
             }
+        }
+    }
+
+    fun setLyricsOffsetMs(offsetMs: Long) {
+        val track = playbackState.value.currentTrack ?: return
+        val nextOffset = offsetMs.coerceIn(-15_000L, 15_000L)
+        viewModelScope.launch {
+            val existing = songDao.getById(track.id)
+            if (existing == null) {
+                songDao.upsertAndMerge(track.copy(lyricsOffsetMs = nextOffset).toEntity())
+            } else {
+                songDao.setLyricsOffset(track.id, nextOffset)
+            }
+        }
+    }
+
+    fun setPlaybackSpeed(speed: Float) {
+        playbackController.setPlaybackSpeed(speed)
+    }
+
+    fun setPlaybackPitch(pitch: Float) {
+        playbackController.setPlaybackPitch(pitch)
+    }
+
+    fun setPlaybackSpeedAndPitch(speed: Float, pitch: Float) {
+        playbackController.setPlaybackSpeedAndPitch(speed, pitch)
+    }
+
+    fun resetPlaybackSpeedAndPitch() {
+        playbackController.resetPlaybackSpeedAndPitch()
+    }
+
+    fun updateStudioConfig(config: PlayerStudioConfig) {
+        viewModelScope.launch {
+            ondaPreferences.setStudioConfig(config)
+        }
+    }
+
+    fun playNextTrack(track: Track) {
+        playbackController.playNext(track)
+    }
+
+    fun addTrackToQueue(track: Track) {
+        playbackController.addToQueue(track)
+    }
+
+    fun clearUpNext() {
+        playbackController.clearUpNext()
+    }
+
+    fun startSleepTimerEndOfTrack() {
+        playbackController.startSleepTimerEndOfTrack()
+    }
+
+    fun adjustSleepTimer(deltaMs: Long) {
+        playbackController.adjustSleepTimer(deltaMs)
+    }
+
+    fun toggleLikeForTrack(track: Track) {
+        if (track.id == playbackState.value.currentTrack?.id) {
+            toggleLike()
+            return
+        }
+        viewModelScope.launch {
+            val existing = songDao.getById(track.id)
+            val nextLiked = !(existing?.liked ?: track.liked)
+            if (existing == null) {
+                songDao.upsertAndMerge(track.copy(liked = nextLiked).toEntity())
+            } else {
+                songDao.setLiked(track.id, nextLiked)
+            }
+        }
+    }
+
+    fun downloadTrack(track: Track) {
+        if (track.id == playbackState.value.currentTrack?.id) {
+            downloadCurrentTrack()
+            return
+        }
+        viewModelScope.launch {
+            downloadManager.queueDownload(track)
         }
     }
 

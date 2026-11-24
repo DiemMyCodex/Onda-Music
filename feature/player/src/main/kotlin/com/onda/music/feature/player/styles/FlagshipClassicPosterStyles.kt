@@ -14,8 +14,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -36,6 +38,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -116,6 +119,7 @@ import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.model.LyricsDocument
 import com.onda.music.core.model.LyricsLine
 import com.onda.music.core.model.PlaybackStatus
+import com.onda.music.core.model.StudioQuickAction
 import com.onda.music.feature.player.GlassPillButton
 import com.onda.music.feature.player.LyricsInterludeDots
 import com.onda.music.feature.player.LyricsPane
@@ -128,6 +132,7 @@ import com.onda.music.feature.player.TrackMetaHeader
 import com.onda.music.feature.player.findActiveLyricsLineIndex
 import com.onda.music.feature.player.formatDurationMs
 import com.onda.music.feature.player.ondaLikeTarget
+import com.onda.music.feature.player.queue.OndaBottomDeck
 import com.onda.music.feature.player.rememberSongCarouselPagerState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -145,6 +150,7 @@ fun FlagshipPlayerStyle(
 ) {
     val state = ctx.playbackState
     val track = state.currentTrack
+    val studio = ctx.settings.studioConfig
     val isPlaying = state.status == PlaybackStatus.PLAYING
     val pagerState = rememberSongCarouselPagerState(
         queue = state.queue,
@@ -156,6 +162,19 @@ fun FlagshipPlayerStyle(
             state.queue.isNotEmpty() -> state.queue
             track != null -> listOf(track)
             else -> emptyList()
+        }
+    }
+    val activeLyricText = remember(ctx.lyrics, state.positionMs, ctx.lyricsOffsetMs) {
+        resolveActiveLyricText(ctx.lyrics, state.positionMs, ctx.lyricsOffsetMs)
+    }
+    val nextTrack = remember(state.queue, state.currentIndex) {
+        state.queue.getOrNull(state.currentIndex + 1)
+    }
+    val upNextCount = remember(state.queue.size, state.currentIndex) {
+        if (state.currentIndex >= 0) {
+            (state.queue.size - (state.currentIndex + 1)).coerceAtLeast(0)
+        } else {
+            state.queue.size
         }
     }
 
@@ -198,7 +217,8 @@ fun FlagshipPlayerStyle(
                             hapticsEnabled = ctx.settings.hapticsEnabled,
                             onSeekToMs = ctx.onSeekToMs,
                             onRefreshLyrics = ctx.onRefreshLyrics,
-                            onAdjustOffsetMs = ctx.onAdjustLyricsOffset
+                            onAdjustOffsetMs = ctx.onAdjustLyricsOffset,
+                            onLongPressLine = { lineIdx -> ctx.onOpenShare(lineIdx) }
                         )
                     }
                 } else {
@@ -213,6 +233,7 @@ fun FlagshipPlayerStyle(
                         isPlaying = isPlaying,
                         pagerState = pagerState,
                         onArtworkDoubleTap = ctx.onLikeFromDoubleTap,
+                        artworkFrame = studio.artworkFrame,
                         modifier = Modifier
                             .widthIn(max = 360.dp)
                             .fillMaxWidth()
@@ -222,15 +243,18 @@ fun FlagshipPlayerStyle(
             }
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .graphicsLayer {
+                    translationY = (studio.controlsShiftDp * 0.5f).dp.toPx()
+                }
                 .clip(RoundedCornerShape(GlassTokens.RadiusXl))
                 .background(Color(0xFF141414))
-                .padding(horizontal = 18.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(horizontal = 18.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             TrackMetaHeader(
                 track = track,
@@ -249,7 +273,8 @@ fun FlagshipPlayerStyle(
             PlayerSeekSection(
                 playbackState = state,
                 onSeekToFraction = ctx.onSeekToFraction,
-                accentColor = Color.White
+                accentColor = Color.White,
+                seekbarStyle = studio.seekbarStyle
             )
 
             PlayerTransportControls(
@@ -262,36 +287,22 @@ fun FlagshipPlayerStyle(
                 onToggleRepeat = ctx.onToggleRepeat
             )
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally)
-            ) {
-                GlassPillButton(
-                    label = if (ctx.showInlineLyrics) "Artwork" else "Lyrics",
-                    active = ctx.showInlineLyrics,
-                    onClick = ctx.onToggleInlineLyrics,
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Rounded.Lyrics,
-                            contentDescription = null,
-                            tint = if (ctx.showInlineLyrics) Color.White else Color(0xFF9E9E9E),
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-                )
-                GlassPillButton(
-                    label = "Queue (${state.queue.size})",
-                    onClick = ctx.onOpenQueue,
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Rounded.QueueMusic,
-                            contentDescription = null,
-                            tint = Color(0xFF9E9E9E),
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-                )
-            }
+            OndaBottomDeck(
+                mode = studio.bottomDeckMode,
+                quickActions = studio.quickActions,
+                currentTrack = track,
+                nextTrack = nextTrack,
+                upNextCount = upNextCount,
+                activeLyricText = activeLyricText,
+                liked = ctx.liked,
+                downloadItem = ctx.downloadItem,
+                playbackSpeed = state.playbackSpeed,
+                sleepTimerActive = state.sleepTimerRemainingMs != null || state.sleepTimerEndOfTrack,
+                hapticsEnabled = ctx.settings.hapticsEnabled,
+                onOpenQueue = ctx.onOpenQueue,
+                onToggleLyrics = ctx.onToggleInlineLyrics,
+                onQuickAction = { action -> dispatchQuickAction(ctx, action) }
+            )
         }
     }
 }
@@ -303,6 +314,7 @@ fun ClassicPlayerStyle(
 ) {
     val state = ctx.playbackState
     val track = state.currentTrack
+    val studio = ctx.settings.studioConfig
     val isPlaying = state.status == PlaybackStatus.PLAYING
     val pagerState = rememberSongCarouselPagerState(
         queue = state.queue,
@@ -316,12 +328,25 @@ fun ClassicPlayerStyle(
             else -> emptyList()
         }
     }
+    val activeLyricText = remember(ctx.lyrics, state.positionMs, ctx.lyricsOffsetMs) {
+        resolveActiveLyricText(ctx.lyrics, state.positionMs, ctx.lyricsOffsetMs)
+    }
+    val nextTrack = remember(state.queue, state.currentIndex) {
+        state.queue.getOrNull(state.currentIndex + 1)
+    }
+    val upNextCount = remember(state.queue.size, state.currentIndex) {
+        if (state.currentIndex >= 0) {
+            (state.queue.size - (state.currentIndex + 1)).coerceAtLeast(0)
+        } else {
+            state.queue.size
+        }
+    }
 
     Column(
         modifier = modifier
             .fillMaxSize()
             .navigationBarsPadding()
-            .padding(horizontal = 24.dp, vertical = 12.dp),
+            .padding(horizontal = 24.dp, vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween
     ) {
@@ -344,7 +369,8 @@ fun ClassicPlayerStyle(
                     hapticsEnabled = ctx.settings.hapticsEnabled,
                     onSeekToMs = ctx.onSeekToMs,
                     onRefreshLyrics = ctx.onRefreshLyrics,
-                    onAdjustOffsetMs = ctx.onAdjustLyricsOffset
+                    onAdjustOffsetMs = ctx.onAdjustLyricsOffset,
+                    onLongPressLine = { lineIdx -> ctx.onOpenShare(lineIdx) }
                 )
             } else {
                 SongCarousel(
@@ -359,6 +385,7 @@ fun ClassicPlayerStyle(
                     isPlaying = isPlaying,
                     pagerState = pagerState,
                     onArtworkDoubleTap = ctx.onLikeFromDoubleTap,
+                    artworkFrame = studio.artworkFrame,
                     modifier = Modifier
                         .widthIn(max = 336.dp)
                         .fillMaxWidth()
@@ -367,11 +394,15 @@ fun ClassicPlayerStyle(
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(14.dp))
 
         Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer {
+                    translationY = (studio.controlsShiftDp * 0.5f).dp.toPx()
+                },
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             TrackMetaHeader(
                 track = track,
@@ -390,7 +421,8 @@ fun ClassicPlayerStyle(
             PlayerSeekSection(
                 playbackState = state,
                 onSeekToFraction = ctx.onSeekToFraction,
-                accentColor = Color.White
+                accentColor = Color.White,
+                seekbarStyle = studio.seekbarStyle
             )
 
             Box(
@@ -412,23 +444,51 @@ fun ClassicPlayerStyle(
                 )
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                GlassPillButton(
-                    label = if (ctx.showInlineLyrics) "Cover" else "Lyrics",
-                    active = ctx.showInlineLyrics,
-                    onClick = ctx.onToggleInlineLyrics
-                )
-                GlassPillButton(
-                    label = "Queue",
-                    onClick = ctx.onOpenQueue
-                )
-            }
+            OndaBottomDeck(
+                mode = studio.bottomDeckMode,
+                quickActions = studio.quickActions,
+                currentTrack = track,
+                nextTrack = nextTrack,
+                upNextCount = upNextCount,
+                activeLyricText = activeLyricText,
+                liked = ctx.liked,
+                downloadItem = ctx.downloadItem,
+                playbackSpeed = state.playbackSpeed,
+                sleepTimerActive = state.sleepTimerRemainingMs != null || state.sleepTimerEndOfTrack,
+                hapticsEnabled = ctx.settings.hapticsEnabled,
+                onOpenQueue = ctx.onOpenQueue,
+                onToggleLyrics = ctx.onToggleInlineLyrics,
+                onQuickAction = { action -> dispatchQuickAction(ctx, action) }
+            )
         }
     }
+}
+
+private fun dispatchQuickAction(ctx: PlayerStageContext, action: StudioQuickAction) {
+    when (action) {
+        StudioQuickAction.LIKE -> (ctx.onLikeFromButton ?: ctx.onToggleLike).invoke()
+        StudioQuickAction.LYRICS -> ctx.onToggleInlineLyrics()
+        StudioQuickAction.QUEUE -> ctx.onOpenQueue()
+        StudioQuickAction.SHARE -> ctx.onOpenShare(null)
+        StudioQuickAction.SPEED -> ctx.onOpenSpeedSheet()
+        StudioQuickAction.STREAM_INFO -> ctx.onOpenStreamInfo()
+        StudioQuickAction.LYRICS_OFFSET -> ctx.onOpenLyricsOffset()
+        StudioQuickAction.SLEEP_TIMER -> ctx.onOpenSleepTimer()
+        StudioQuickAction.EQUALIZER -> ctx.onOpenStreamInfo()
+        StudioQuickAction.DOWNLOAD -> ctx.onDownloadClick()
+    }
+}
+
+private fun resolveActiveLyricText(
+    lyrics: LyricsDocument?,
+    positionMs: Long,
+    offsetMs: Long
+): String? {
+    val lines = lyrics?.lines ?: return null
+    if (lines.isEmpty()) return null
+    val effectiveMs = (positionMs + offsetMs).coerceAtLeast(0L)
+    val idx = findActiveLyricsLineIndex(lines, effectiveMs, lyrics.isSynced)
+    return lines.getOrNull(idx)?.takeIf { !it.isInterlude && it.text.isNotBlank() }?.text
 }
 
 @Immutable
@@ -1039,6 +1099,7 @@ fun PosterPlayerStyle(
                                 onToggleExpanded = ctx.onToggleInlineLyrics,
                                 onSeekToMs = ctx.onSeekToMs,
                                 onRefreshLyrics = ctx.onRefreshLyrics,
+                                onLongPressLine = { lineIdx -> ctx.onOpenShare(lineIdx) },
                                 modifier = Modifier.fillMaxSize()
                             )
                         }
@@ -1410,7 +1471,7 @@ private data class SpotlightWordSlice(
     val endTimeMs: Long
 )
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 private fun PosterKineticLyrics(
     lyrics: LyricsDocument?,
@@ -1425,6 +1486,7 @@ private fun PosterKineticLyrics(
     onToggleExpanded: () -> Unit,
     onSeekToMs: (Long) -> Unit,
     onRefreshLyrics: () -> Unit,
+    onLongPressLine: ((Int) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val reducedMotion = OndaTheme.reducedMotion
@@ -1522,12 +1584,24 @@ private fun PosterKineticLyrics(
             Box(
                 modifier = modifier
                     .clip(RoundedCornerShape(12.dp))
-                    .clickable {
-                        if (hapticsEnabled) {
-                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    .combinedClickable(
+                        onClick = {
+                            if (hapticsEnabled) {
+                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            }
+                            onToggleExpanded()
+                        },
+                        onLongClick = if (onLongPressLine != null) {
+                            {
+                                if (hapticsEnabled) {
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                }
+                                onLongPressLine(safeIndex)
+                            }
+                        } else {
+                            null
                         }
-                        onToggleExpanded()
-                    },
+                    ),
                 contentAlignment = Alignment.CenterStart
             ) {
                 AnimatedContent(
@@ -1614,6 +1688,16 @@ private fun PosterKineticLyrics(
                                 onSeekToMs((line.startTimeMs - lyricsOffsetMs).coerceAtLeast(0L))
                             }
                             onToggleExpanded()
+                        },
+                        onLongClick = if (onLongPressLine != null) {
+                            {
+                                if (hapticsEnabled) {
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                }
+                                onLongPressLine(index)
+                            }
+                        } else {
+                            null
                         }
                     )
                 }
@@ -1776,7 +1860,7 @@ private fun PosterSpotlightStanza(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 private fun PosterLyricRow(
     line: LyricsLine,
@@ -1788,7 +1872,8 @@ private fun PosterLyricRow(
     isUserScrolling: Boolean,
     isPlaying: Boolean,
     motionActive: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null
 ) {
     if (line.isInterlude) {
         val interludeDuration = (line.endTimeMs - line.startTimeMs).coerceAtLeast(1L)
@@ -1841,7 +1926,7 @@ private fun PosterLyricRow(
             .fillMaxWidth()
             .defaultMinSize(minHeight = 48.dp)
             .clip(RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .graphicsLayer {
                 scaleX = activeScale
                 scaleY = activeScale

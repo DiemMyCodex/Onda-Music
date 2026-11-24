@@ -11,6 +11,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -68,14 +69,18 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -93,6 +98,8 @@ import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -107,12 +114,15 @@ import com.onda.music.core.design.DockMetrics
 import com.onda.music.core.design.GlassTokens
 import com.onda.music.core.design.OdometerText
 import com.onda.music.core.design.OndaTheme
+import com.onda.music.core.design.SmoothCornerShape
 import com.onda.music.core.design.press3D
 import com.onda.music.core.model.DownloadItem
 import com.onda.music.core.model.DownloadStatus
 import com.onda.music.core.model.PlaybackState
 import com.onda.music.core.model.PlaybackStatus
 import com.onda.music.core.model.RepeatMode
+import com.onda.music.core.model.StudioArtworkFrame
+import com.onda.music.core.model.StudioSeekbarStyle
 import com.onda.music.core.model.Track
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -121,6 +131,7 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.exp
 import kotlin.math.sin
 
 fun formatDurationMs(durationMs: Long): String {
@@ -261,9 +272,45 @@ fun SongCarousel(
     pauseScale: Float = 0.94f,
     pauseSaturation: Float = 0.80f,
     pagerState: PagerState? = null,
-    onArtworkDoubleTap: ((Offset) -> Unit)? = null
+    onArtworkDoubleTap: ((Offset) -> Unit)? = null,
+    artworkFrame: StudioArtworkFrame? = null
 ) {
     val reducedMotion = OndaTheme.reducedMotion
+    val resolvedShape = when (artworkFrame) {
+        StudioArtworkFrame.SOFT_SQUIRCLE -> SmoothCornerShape(24.dp)
+        StudioArtworkFrame.EDGE_BLEED -> RectangleShape
+        StudioArtworkFrame.VINYL_DISC -> CircleShape
+        StudioArtworkFrame.MINIMAL_FRAME -> RoundedCornerShape(10.dp)
+        null -> artworkShape
+    }
+    val resolvedPadding = if (artworkFrame == StudioArtworkFrame.EDGE_BLEED) {
+        PaddingValues(0.dp)
+    } else {
+        contentPadding
+    }
+    val resolvedSpacing = if (artworkFrame == StudioArtworkFrame.EDGE_BLEED) {
+        0.dp
+    } else {
+        pageSpacing
+    }
+    val isVinylFrame = artworkFrame == StudioArtworkFrame.VINYL_DISC
+    val isMinimalFrame = artworkFrame == StudioArtworkFrame.MINIMAL_FRAME
+    var vinylRotationDeg by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(isVinylFrame, isPlaying, reducedMotion) {
+        if (!isVinylFrame || !isPlaying || reducedMotion) return@LaunchedEffect
+        var lastNanos = 0L
+        while (true) {
+            withFrameNanos { frameNanos ->
+                if (lastNanos != 0L) {
+                    val dt = (frameNanos - lastNanos).coerceIn(0L, 50_000_000L) / 1_000_000_000f
+                    vinylRotationDeg = (vinylRotationDeg + dt * 24f) % 360f
+                }
+                lastNanos = frameNanos
+            }
+        }
+    }
+
     val displayTracks = remember(queue, currentTrack) {
         when {
             queue.isNotEmpty() -> queue
@@ -280,13 +327,20 @@ fun SongCarousel(
         TrackArtworkImage(
             artworkUrl = null,
             contentDescription = "No track artwork",
-            shape = artworkShape,
+            shape = resolvedShape,
             isPlaying = isPlaying,
             enablePauseTransform = true,
             pauseScale = if (enablePauseScale) pauseScale else 1f,
             pauseSaturation = pauseSaturation,
             modifier = modifier
                 .onGloballyPositioned { emptyCoords[0] = it }
+                .then(
+                    if (isMinimalFrame) {
+                        Modifier.border(1.dp, Color(0x28FFFFFF), resolvedShape)
+                    } else {
+                        Modifier
+                    }
+                )
                 .then(
                     if (onArtworkLongClick != null || onArtworkDoubleTap != null) {
                         Modifier.pointerInput(Unit) {
@@ -334,13 +388,13 @@ fun SongCarousel(
             }
     }
 
-    val hasCardPadding = pageSpacing > 0.dp || contentPadding != PaddingValues(0.dp)
+    val hasCardPadding = resolvedSpacing > 0.dp || resolvedPadding != PaddingValues(0.dp)
 
     HorizontalPager(
         state = resolvedPagerState,
         modifier = modifier,
-        contentPadding = contentPadding,
-        pageSpacing = pageSpacing,
+        contentPadding = resolvedPadding,
+        pageSpacing = resolvedSpacing,
         key = { page ->
             val track = displayTracks.getOrNull(page)
             if (track != null) "${track.id}_$page" else "empty_$page"
@@ -361,9 +415,16 @@ fun SongCarousel(
                     scaleX = s
                     scaleY = s
                     alpha = a
-                    shape = artworkShape
+                    shape = resolvedShape
                     clip = true
                 }
+                .then(
+                    if (isMinimalFrame) {
+                        Modifier.border(1.dp, Color(0x28FFFFFF), resolvedShape)
+                    } else {
+                        Modifier
+                    }
+                )
                 .then(
                     if (onArtworkLongClick != null || onArtworkDoubleTap != null) {
                         Modifier.pointerInput(Unit) {
@@ -396,7 +457,7 @@ fun SongCarousel(
             TrackArtworkImage(
                 artworkUrl = track.artworkUrl,
                 contentDescription = track.title,
-                shape = artworkShape,
+                shape = resolvedShape,
                 isPlaying = isPlaying,
                 enablePauseTransform = true,
                 pauseScale = if (enablePauseScale) pauseScale else 1f,
@@ -404,7 +465,10 @@ fun SongCarousel(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        if (!reducedMotion && parallaxFactor > 0f) {
+                        if (isVinylFrame && page == resolvedPagerState.currentPage && !reducedMotion) {
+                            rotationZ = vinylRotationDeg
+                        }
+                        if (!reducedMotion && parallaxFactor > 0f && !isVinylFrame) {
                             val relOffset = (page - resolvedPagerState.currentPage) - resolvedPagerState.currentPageOffsetFraction
                             val shift = -relOffset * size.width * parallaxFactor
                             translationX = shift
@@ -416,6 +480,23 @@ fun SongCarousel(
                         }
                     }
             )
+            if (isVinylFrame) {
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF141414))
+                        .border(1.5.dp, Color(0x4DFFFFFF), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(9.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black)
+                    )
+                }
+            }
         }
     }
 }
@@ -425,7 +506,8 @@ fun PlayerSeekSection(
     playbackState: PlaybackState,
     onSeekToFraction: (Float) -> Unit,
     modifier: Modifier = Modifier,
-    accentColor: Color = Color.White
+    accentColor: Color = Color.White,
+    seekbarStyle: StudioSeekbarStyle = StudioSeekbarStyle.HARMONIC_WAVE
 ) {
     val reducedMotion = OndaTheme.reducedMotion
     val density = LocalDensity.current
@@ -628,77 +710,156 @@ fun PlayerSeekSection(
                 val activeEndX = startX + usableWidth * displayed
                 val bufferedEndX = startX + usableWidth * clampedBuffered
 
-                drawLine(
-                    color = GlassTokens.GlassHighlight.copy(alpha = 0.16f + 0.08f * expandProgress),
-                    start = Offset(startX, centerY),
-                    end = Offset(endX, centerY),
-                    strokeWidth = strokePx,
-                    cap = StrokeCap.Round
-                )
-
-                if (clampedBuffered > displayed) {
-                    drawLine(
-                        color = GlassTokens.GlassHighlight.copy(alpha = 0.28f),
-                        start = Offset(activeEndX, centerY),
-                        end = Offset(bufferedEndX, centerY),
-                        strokeWidth = strokePx,
-                        cap = StrokeCap.Round
-                    )
-                }
-
-                val ampPx = maxWaveAmpPx * waveAmplitudeFactor
-                if (ampPx < 0.25f) {
-                    drawLine(
-                        color = accentColor,
-                        start = Offset(startX, centerY),
-                        end = Offset(activeEndX, centerY),
-                        strokeWidth = strokePx,
-                        cap = StrokeCap.Round
-                    )
-                } else {
-                    wavePath.reset()
-                    val stepPx = 3f
-                    var x = startX
-                    val twoPiOverLambda = (2f * PI.toFloat()) / waveLengthPx
-                    var started = false
-                    while (x <= activeEndX) {
-                        val distFromEdge = minOf(x - startX, activeEndX - x)
-                        val edgeEnvelope = (distFromEdge / 16f).coerceIn(0f, 1f)
-                        val y = centerY + sin((x - startX) * twoPiOverLambda - wavePhase) * ampPx * edgeEnvelope
-                        if (!started) {
-                            wavePath.moveTo(x, y)
-                            started = true
-                        } else {
-                            wavePath.lineTo(x, y)
-                        }
-                        x += stepPx
-                    }
-                    if (started) {
-                        wavePath.lineTo(activeEndX, centerY)
-                        drawPath(
-                            path = wavePath,
-                            color = accentColor,
-                            style = Stroke(
-                                width = strokePx,
-                                cap = StrokeCap.Round,
-                                join = StrokeJoin.Round
+                when (seekbarStyle) {
+                    StudioSeekbarStyle.PRECISION_BAR -> {
+                        val railStroke = lerp(2.5.dp.toPx(), 4.5.dp.toPx(), expandProgress)
+                        drawLine(
+                            color = GlassTokens.GlassHighlight.copy(alpha = 0.16f + 0.08f * expandProgress),
+                            start = Offset(startX, centerY),
+                            end = Offset(endX, centerY),
+                            strokeWidth = railStroke,
+                            cap = StrokeCap.Round
+                        )
+                        if (clampedBuffered > displayed) {
+                            drawLine(
+                                color = GlassTokens.GlassHighlight.copy(alpha = 0.28f),
+                                start = Offset(activeEndX, centerY),
+                                end = Offset(bufferedEndX, centerY),
+                                strokeWidth = railStroke,
+                                cap = StrokeCap.Round
                             )
+                        }
+                        drawLine(
+                            color = accentColor,
+                            start = Offset(startX, centerY),
+                            end = Offset(activeEndX, centerY),
+                            strokeWidth = railStroke,
+                            cap = StrokeCap.Round
+                        )
+                        val capW = lerp(4.dp.toPx(), 6.dp.toPx(), expandProgress)
+                        val capH = lerp(14.dp.toPx(), 20.dp.toPx(), expandProgress)
+                        drawRoundRect(
+                            color = accentColor.copy(alpha = 0.24f + 0.14f * expandProgress),
+                            topLeft = Offset(activeEndX - capW * 0.95f, centerY - capH * 0.6f),
+                            size = Size(capW * 1.9f, capH * 1.2f),
+                            cornerRadius = CornerRadius(capW, capW)
+                        )
+                        drawRoundRect(
+                            color = GlassTokens.TextPrimary,
+                            topLeft = Offset(activeEndX - capW * 0.5f, centerY - capH * 0.5f),
+                            size = Size(capW, capH),
+                            cornerRadius = CornerRadius(capW * 0.5f, capW * 0.5f)
+                        )
+                    }
+
+                    StudioSeekbarStyle.SEGMENTED_PULSE -> {
+                        val tickCount = 28
+                        val tickWidth = lerp(2.4.dp.toPx(), 3.2.dp.toPx(), expandProgress)
+                        for (i in 0 until tickCount) {
+                            val tPos = i.toFloat() / (tickCount - 1).toFloat()
+                            val tx = startX + usableWidth * tPos
+                            val harmonic = (sin(i * 0.85f) * 0.5f + 0.5f)
+                            val proximity = if (isPlaying && !held && !reducedMotion) {
+                                exp(-abs(tPos - displayed) * 16f) * 0.45f
+                            } else {
+                                0f
+                            }
+                            val baseH = lerp(6.dp.toPx(), 15.dp.toPx(), (harmonic + proximity).coerceIn(0f, 1f))
+                            val tickColor = when {
+                                tPos <= displayed -> accentColor
+                                tPos <= clampedBuffered -> GlassTokens.GlassHighlight.copy(alpha = 0.34f)
+                                else -> GlassTokens.GlassHighlight.copy(alpha = 0.16f)
+                            }
+                            drawLine(
+                                color = tickColor,
+                                start = Offset(tx, centerY - baseH * 0.5f),
+                                end = Offset(tx, centerY + baseH * 0.5f),
+                                strokeWidth = tickWidth,
+                                cap = StrokeCap.Round
+                            )
+                        }
+                        val thumbRadius = 5.5.dp.toPx() * lerp(1f, 1.32f, expandProgress)
+                        drawCircle(
+                            color = GlassTokens.TextPrimary,
+                            radius = thumbRadius,
+                            center = Offset(activeEndX, centerY)
+                        )
+                    }
+
+                    StudioSeekbarStyle.HARMONIC_WAVE -> {
+                        drawLine(
+                            color = GlassTokens.GlassHighlight.copy(alpha = 0.16f + 0.08f * expandProgress),
+                            start = Offset(startX, centerY),
+                            end = Offset(endX, centerY),
+                            strokeWidth = strokePx,
+                            cap = StrokeCap.Round
+                        )
+
+                        if (clampedBuffered > displayed) {
+                            drawLine(
+                                color = GlassTokens.GlassHighlight.copy(alpha = 0.28f),
+                                start = Offset(activeEndX, centerY),
+                                end = Offset(bufferedEndX, centerY),
+                                strokeWidth = strokePx,
+                                cap = StrokeCap.Round
+                            )
+                        }
+
+                        val ampPx = maxWaveAmpPx * waveAmplitudeFactor
+                        if (ampPx < 0.25f) {
+                            drawLine(
+                                color = accentColor,
+                                start = Offset(startX, centerY),
+                                end = Offset(activeEndX, centerY),
+                                strokeWidth = strokePx,
+                                cap = StrokeCap.Round
+                            )
+                        } else {
+                            wavePath.reset()
+                            val stepPx = 3f
+                            var x = startX
+                            val twoPiOverLambda = (2f * PI.toFloat()) / waveLengthPx
+                            var started = false
+                            while (x <= activeEndX) {
+                                val distFromEdge = minOf(x - startX, activeEndX - x)
+                                val edgeEnvelope = (distFromEdge / 16f).coerceIn(0f, 1f)
+                                val y = centerY + sin((x - startX) * twoPiOverLambda - wavePhase) * ampPx * edgeEnvelope
+                                if (!started) {
+                                    wavePath.moveTo(x, y)
+                                    started = true
+                                } else {
+                                    wavePath.lineTo(x, y)
+                                }
+                                x += stepPx
+                            }
+                            if (started) {
+                                wavePath.lineTo(activeEndX, centerY)
+                                drawPath(
+                                    path = wavePath,
+                                    color = accentColor,
+                                    style = Stroke(
+                                        width = strokePx,
+                                        cap = StrokeCap.Round,
+                                        join = StrokeJoin.Round
+                                    )
+                                )
+                            }
+                        }
+
+                        val thumbScale = lerp(1f, 1.38f, expandProgress)
+                        val thumbRadius = 6.2.dp.toPx() * thumbScale
+                        drawCircle(
+                            color = accentColor.copy(alpha = 0.28f + 0.14f * expandProgress),
+                            radius = thumbRadius * 1.6f,
+                            center = Offset(activeEndX, centerY)
+                        )
+                        drawCircle(
+                            color = GlassTokens.TextPrimary,
+                            radius = thumbRadius,
+                            center = Offset(activeEndX, centerY)
                         )
                     }
                 }
-
-                val thumbScale = lerp(1f, 1.38f, expandProgress)
-                val thumbRadius = 6.2.dp.toPx() * thumbScale
-                drawCircle(
-                    color = accentColor.copy(alpha = 0.28f + 0.14f * expandProgress),
-                    radius = thumbRadius * 1.6f,
-                    center = Offset(activeEndX, centerY)
-                )
-                drawCircle(
-                    color = GlassTokens.TextPrimary,
-                    radius = thumbRadius,
-                    center = Offset(activeEndX, centerY)
-                )
             }
         }
 
@@ -886,12 +1047,15 @@ fun PlayerTransportControls(
                     modifier = Modifier.size(26.dp)
                 )
             } else {
-                Icon(
-                    imageVector = if (displayedPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                    contentDescription = if (isPlaying) "Pause" else "Play",
+                OndaAnimatedPlayGlyph(
+                    isPlaying = isPlaying,
+                    reducedMotion = reducedMotion,
                     tint = Color.Black,
                     modifier = Modifier
-                        .size(if (compact) 30.dp else 36.dp)
+                        .size(if (compact) 26.dp else 30.dp)
+                        .semantics {
+                            contentDescription = if (isPlaying) "Pause" else "Play"
+                        }
                         .graphicsLayer {
                             val s = if (reducedMotion) 1f else playSquash.value
                             scaleX = s
@@ -972,6 +1136,73 @@ fun PlayerTransportControls(
                         rotationZ = repeatSpin.value * 24f
                     }
             )
+        }
+    }
+}
+
+@Composable
+private fun OndaAnimatedPlayGlyph(
+    isPlaying: Boolean,
+    reducedMotion: Boolean,
+    tint: Color,
+    modifier: Modifier = Modifier
+) {
+    val morph = remember { Animatable(if (isPlaying) 1f else 0f) }
+    val pathA = remember { Path() }
+    val pathB = remember { Path() }
+
+    LaunchedEffect(isPlaying, reducedMotion) {
+        val target = if (isPlaying) 1f else 0f
+        if (reducedMotion) {
+            morph.snapTo(target)
+        } else {
+            morph.animateTo(
+                targetValue = target,
+                animationSpec = spring(
+                    dampingRatio = 0.72f,
+                    stiffness = 460f
+                )
+            )
+        }
+    }
+
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val p = morph.value.coerceIn(0f, 1f)
+        val roundStroke = Stroke(
+            width = 1.6.dp.toPx(),
+            cap = StrokeCap.Round,
+            join = StrokeJoin.Round
+        )
+
+        if (p <= 0.01f) {
+            pathA.reset()
+            pathA.moveTo(w * 0.30f, h * 0.18f)
+            pathA.lineTo(w * 0.82f, h * 0.50f)
+            pathA.lineTo(w * 0.30f, h * 0.82f)
+            pathA.close()
+            drawPath(path = pathA, color = tint)
+            drawPath(path = pathA, color = tint, style = roundStroke)
+        } else {
+            pathA.reset()
+            pathA.moveTo(w * lerp(0.30f, 0.23f, p), h * lerp(0.18f, 0.20f, p))
+            pathA.lineTo(w * lerp(0.56f, 0.42f, p), h * lerp(0.34f, 0.20f, p))
+            pathA.lineTo(w * lerp(0.56f, 0.42f, p), h * lerp(0.66f, 0.80f, p))
+            pathA.lineTo(w * lerp(0.30f, 0.23f, p), h * lerp(0.82f, 0.80f, p))
+            pathA.close()
+
+            pathB.reset()
+            pathB.moveTo(w * lerp(0.56f, 0.58f, p), h * lerp(0.34f, 0.20f, p))
+            pathB.lineTo(w * lerp(0.82f, 0.77f, p), h * lerp(0.50f, 0.20f, p))
+            pathB.lineTo(w * lerp(0.82f, 0.77f, p), h * lerp(0.50f, 0.80f, p))
+            pathB.lineTo(w * lerp(0.56f, 0.58f, p), h * lerp(0.66f, 0.80f, p))
+            pathB.close()
+
+            drawPath(path = pathA, color = tint)
+            drawPath(path = pathA, color = tint, style = roundStroke)
+            drawPath(path = pathB, color = tint)
+            drawPath(path = pathB, color = tint, style = roundStroke)
         }
     }
 }

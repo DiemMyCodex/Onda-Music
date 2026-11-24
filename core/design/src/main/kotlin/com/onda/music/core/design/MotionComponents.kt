@@ -60,6 +60,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.abs
@@ -142,49 +143,62 @@ fun Modifier.press3D(
     if (!enabled) return@composed this
     val reducedMotion = OndaTheme.reducedMotion
     val scope = rememberCoroutineScope()
-    val rotX = remember { Animatable(0f) }
-    val rotY = remember { Animatable(0f) }
-    val scale = remember { Animatable(1f) }
+    val press = remember { Animatable(0f) }
+    var normalized by remember { mutableStateOf(Offset.Zero) }
+    var layerWidthPx by remember { mutableFloatStateOf(1000f) }
 
     this
         .pointerInput(enabled, reducedMotion, maxTiltDegrees, pressedScale) {
+            var pressJob: Job? = null
             awaitPointerEventScope {
-                var wasPressed = false
                 while (true) {
-                    val event = awaitPointerEvent(PointerEventPass.Initial)
-                    val activePointer = event.changes.firstOrNull { it.pressed }
-                    if (activePointer != null) {
-                        val w = size.width.coerceAtLeast(1).toFloat()
-                        val h = size.height.coerceAtLeast(1).toFloat()
-                        val nx = ((activePointer.position.x / w) * 2f - 1f).coerceIn(-1f, 1f)
-                        val ny = ((activePointer.position.y / h) * 2f - 1f).coerceIn(-1f, 1f)
-                        val targetScale = if (reducedMotion) 1f else pressedScale
-                        val targetRotX = if (reducedMotion) 0f else -ny * maxTiltDegrees
-                        val targetRotY = if (reducedMotion) 0f else nx * maxTiltDegrees
+                    val down = awaitPointerEvent(PointerEventPass.Initial)
+                        .changes
+                        .firstOrNull { it.pressed }
+                        ?: continue
 
-                        if (!wasPressed) {
-                            wasPressed = true
-                            scope.launch { scale.animateTo(targetScale, AppMotion.SnappySpring) }
+                    val w = size.width.coerceAtLeast(1).toFloat()
+                    val h = size.height.coerceAtLeast(1).toFloat()
+                    layerWidthPx = w
+                    normalized = Offset(
+                        x = ((down.position.x / w) * 2f - 1f).coerceIn(-1f, 1f),
+                        y = ((down.position.y / h) * 2f - 1f).coerceIn(-1f, 1f)
+                    )
+                    pressJob?.cancel()
+                    pressJob = scope.launch {
+                        if (reducedMotion) {
+                            press.snapTo(0f)
+                        } else {
+                            press.animateTo(1f, AppMotion.SnappySpring)
                         }
-                        scope.launch {
-                            rotX.snapTo(targetRotX)
-                            rotY.snapTo(targetRotY)
+                    }
+
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        if (event.changes.none { it.pressed }) break
+                    }
+
+                    pressJob?.cancel()
+                    pressJob = scope.launch {
+                        if (reducedMotion) {
+                            press.snapTo(0f)
+                        } else {
+                            press.animateTo(0f, AppMotion.ExpressiveSpring)
                         }
-                    } else if (wasPressed) {
-                        wasPressed = false
-                        scope.launch { rotX.animateTo(0f, AppMotion.ExpressiveSpring) }
-                        scope.launch { rotY.animateTo(0f, AppMotion.ExpressiveSpring) }
-                        scope.launch { scale.animateTo(1f, AppMotion.ExpressiveSpring) }
                     }
                 }
             }
         }
         .graphicsLayer {
-            rotationX = rotX.value
-            rotationY = rotY.value
-            scaleX = scale.value
-            scaleY = scale.value
-            cameraDistance = 12f * density
+            val t = if (reducedMotion) 0f else press.value
+            if (t > 0.001f) {
+                val s = 1f - (1f - pressedScale) * t
+                scaleX = s
+                scaleY = s
+                rotationX = -normalized.y * maxTiltDegrees * t
+                rotationY = normalized.x * maxTiltDegrees * t
+                cameraDistance = (layerWidthPx * 3f).coerceAtLeast(12f * density)
+            }
         }
 }
 

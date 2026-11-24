@@ -710,8 +710,16 @@ fun OndaSampledGlassBackdrop(
 
     Box(
         modifier = modifier
-            .onGloballyPositioned { surfacePos = it.positionInWindow() }
+            .onGloballyPositioned { coords ->
+                val pos = coords.positionInWindow()
+                val dx = pos.x - surfacePos.x
+                val dy = pos.y - surfacePos.y
+                if (dx * dx + dy * dy > 0.25f) {
+                    surfacePos = pos
+                }
+            }
             .clipToBounds()
+            .graphicsLayer()
     ) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && backdropState != null && blurEnabled) {
             val sheenBrush = remember(sheenAlpha) {

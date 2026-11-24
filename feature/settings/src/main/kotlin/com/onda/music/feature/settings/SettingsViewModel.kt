@@ -171,6 +171,42 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun setLyricsOnDemandTranslateEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            preferences.setLyricsOnDemandTranslateEnabled(enabled)
+        }
+    }
+
+    fun setScrobbleEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            preferences.setScrobbleEnabled(enabled)
+        }
+    }
+
+    fun saveScrobbleConfig(
+        service: String,
+        username: String,
+        sessionKey: String,
+        apiKey: String,
+        apiSecret: String
+    ) {
+        viewModelScope.launch {
+            preferences.setScrobbleConfig(service, username, sessionKey, apiKey, apiSecret)
+        }
+    }
+
+    fun setDiscordRpcEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            preferences.setDiscordRpcEnabled(enabled)
+        }
+    }
+
+    fun saveDiscordUserToken(token: String?) {
+        viewModelScope.launch {
+            preferences.setDiscordUserToken(token)
+        }
+    }
+
     fun setSearchQuery(query: String) {
         localState.update { it.copy(searchQuery = query) }
     }

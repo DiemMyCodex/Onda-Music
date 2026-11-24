@@ -39,6 +39,7 @@ enum class SettingsEntryId {
     DYNAMIC_MESH,
     LYRICS_STYLE_PICKER,
     LYRICS_MOTION,
+    LYRICS_TRANSLATE,
     LYRICS_FONT_SCALE,
     HAPTIC_FEEDBACK,
     KEEP_SCREEN_ON,
@@ -49,6 +50,8 @@ enum class SettingsEntryId {
     YT_COOKIE,
     PROXY_URL,
     LINK_IMPORTER,
+    SCROBBLE_INTEGRATION,
+    DISCORD_RPC,
     TRANSFER_HUB,
     CACHE_CLEAR,
     CACHE_LIMIT,
@@ -226,6 +229,13 @@ fun buildSettingsSearchEntries(strings: SettingsStrings): List<SettingsSearchEnt
         keywords = listOf("lyrics", "stagger", "karaoke", "motion", "loi bai hat")
     ),
     SettingsSearchEntry(
+        id = SettingsEntryId.LYRICS_TRANSLATE,
+        group = SettingsGroup.NOW_PLAYING_MOTION,
+        title = strings.lyricsTranslateTitle,
+        subtitle = strings.lyricsTranslateSubtitle,
+        keywords = listOf("translate", "bilingual", "subtitles", "dich loi", "song ngu")
+    ),
+    SettingsSearchEntry(
         id = SettingsEntryId.LYRICS_FONT_SCALE,
         group = SettingsGroup.NOW_PLAYING_MOTION,
         title = strings.lyricsFontScaleTitle,
@@ -294,6 +304,20 @@ fun buildSettingsSearchEntries(strings: SettingsStrings): List<SettingsSearchEnt
         title = strings.linkImporterTitle,
         subtitle = strings.linkImporterSubtitle,
         keywords = listOf("link", "import", "spotify", "apple music", "deezer", "youtube", "playlist")
+    ),
+    SettingsSearchEntry(
+        id = SettingsEntryId.SCROBBLE_INTEGRATION,
+        group = SettingsGroup.SOURCES_LINK_IMPORT,
+        title = strings.scrobbleTitle,
+        subtitle = strings.scrobbleSubtitle,
+        keywords = listOf("scrobble", "lastfm", "librefm", "audioscrobbler")
+    ),
+    SettingsSearchEntry(
+        id = SettingsEntryId.DISCORD_RPC,
+        group = SettingsGroup.SOURCES_LINK_IMPORT,
+        title = strings.discordRpcTitle,
+        subtitle = strings.discordRpcSubtitle,
+        keywords = listOf("discord", "rich presence", "rpc", "gateway")
     ),
     SettingsSearchEntry(
         id = SettingsEntryId.TRANSFER_HUB,

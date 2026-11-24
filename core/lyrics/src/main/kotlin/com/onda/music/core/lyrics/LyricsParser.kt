@@ -6,6 +6,7 @@ import com.onda.music.core.model.LyricsSource
 import com.onda.music.core.model.LyricsWord
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.abs
 
 @Singleton
 class LyricsParser @Inject constructor() {
@@ -20,6 +21,16 @@ class LyricsParser @Inject constructor() {
         val normalized = rawContent.replace("\r\n", "\n").replace('\r', '\n').trim()
         if (normalized.isEmpty()) {
             return LyricsDocument(trackId = trackId, lines = emptyList(), isSynced = false, hasWordTiming = false, source = source)
+        }
+        if (normalized.contains("<tt", ignoreCase = true) && normalized.contains("<p", ignoreCase = true)) {
+            val ttmlDoc = parseTtml(
+                trackId = trackId,
+                ttmlXml = normalized,
+                source = source,
+                trackDurationMs = trackDurationMs,
+                interludeGapThresholdMs = interludeGapThresholdMs
+            )
+            if (ttmlDoc.lines.isNotEmpty()) return ttmlDoc
         }
 
         val rawLines = normalized.lines()
@@ -77,8 +88,8 @@ class LyricsParser @Inject constructor() {
             )
         }
 
-        val sorted = parsedEntries.sortedBy { it.startTimeMs }
-        val finalized = buildTimelineWithInterludes(sorted, trackDurationMs, interludeGapThresholdMs)
+        val collapsed = collapseBilingualSameTimestamp(parsedEntries.sortedBy { it.startTimeMs })
+        val finalized = buildTimelineWithInterludes(collapsed, trackDurationMs, interludeGapThresholdMs)
         val hasWordTiming = finalized.any { it.words.isNotEmpty() }
 
         return LyricsDocument(
@@ -88,6 +99,153 @@ class LyricsParser @Inject constructor() {
             hasWordTiming = hasWordTiming,
             source = source
         )
+    }
+
+    fun parseTtml(
+        trackId: String,
+        ttmlXml: String,
+        source: LyricsSource = LyricsSource.BETTER_LYRICS,
+        trackDurationMs: Long = 0L,
+        interludeGapThresholdMs: Long = DEFAULT_INTERLUDE_GAP_MS
+    ): LyricsDocument {
+        val entries = mutableListOf<ParsedTimedEntry>()
+        for (pMatch in TTML_P_REGEX.findAll(ttmlXml)) {
+            val attrs = pMatch.groupValues[1]
+            val body = pMatch.groupValues[2]
+            val lineStart = parseTtmlAttrTimeMs(attrs, "begin") ?: continue
+            val lineEnd = parseTtmlAttrTimeMs(attrs, "end")
+
+            var translation: String? = null
+            val words = mutableListOf<LyricsWord>()
+            val lineTextBuilder = StringBuilder()
+
+            val spanMatches = TTML_SPAN_REGEX.findAll(body).toList()
+            if (spanMatches.isNotEmpty()) {
+                var cursor = 0
+                for (span in spanMatches) {
+                    val gapBefore = body.substring(cursor, span.range.first)
+                    val spanAttrs = span.groupValues[1]
+                    val rawInner = decodeXmlEntities(XML_TAG_STRIP_REGEX.replace(span.groupValues[2], ""))
+                    cursor = span.range.last + 1
+
+                    if (spanAttrs.contains("x-translation", ignoreCase = true)) {
+                        val cleanTrans = rawInner.trim()
+                        if (cleanTrans.isNotEmpty()) {
+                            translation = cleanTrans
+                        }
+                        continue
+                    }
+                    if (spanAttrs.contains("x-bg", ignoreCase = true) && rawInner.isBlank()) {
+                        continue
+                    }
+
+                    val spanBegin = parseTtmlAttrTimeMs(spanAttrs, "begin")
+                    val spanEnd = parseTtmlAttrTimeMs(spanAttrs, "end")
+                    val needsLeadingSpace = gapBefore.contains(' ') || gapBefore.contains('\n') || gapBefore.contains('\t')
+                    if (needsLeadingSpace && lineTextBuilder.isNotEmpty() && !lineTextBuilder.last().isWhitespace()) {
+                        lineTextBuilder.append(' ')
+                    }
+                    lineTextBuilder.append(rawInner)
+
+                    val trimmedWord = rawInner.trim()
+                    if (spanBegin != null && trimmedWord.isNotEmpty()) {
+                        val resolvedEnd = spanEnd?.coerceAtLeast(spanBegin + 40L) ?: (spanBegin + DEFAULT_WORD_TAIL_MS)
+                        words += LyricsWord(
+                            text = trimmedWord,
+                            startTimeMs = spanBegin,
+                            endTimeMs = resolvedEnd
+                        )
+                    }
+                }
+            } else {
+                val stripped = decodeXmlEntities(XML_TAG_STRIP_REGEX.replace(body, ""))
+                lineTextBuilder.append(stripped)
+            }
+
+            val cleanText = lineTextBuilder.toString().replace(MULTI_SPACE_REGEX, " ").trim()
+            val explicitInterlude = isInstrumentalMarker(cleanText)
+            entries += ParsedTimedEntry(
+                startTimeMs = lineStart,
+                explicitEndMs = lineEnd,
+                text = if (explicitInterlude) "" else cleanText,
+                words = if (explicitInterlude) emptyList() else words,
+                translatedText = translation,
+                explicitInterlude = explicitInterlude
+            )
+        }
+
+        if (entries.isEmpty()) {
+            return LyricsDocument(trackId = trackId, lines = emptyList(), isSynced = false, hasWordTiming = false, source = source)
+        }
+
+        val sorted = entries.sortedBy { it.startTimeMs }
+        val finalized = buildTimelineWithInterludes(sorted, trackDurationMs, interludeGapThresholdMs)
+        val hasWordTiming = finalized.any { it.words.isNotEmpty() }
+        return LyricsDocument(
+            trackId = trackId,
+            lines = finalized,
+            isSynced = true,
+            hasWordTiming = hasWordTiming,
+            source = source
+        )
+    }
+
+    fun mergeTranslation(
+        primary: LyricsDocument,
+        translatedLrc: String,
+        toleranceMs: Long = 1_500L
+    ): LyricsDocument {
+        if (primary.lines.isEmpty() || translatedLrc.isBlank()) return primary
+        val transDoc = parse(
+            trackId = primary.trackId,
+            rawContent = translatedLrc,
+            source = primary.source,
+            interludeGapThresholdMs = Long.MAX_VALUE
+        )
+        val transLines = transDoc.lines.filter { !it.isInterlude && it.text.isNotBlank() }
+        if (transLines.isEmpty()) return primary
+
+        val updated = primary.lines.map { line ->
+            if (line.isInterlude || line.text.isBlank() || !line.translatedText.isNullOrBlank()) {
+                line
+            } else {
+                val best = transLines.minByOrNull { abs(it.startTimeMs - line.startTimeMs) }
+                if (best != null && abs(best.startTimeMs - line.startTimeMs) <= toleranceMs &&
+                    !best.text.equals(line.text, ignoreCase = true)
+                ) {
+                    line.copy(translatedText = best.text)
+                } else {
+                    line
+                }
+            }
+        }
+        return primary.copy(lines = updated)
+    }
+
+    private fun collapseBilingualSameTimestamp(sorted: List<ParsedTimedEntry>): List<ParsedTimedEntry> {
+        if (sorted.size < 2) return sorted
+        val result = ArrayList<ParsedTimedEntry>(sorted.size)
+        var i = 0
+        while (i < sorted.size) {
+            val current = sorted[i]
+            val next = sorted.getOrNull(i + 1)
+            if (next != null &&
+                !current.explicitInterlude &&
+                !next.explicitInterlude &&
+                current.startTimeMs == next.startTimeMs &&
+                current.text.isNotBlank() &&
+                next.text.isNotBlank() &&
+                !current.text.equals(next.text, ignoreCase = true) &&
+                current.translatedText == null
+            ) {
+                result += current.copy(translatedText = next.text)
+                i += 2
+            } else {
+                result += current
+                i += 1
+            }
+        }
+        return result
     }
 
     private fun buildTimelineWithInterludes(
@@ -109,10 +267,12 @@ class LyricsParser @Inject constructor() {
         for (i in entries.indices) {
             val current = entries[i]
             val nextStart = entries.getOrNull(i + 1)?.startTimeMs
-            val naturalEnd = nextStart ?: maxOf(
-                current.startTimeMs + DEFAULT_TAIL_DURATION_MS,
-                if (trackDurationMs > current.startTimeMs) trackDurationMs else 0L
-            )
+            val naturalEnd = current.explicitEndMs?.takeIf { it > current.startTimeMs }
+                ?: nextStart
+                ?: maxOf(
+                    current.startTimeMs + DEFAULT_TAIL_DURATION_MS,
+                    if (trackDurationMs > current.startTimeMs) trackDurationMs else 0L
+                )
 
             if (current.explicitInterlude) {
                 output += LyricsLine(
@@ -126,6 +286,7 @@ class LyricsParser @Inject constructor() {
 
             val wordLastEnd = current.words.lastOrNull()?.endTimeMs
             val sungEnd = when {
+                current.explicitEndMs != null && current.explicitEndMs > current.startTimeMs -> current.explicitEndMs
                 nextStart == null -> naturalEnd
                 wordLastEnd != null && nextStart - wordLastEnd >= interludeGapThresholdMs -> wordLastEnd
                 wordLastEnd == null && nextStart - current.startTimeMs >= interludeGapThresholdMs * 2L -> {
@@ -140,6 +301,7 @@ class LyricsParser @Inject constructor() {
                 endTimeMs = sungEnd,
                 text = current.text,
                 words = resolvedWords,
+                translatedText = current.translatedText,
                 isInterlude = false
             )
 
@@ -220,6 +382,57 @@ class LyricsParser @Inject constructor() {
         return min * 60_000L + sec * 1000L + fracMs
     }
 
+    private fun parseTtmlAttrTimeMs(attrs: String, attrName: String): Long? {
+        val match = Regex("""\b$attrName\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE).find(attrs)
+            ?: return null
+        return parseTtmlTimeValueMs(match.groupValues[1].trim())
+    }
+
+    private fun parseTtmlTimeValueMs(raw: String): Long? {
+        if (raw.isEmpty()) return null
+        if (raw.endsWith("ms", ignoreCase = true)) {
+            return raw.dropLast(2).trim().toDoubleOrNull()?.toLong()?.coerceAtLeast(0L)
+        }
+        if (raw.endsWith("s", ignoreCase = true)) {
+            return raw.dropLast(1).trim().toDoubleOrNull()?.let { (it * 1000.0).toLong().coerceAtLeast(0L) }
+        }
+        val parts = raw.split(':')
+        return when (parts.size) {
+            3 -> {
+                val h = parts[0].toLongOrNull() ?: return null
+                val m = parts[1].toLongOrNull() ?: return null
+                val s = parts[2].toDoubleOrNull() ?: return null
+                ((h * 3600L + m * 60L) * 1000L + (s * 1000.0).toLong()).coerceAtLeast(0L)
+            }
+            2 -> {
+                val m = parts[0].toLongOrNull() ?: return null
+                val s = parts[1].toDoubleOrNull() ?: return null
+                (m * 60_000L + (s * 1000.0).toLong()).coerceAtLeast(0L)
+            }
+            1 -> parts[0].toDoubleOrNull()?.let { (it * 1000.0).toLong().coerceAtLeast(0L) }
+            else -> null
+        }
+    }
+
+    private fun decodeXmlEntities(raw: String): String {
+        var out = raw
+            .replace("&amp;", "&")
+            .replace("&apos;", "'")
+            .replace("&quot;", "\"")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+        out = XML_NUMERIC_ENTITY_REGEX.replace(out) { m ->
+            val num = m.groupValues[1]
+            val codePoint = if (num.startsWith("x", ignoreCase = true)) {
+                num.drop(1).toIntOrNull(16)
+            } else {
+                num.toIntOrNull(10)
+            }
+            codePoint?.let { String(Character.toChars(it)) } ?: m.value
+        }
+        return out
+    }
+
     private fun isInstrumentalMarker(text: String): Boolean {
         val t = text.trim()
         return t.isEmpty() || t == "♪" || t == "♫" || t == "..." || t.equals("[Instrumental]", ignoreCase = true)
@@ -227,8 +440,10 @@ class LyricsParser @Inject constructor() {
 
     private data class ParsedTimedEntry(
         val startTimeMs: Long,
+        val explicitEndMs: Long? = null,
         val text: String,
         val words: List<LyricsWord>,
+        val translatedText: String? = null,
         val explicitInterlude: Boolean
     )
 
@@ -244,5 +459,9 @@ class LyricsParser @Inject constructor() {
         private val METADATA_TAG_REGEX = Regex("""^\[[a-zA-Z]+:.*]$""")
         private val OFFSET_TAG_REGEX = Regex("""^\[offset:\s*([+-]?\d+)\s*]$""", RegexOption.IGNORE_CASE)
         private val MULTI_SPACE_REGEX = Regex("""\s+""")
+        private val TTML_P_REGEX = Regex("""<p\b([^>]*)>([\s\S]*?)</p>""", RegexOption.IGNORE_CASE)
+        private val TTML_SPAN_REGEX = Regex("""<span\b([^>]*)>([\s\S]*?)</span>""", RegexOption.IGNORE_CASE)
+        private val XML_TAG_STRIP_REGEX = Regex("""<[^>]+>""")
+        private val XML_NUMERIC_ENTITY_REGEX = Regex("""&#(x[0-9a-fA-F]+|\d+);""")
     }
 }

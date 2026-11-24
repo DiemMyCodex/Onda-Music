@@ -98,6 +98,7 @@ import com.onda.music.core.design.OndaMonogramMark
 import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.design.SmoothCornerShape
 import com.onda.music.core.model.BedsideTint
+import com.onda.music.core.model.PlaybackState
 import com.onda.music.core.model.PlaybackStatus
 import com.onda.music.feature.player.LikeActionButton
 import com.onda.music.feature.player.LyricsPane
@@ -137,12 +138,13 @@ private fun KeepBedsideScreenOn() {
 
 @Composable
 fun TimelinePlayerStyle(
+    playbackState: PlaybackState,
     ctx: PlayerStageContext,
     modifier: Modifier = Modifier
 ) {
     val reducedMotion = OndaTheme.reducedMotion
     val palette = OndaTheme.palette
-    val state = ctx.playbackState
+    val state = playbackState
     val track = state.currentTrack
     val isPlaying = state.status == PlaybackStatus.PLAYING
     val timelineTracks = remember(state.queue, track) {
@@ -488,11 +490,12 @@ fun TimelinePlayerStyle(
 
 @Composable
 fun LyricsStagePlayerStyle(
+    playbackState: PlaybackState,
     ctx: PlayerStageContext,
     modifier: Modifier = Modifier
 ) {
     val palette = OndaTheme.palette
-    val state = ctx.playbackState
+    val state = playbackState
     val track = state.currentTrack
     val offsetLabel = remember(ctx.lyricsOffsetMs) {
         val sign = if (ctx.lyricsOffsetMs >= 0L) "+" else ""
@@ -792,6 +795,7 @@ private val BURN_IN_DRIFT_OFFSETS = listOf(
 
 @Composable
 fun BedsidePlayerStyle(
+    playbackState: PlaybackState,
     ctx: PlayerStageContext,
     modifier: Modifier = Modifier
 ) {
@@ -801,7 +805,7 @@ fun BedsidePlayerStyle(
     val palette = OndaTheme.palette
     val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
-    val state = ctx.playbackState
+    val state = playbackState
     val track = state.currentTrack
     val isPlaying = state.status == PlaybackStatus.PLAYING
 
@@ -1320,6 +1324,7 @@ fun BedsidePlayerStyle(
 
 @Composable
 fun BedsideTilesPlayerStyle(
+    playbackState: PlaybackState,
     ctx: PlayerStageContext,
     modifier: Modifier = Modifier
 ) {
@@ -1329,7 +1334,7 @@ fun BedsideTilesPlayerStyle(
     val palette = OndaTheme.palette
     val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
-    val state = ctx.playbackState
+    val state = playbackState
     val track = state.currentTrack
     val isPlaying = state.status == PlaybackStatus.PLAYING
 

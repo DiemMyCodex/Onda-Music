@@ -1,5 +1,6 @@
 package com.onda.music.core.database
 
+import androidx.compose.runtime.Immutable
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
@@ -93,6 +94,15 @@ interface SongDao {
 
     @Query("UPDATE songs SET localUri = :localUri, needsRelink = 0 WHERE id = :id")
     suspend fun relinkLocalUri(id: String, localUri: String)
+
+    @Query("UPDATE songs SET title = :title, artist = :artist, album = :album, artworkUrl = COALESCE(:artworkUrl, artworkUrl) WHERE id = :id")
+    suspend fun updateTrackMetadata(
+        id: String,
+        title: String,
+        artist: String,
+        album: String?,
+        artworkUrl: String?
+    )
 
     @Query("DELETE FROM songs WHERE id = :id")
     suspend fun deleteById(id: String)
@@ -389,6 +399,23 @@ interface PlaylistDao {
     suspend fun deleteAllPlaylists()
 }
 
+@Immutable
+data class TrackPlayStatRow(
+    val trackId: String,
+    val title: String,
+    val artist: String,
+    val artworkUrl: String?,
+    val playCount: Int,
+    val totalDurationMs: Long
+)
+
+@Immutable
+data class ArtistPlayStatRow(
+    val artist: String,
+    val playCount: Int,
+    val totalDurationMs: Long
+)
+
 @Dao
 interface PlayEventDao {
     @Query("SELECT * FROM play_events ORDER BY timestampMs DESC LIMIT :limit")
@@ -402,6 +429,29 @@ interface PlayEventDao {
 
     @Query("SELECT COALESCE(SUM(durationPlayedMs), 0) FROM play_events")
     fun observeTotalPlayDurationMs(): Flow<Long>
+
+    @Query("SELECT COUNT(*) FROM play_events WHERE timestampMs >= :sinceMs")
+    fun observePlayCountSince(sinceMs: Long): Flow<Int>
+
+    @Query("SELECT COALESCE(SUM(durationPlayedMs), 0) FROM play_events WHERE timestampMs >= :sinceMs")
+    fun observePlayDurationSince(sinceMs: Long): Flow<Long>
+
+    @Query(
+        "SELECT s.id AS trackId, s.title AS title, s.artist AS artist, s.artworkUrl AS artworkUrl, " +
+            "COUNT(pe.id) AS playCount, COALESCE(SUM(pe.durationPlayedMs), 0) AS totalDurationMs " +
+            "FROM play_events pe INNER JOIN songs s ON s.id = pe.trackId " +
+            "WHERE pe.timestampMs >= :sinceMs " +
+            "GROUP BY s.id ORDER BY totalDurationMs DESC, playCount DESC LIMIT :limit"
+    )
+    fun observeTopTracksSince(sinceMs: Long, limit: Int = 10): Flow<List<TrackPlayStatRow>>
+
+    @Query(
+        "SELECT s.artist AS artist, COUNT(pe.id) AS playCount, COALESCE(SUM(pe.durationPlayedMs), 0) AS totalDurationMs " +
+            "FROM play_events pe INNER JOIN songs s ON s.id = pe.trackId " +
+            "WHERE pe.timestampMs >= :sinceMs AND s.artist != '' " +
+            "GROUP BY s.artist ORDER BY totalDurationMs DESC, playCount DESC LIMIT :limit"
+    )
+    fun observeTopArtistsSince(sinceMs: Long, limit: Int = 10): Flow<List<ArtistPlayStatRow>>
 
     @Query("SELECT * FROM play_events ORDER BY timestampMs DESC")
     suspend fun getAll(): List<PlayEventEntity>

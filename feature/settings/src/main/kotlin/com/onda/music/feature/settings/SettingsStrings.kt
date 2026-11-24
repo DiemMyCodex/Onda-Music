@@ -160,7 +160,24 @@ data class SettingsStrings(
     val keepScreenOnTitle: String,
     val keepScreenOnSubtitle: String,
     val replayOnboardingTitle: String,
-    val replayOnboardingSubtitle: String
+    val replayOnboardingSubtitle: String,
+    val lyricsTranslateTitle: String,
+    val lyricsTranslateSubtitle: String,
+    val scrobbleTitle: String,
+    val scrobbleSubtitle: String,
+    val scrobbleSheetDesc: String,
+    val scrobbleUsernameLabel: String,
+    val scrobbleSessionKeyLabel: String,
+    val scrobbleApiKeyLabel: String,
+    val scrobbleApiSecretLabel: String,
+    val scrobbleLibreFmNote: String,
+    val discordRpcTitle: String,
+    val discordRpcSubtitle: String,
+    val discordTosWarningTitle: String,
+    val discordTosWarningBody: String,
+    val discordTokenLabel: String,
+    val discordTokenPlaceholder: String,
+    val appVersionFooter: String
 )
 
 fun settingsStringsFor(languageCode: String): SettingsStrings {
@@ -321,7 +338,24 @@ fun settingsStringsFor(languageCode: String): SettingsStrings {
             keepScreenOnTitle = "Giữ màn hình luôn sáng",
             keepScreenOnSubtitle = "Ngăn tắt màn hình khi đang xem lời bài hát hoặc bảng điều khiển",
             replayOnboardingTitle = "Xem lại màn chào mừng",
-            replayOnboardingSubtitle = "Mở lại trải nghiệm khởi đầu và thiết lập nhanh của Onda"
+            replayOnboardingSubtitle = "Mở lại trải nghiệm khởi đầu và thiết lập nhanh của Onda",
+            lyricsTranslateTitle = "Dịch lời bài hát theo yêu cầu",
+            lyricsTranslateSubtitle = "Tắt mặc định để ưu tiên cục bộ; khi bật sẽ dịch phụ đề và lưu cache vào Room",
+            scrobbleTitle = "Scrobble Libre.fm / Last.fm",
+            scrobbleSubtitle = "Tùy chọn Audioscrobbler v2.0 thuần Kotlin (tắt mặc định)",
+            scrobbleSheetDesc = "Gửi lịch sử nghe qua HTTP thuần không SDK ngoài",
+            scrobbleUsernameLabel = "Tên tài khoản",
+            scrobbleSessionKeyLabel = "Session Key",
+            scrobbleApiKeyLabel = "Last.fm API Key",
+            scrobbleApiSecretLabel = "Last.fm API Secret",
+            scrobbleLibreFmNote = "Libre.fm hỗ trợ Audioscrobbler v2.0 mở, không yêu cầu API key thương mại.",
+            discordRpcTitle = "Discord Rich Presence",
+            discordRpcSubtitle = "Hiển thị bài đang phát qua Gateway WebSocket (tắt mặc định)",
+            discordTosWarningTitle = "Cảnh báo Điều khoản dịch vụ (ToS) Discord",
+            discordTosWarningBody = "Kết nối Gateway bằng user token cá nhân không phải phương thức chính thức của Discord và có thể vi phạm ToS Discord. Token chỉ lưu cục bộ trong DataStore của máy bạn và không bao giờ gửi sang máy chủ thứ ba.",
+            discordTokenLabel = "Discord User Token (lưu cục bộ)",
+            discordTokenPlaceholder = "Dán token tài khoản Discord...",
+            appVersionFooter = "Onda Music v1.2.8 · Pure #000000 OLED · Local-First"
         )
     } else {
         SettingsStrings(
@@ -480,7 +514,24 @@ fun settingsStringsFor(languageCode: String): SettingsStrings {
             keepScreenOnTitle = "Keep Screen On",
             keepScreenOnSubtitle = "Prevent display sleep while viewing lyrics or telemetry",
             replayOnboardingTitle = "Replay Welcome Experience",
-            replayOnboardingSubtitle = "Revisit Onda's first-launch tour and quick setup"
+            replayOnboardingSubtitle = "Revisit Onda's first-launch tour and quick setup",
+            lyricsTranslateTitle = "On-Demand Lyrics Translation",
+            lyricsTranslateSubtitle = "Off by default for local-first privacy; translates missing subtitles and caches in Room",
+            scrobbleTitle = "Libre.fm / Last.fm Scrobbling",
+            scrobbleSubtitle = "Opt-in pure-Kotlin Audioscrobbler v2.0 client (off by default)",
+            scrobbleSheetDesc = "Lightweight HTTP scrobbling with zero external SDKs",
+            scrobbleUsernameLabel = "Username",
+            scrobbleSessionKeyLabel = "Session Key",
+            scrobbleApiKeyLabel = "Last.fm API Key",
+            scrobbleApiSecretLabel = "Last.fm API Secret",
+            scrobbleLibreFmNote = "Libre.fm works with open Audioscrobbler v2.0 without a commercial API key.",
+            discordRpcTitle = "Discord Rich Presence",
+            discordRpcSubtitle = "Opt-in Gateway WebSocket Listening presence (off by default)",
+            discordTosWarningTitle = "Discord Terms of Service (ToS) Warning",
+            discordTosWarningBody = "Connecting to Discord Gateway with a personal user token is unofficial and may violate Discord ToS. Your token is stored strictly locally in DataStore and never sent to any third-party server.",
+            discordTokenLabel = "Discord User Token (stored locally)",
+            discordTokenPlaceholder = "Paste your Discord user token...",
+            appVersionFooter = "Onda Music v1.2.8 · Pure #000000 OLED · Local-First"
         )
     }
 }

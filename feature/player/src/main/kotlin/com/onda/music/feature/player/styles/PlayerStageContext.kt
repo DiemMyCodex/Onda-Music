@@ -4,19 +4,16 @@ import android.view.SurfaceView
 import android.view.TextureView
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.geometry.Offset
-import androidx.media3.common.Player
 import com.onda.music.core.database.OndaUserSettings
 import com.onda.music.core.model.DownloadItem
 import com.onda.music.core.model.EqConfig
 import com.onda.music.core.model.LyricsDocument
-import com.onda.music.core.model.PlaybackState
 import com.onda.music.core.model.PlayerStudioConfig
 import com.onda.music.core.model.Track
 import com.onda.music.feature.player.OndaLikeBurstState
 
 @Immutable
 data class PlayerStageContext(
-    val playbackState: PlaybackState,
     val settings: OndaUserSettings,
     val liked: Boolean,
     val downloadItem: DownloadItem?,
@@ -24,7 +21,6 @@ data class PlayerStageContext(
     val lyricsOffsetMs: Long,
     val isLyricsLoading: Boolean,
     val lyricsError: String?,
-    val activePlayer: Player?,
     val showInlineLyrics: Boolean,
     val onToggleInlineLyrics: () -> Unit,
     val onTogglePlayPause: () -> Unit,

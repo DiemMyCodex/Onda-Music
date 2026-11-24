@@ -34,6 +34,7 @@ dependencies {
     implementation(libs.media3.hls)
     implementation(libs.media3.dash)
     implementation(libs.media3.okhttp)
+    implementation(libs.ktor.client.okhttp)
     implementation(libs.media3.ui)
     implementation(libs.media3.ffmpeg)
     implementation(libs.guava)

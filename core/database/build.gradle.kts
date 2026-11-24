@@ -30,6 +30,7 @@ ksp {
 
 dependencies {
     api(project(":core:model"))
+    implementation(libs.compose.runtime)
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)

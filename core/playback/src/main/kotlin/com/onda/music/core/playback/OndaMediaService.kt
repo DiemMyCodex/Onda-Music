@@ -93,6 +93,7 @@ class OndaMediaService : MediaLibraryService() {
     @Inject lateinit var playEventDao: PlayEventDao
     @Inject lateinit var sessionStore: PlaybackSessionStore
     @Inject lateinit var playbackController: PlaybackController
+    @Inject lateinit var externalPresenceManager: ExternalPresenceManager
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var player: ExoPlayer
@@ -149,6 +150,7 @@ class OndaMediaService : MediaLibraryService() {
 
     override fun onDestroy() {
         persistCheckpointNow()
+        externalPresenceManager.shutdown()
         audioOutputProfileManager.stopMonitoring()
         releaseLocks()
         checkpointJob?.cancel()
@@ -308,6 +310,7 @@ class OndaMediaService : MediaLibraryService() {
             ondaPreferences.settings.collectLatest { userSettings ->
                 keepPlayingOnTaskRemoved = userSettings.keepPlayingOnTaskRemoved
                 resumeOnHeadsetConnect = userSettings.resumeOnHeadsetConnect
+                externalPresenceManager.updateSettings(userSettings)
                 audioEffectsEngine.applyEqConfig(userSettings.eqConfig)
                 if (player.skipSilenceEnabled != userSettings.skipSilenceEnabled) {
                     player.skipSilenceEnabled = userSettings.skipSilenceEnabled
@@ -912,6 +915,10 @@ class OndaMediaService : MediaLibraryService() {
                     durationPlayedMs = playedMs
                 )
             )
+            val scrobbleTrack = sessionStore.getTrack(trackId) ?: songDao.getById(trackId)?.toModel()
+            if (scrobbleTrack != null) {
+                externalPresenceManager.onTrackPlayed(scrobbleTrack, startMs, playedMs)
+            }
         }
     }
 
@@ -966,6 +973,12 @@ class OndaMediaService : MediaLibraryService() {
                 playbackPitch = player.playbackParameters.pitch
             )
         }
+        externalPresenceManager.onPlaybackStateChanged(
+            track = currentTrack,
+            isPlaying = status == PlaybackStatus.PLAYING,
+            positionMs = player.currentPosition.coerceAtLeast(0L),
+            durationMs = duration
+        )
     }
 
     private fun buildAudioSignalInfo(

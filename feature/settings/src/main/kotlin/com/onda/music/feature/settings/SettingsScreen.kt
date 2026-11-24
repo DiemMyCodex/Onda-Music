@@ -66,6 +66,8 @@ import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlayCircle
+import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.TextFields
@@ -163,6 +165,7 @@ fun SettingsRoute(
         onDynamicMeshChange = viewModel::setDynamicMeshEnabled,
         onLyricsMotionStyleChange = viewModel::setLyricsMotionStyle,
         onLyricsMotionChange = viewModel::setLyricsMotionEnabled,
+        onLyricsTranslateChange = viewModel::setLyricsOnDemandTranslateEnabled,
         onLyricsFontScaleChange = viewModel::setLyricsFontScale,
         onHapticsChange = viewModel::setHapticsEnabled,
         onUsernameSave = viewModel::updateUsername,
@@ -187,6 +190,10 @@ fun SettingsRoute(
         onDownloadFolderPicked = viewModel::setDownloadTreeUri,
     onResetDefaults = viewModel::resetToDefaults,
         onClearStatusMessage = viewModel::clearStatusMessage,
+        onScrobbleEnabledChange = viewModel::setScrobbleEnabled,
+        onSaveScrobbleConfig = viewModel::saveScrobbleConfig,
+        onDiscordRpcEnabledChange = viewModel::setDiscordRpcEnabled,
+        onSaveDiscordUserToken = viewModel::saveDiscordUserToken,
         onReplayOnboarding = onReplayOnboarding,
         modifier = modifier
     )
@@ -219,6 +226,7 @@ fun SettingsScreen(
     onDynamicMeshChange: (Boolean) -> Unit,
     onLyricsMotionStyleChange: (LyricsMotionStyle) -> Unit,
     onLyricsMotionChange: (Boolean) -> Unit,
+    onLyricsTranslateChange: (Boolean) -> Unit = {},
     onLyricsFontScaleChange: (Float) -> Unit,
     onHapticsChange: (Boolean) -> Unit,
     onUsernameSave: (String) -> Unit,
@@ -244,6 +252,10 @@ fun SettingsScreen(
     onResetDefaults: () -> Unit,
     onClearStatusMessage: () -> Unit,
     modifier: Modifier = Modifier,
+    onScrobbleEnabledChange: (Boolean) -> Unit = {},
+    onSaveScrobbleConfig: (String, String, String, String, String) -> Unit = { _, _, _, _, _ -> },
+    onDiscordRpcEnabledChange: (Boolean) -> Unit = {},
+    onSaveDiscordUserToken: (String?) -> Unit = {},
     onReplayOnboarding: () -> Unit = {}
 ) {
     val settings = uiState.settings
@@ -264,6 +276,8 @@ fun SettingsScreen(
     var showUsernameDialog by rememberSaveable { mutableStateOf(false) }
     var showYtCookieDialog by rememberSaveable { mutableStateOf(false) }
     var showProxyDialog by rememberSaveable { mutableStateOf(false) }
+    var showScrobbleSheet by rememberSaveable { mutableStateOf(false) }
+    var showDiscordRpcSheet by rememberSaveable { mutableStateOf(false) }
     var showResetDialog by rememberSaveable { mutableStateOf(false) }
 
     val isSearching = isSearchFocused || uiState.searchQuery.isNotBlank()
@@ -324,6 +338,7 @@ fun SettingsScreen(
             onGlassBlurChange = onGlassBlurChange,
             onDynamicMeshChange = onDynamicMeshChange,
             onLyricsMotionChange = onLyricsMotionChange,
+            onLyricsTranslateChange = onLyricsTranslateChange,
             onLyricsFontScaleChange = onLyricsFontScaleChange,
             onHapticsChange = onHapticsChange,
             onEditUsername = { showUsernameDialog = true },
@@ -333,6 +348,8 @@ fun SettingsScreen(
             onMonochromeChange = onMonochromeChange,
             onOpenYtCookie = { showYtCookieDialog = true },
             onOpenProxy = { showProxyDialog = true },
+            onOpenScrobble = { showScrobbleSheet = true },
+            onOpenDiscordRpc = { showDiscordRpcSheet = true },
             onLinkInputChange = onLinkInputChange,
             onImportLink = { onImportLink(uiState.linkImport.inputUrl) },
             onOpenTransfer = { showTransferSheet = true },
@@ -532,6 +549,17 @@ fun SettingsScreen(
                                             Spacer(modifier = Modifier.height(12.dp))
                                         }
                                     }
+                                }
+
+                                item(key = "hub_version_footer") {
+                                    Text(
+                                        text = strings.appVersionFooter,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = SettingsOledColors.TextMuted,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 24.dp, vertical = 18.dp)
+                                    )
                                 }
                             }
                         }
@@ -838,6 +866,26 @@ fun SettingsScreen(
             }
         )
     }
+
+    if (showScrobbleSheet) {
+        ScrobbleConfigSheet(
+            settings = settings,
+            strings = strings,
+            onEnabledChange = onScrobbleEnabledChange,
+            onSaveConfig = onSaveScrobbleConfig,
+            onDismiss = { showScrobbleSheet = false }
+        )
+    }
+
+    if (showDiscordRpcSheet) {
+        DiscordRpcConfigSheet(
+            settings = settings,
+            strings = strings,
+            onEnabledChange = onDiscordRpcEnabledChange,
+            onSaveToken = onSaveDiscordUserToken,
+            onDismiss = { showDiscordRpcSheet = false }
+        )
+    }
 }
 
 private fun groupTitleFor(group: SettingsGroup, strings: SettingsStrings): String = when (group) {
@@ -872,6 +920,7 @@ private fun entryIconFor(id: SettingsEntryId): ImageVector = when (id) {
     SettingsEntryId.DYNAMIC_MESH -> Icons.Rounded.Gradient
     SettingsEntryId.LYRICS_STYLE_PICKER -> Icons.Rounded.Lyrics
     SettingsEntryId.LYRICS_MOTION -> Icons.Rounded.MusicNote
+    SettingsEntryId.LYRICS_TRANSLATE -> Icons.Rounded.Translate
     SettingsEntryId.LYRICS_FONT_SCALE -> Icons.Rounded.TextFields
     SettingsEntryId.HAPTIC_FEEDBACK -> Icons.Rounded.Vibration
     SettingsEntryId.KEEP_SCREEN_ON -> Icons.Rounded.BrightnessHigh
@@ -882,6 +931,8 @@ private fun entryIconFor(id: SettingsEntryId): ImageVector = when (id) {
     SettingsEntryId.YT_COOKIE -> Icons.Rounded.Key
     SettingsEntryId.PROXY_URL -> Icons.Rounded.Language
     SettingsEntryId.LINK_IMPORTER -> Icons.Rounded.Link
+    SettingsEntryId.SCROBBLE_INTEGRATION -> Icons.Rounded.Radio
+    SettingsEntryId.DISCORD_RPC -> Icons.Rounded.Public
     SettingsEntryId.TRANSFER_HUB -> Icons.Rounded.Archive
     SettingsEntryId.CACHE_CLEAR -> Icons.Rounded.DeleteSweep
     SettingsEntryId.CACHE_LIMIT -> Icons.Rounded.Storage
@@ -912,6 +963,7 @@ private fun SettingsEntryRow(
     onGlassBlurChange: (Boolean) -> Unit,
     onDynamicMeshChange: (Boolean) -> Unit,
     onLyricsMotionChange: (Boolean) -> Unit,
+    onLyricsTranslateChange: (Boolean) -> Unit,
     onLyricsFontScaleChange: (Float) -> Unit,
     onHapticsChange: (Boolean) -> Unit,
     onEditUsername: () -> Unit,
@@ -921,6 +973,8 @@ private fun SettingsEntryRow(
     onMonochromeChange: (Boolean) -> Unit,
     onOpenYtCookie: () -> Unit,
     onOpenProxy: () -> Unit,
+    onOpenScrobble: () -> Unit,
+    onOpenDiscordRpc: () -> Unit,
     onLinkInputChange: (String) -> Unit,
     onImportLink: () -> Unit,
     onOpenTransfer: () -> Unit,
@@ -1175,6 +1229,16 @@ private fun SettingsEntryRow(
                 hapticsEnabled = haptics
             )
         }
+        SettingsEntryId.LYRICS_TRANSLATE -> {
+            SettingsToggleRow(
+                icon = Icons.Rounded.Translate,
+                title = entry.title,
+                subtitle = entry.subtitle,
+                checked = settings.lyricsOnDemandTranslateEnabled,
+                onCheckedChange = onLyricsTranslateChange,
+                hapticsEnabled = haptics
+            )
+        }
         SettingsEntryId.LYRICS_FONT_SCALE -> {
             Column(
                 modifier = Modifier
@@ -1367,6 +1431,37 @@ private fun SettingsEntryRow(
                 strings = strings,
                 onInputChange = onLinkInputChange,
                 onImport = onImportLink
+            )
+        }
+        SettingsEntryId.SCROBBLE_INTEGRATION -> {
+            val badge = if (settings.scrobbleEnabled) {
+                if (settings.scrobbleService == "lastfm") "Last.fm" else "Libre.fm"
+            } else {
+                strings.offLabel
+            }
+            SettingsActionRow(
+                icon = Icons.Rounded.Radio,
+                title = entry.title,
+                subtitle = entry.subtitle,
+                badgeText = badge,
+                badgeAccent = settings.scrobbleEnabled,
+                onClick = onOpenScrobble
+            )
+        }
+        SettingsEntryId.DISCORD_RPC -> {
+            val configured = !settings.discordUserToken.isNullOrBlank()
+            val badge = when {
+                settings.discordRpcEnabled && configured -> strings.onLabel
+                configured -> strings.configuredLabel
+                else -> strings.offLabel
+            }
+            SettingsActionRow(
+                icon = Icons.Rounded.Public,
+                title = entry.title,
+                subtitle = entry.subtitle,
+                badgeText = badge,
+                badgeAccent = settings.discordRpcEnabled && configured,
+                onClick = onOpenDiscordRpc
             )
         }
         SettingsEntryId.TRANSFER_HUB -> {

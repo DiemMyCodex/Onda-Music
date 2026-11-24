@@ -100,4 +100,53 @@ class LyricsParserTest {
         assertEquals("First line of song", doc.lines[0].text)
         assertEquals(0L, doc.lines[0].startTimeMs)
     }
+
+    @Test
+    fun parsesBetterLyricsTtmlWithWordTimingsAndTranslations() {
+        val ttml = """
+            <tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3.org/ns/ttml#metadata">
+              <body><div>
+                <p begin="00:01.000" end="00:03.500">
+                  <span begin="00:01.000" end="00:01.800">Hello</span>
+                  <span begin="00:01.800" end="00:03.500">world &amp; sky</span>
+                  <span ttm:role="x-translation">Xin chao the gioi</span>
+                </p>
+              </div></body>
+            </tt>
+        """.trimIndent()
+
+        val doc = parser.parse(trackId = "t5", rawContent = ttml, source = LyricsSource.BETTER_LYRICS)
+        assertTrue(doc.isSynced)
+        assertTrue(doc.hasWordTiming)
+        assertEquals(LyricsSource.BETTER_LYRICS, doc.source)
+        assertEquals(1, doc.lines.size)
+        assertEquals("Hello world & sky", doc.lines[0].text)
+        assertEquals("Xin chao the gioi", doc.lines[0].translatedText)
+        assertEquals(2, doc.lines[0].words.size)
+        assertEquals(1_000L, doc.lines[0].words[0].startTimeMs)
+    }
+
+    @Test
+    fun mergesNetEaseTranslationAndPrioritizesWordTimedCandidates() {
+        val primary = parser.parse(
+            trackId = "t6",
+            rawContent = "[00:01.00]<00:01.00>Night <00:01.50>wave\n[00:04.00]Pure black",
+            source = LyricsSource.SIMP_MUSIC
+        )
+        val merged = parser.mergeTranslation(
+            primary,
+            "[00:01.10]Song dem\n[00:04.05]Den thuan"
+        )
+        assertEquals("Song dem", merged.lines[0].translatedText)
+        assertEquals("Den thuan", merged.lines[1].translatedText)
+
+        val lrcOnly = parser.parse(
+            trackId = "t6",
+            rawContent = "[00:01.00]Night wave\n[00:04.00]Pure black",
+            source = LyricsSource.LRCLIB
+        )
+        val picked = LyricsRepository.selectBestLyricsCandidate(listOf(lrcOnly, merged))
+        assertEquals(LyricsSource.SIMP_MUSIC, picked?.source)
+        assertTrue(picked?.hasWordTiming == true)
+    }
 }

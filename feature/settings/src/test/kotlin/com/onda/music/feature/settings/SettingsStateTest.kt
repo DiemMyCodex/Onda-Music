@@ -54,6 +54,20 @@ class SettingsStateTest {
         val accentMatches = filterSettingsEntries(entries, "adaptive accent")
         assertEquals(1, accentMatches.size)
         assertEquals(SettingsEntryId.OLED_ADAPTIVE_ACCENT, accentMatches.first().id)
+
+        val translateMatches = filterSettingsEntries(entries, "bilingual")
+        assertEquals(1, translateMatches.size)
+        assertEquals(SettingsEntryId.LYRICS_TRANSLATE, translateMatches.first().id)
+
+        val scrobbleMatches = filterSettingsEntries(entries, "librefm")
+        assertEquals(1, scrobbleMatches.size)
+        assertEquals(SettingsEntryId.SCROBBLE_INTEGRATION, scrobbleMatches.first().id)
+
+        val discordMatches = filterSettingsEntries(entries, "discord rpc")
+        assertEquals(1, discordMatches.size)
+        assertEquals(SettingsEntryId.DISCORD_RPC, discordMatches.first().id)
+
+        assertTrue(strings.appVersionFooter.contains("1.2.8"))
     }
 
     @Test

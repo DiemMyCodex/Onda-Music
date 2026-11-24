@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -81,6 +82,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.media3.common.Player
 import com.onda.music.core.design.AgslMeshBackground
 import com.onda.music.core.design.AppMotion
 import com.onda.music.core.design.DockMetrics
@@ -95,6 +97,7 @@ import com.onda.music.core.design.SmoothCornerShape
 import com.onda.music.core.design.computeOledAdaptivePalette
 import com.onda.music.core.design.pressBounce
 import com.onda.music.core.model.AudioSignalInfo
+import com.onda.music.core.model.PlaybackState
 import com.onda.music.core.model.PlayerStyle
 import com.onda.music.core.model.StudioBackdropMode
 import com.onda.music.core.model.Track
@@ -251,7 +254,6 @@ fun FullPlayerOverlay(
     val isPosterStyle = settings.playerStyle == PlayerStyle.POSTER
 
     val stageContext = remember(
-        playbackState,
         settings,
         liked,
         downloadItem,
@@ -259,7 +261,6 @@ fun FullPlayerOverlay(
         lyricsOffsetMs,
         isLyricsLoading,
         lyricsError,
-        activePlayer,
         showInlineLyrics,
         likeBurstState,
         onLikeFromButton,
@@ -267,7 +268,6 @@ fun FullPlayerOverlay(
         eqConfig
     ) {
         PlayerStageContext(
-            playbackState = playbackState,
             settings = settings,
             liked = liked,
             downloadItem = downloadItem,
@@ -275,7 +275,6 @@ fun FullPlayerOverlay(
             lyricsOffsetMs = lyricsOffsetMs,
             isLyricsLoading = isLyricsLoading,
             lyricsError = lyricsError,
-            activePlayer = activePlayer,
             showInlineLyrics = showInlineLyrics,
             onToggleInlineLyrics = { showInlineLyrics = !showInlineLyrics },
             onTogglePlayPause = viewModel::togglePlayPause,
@@ -384,8 +383,25 @@ fun FullPlayerOverlay(
                 if (isPosterStyle) {
                     Box(modifier = Modifier.fillMaxSize()) {
                         PosterPlayerStyle(
+                            playbackState = playbackState,
                             ctx = stageContext,
                             modifier = Modifier.fillMaxSize()
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .fillMaxWidth()
+                                .fillMaxHeight(0.13f)
+                                .background(
+                                    Brush.verticalGradient(
+                                        colorStops = arrayOf(
+                                            0.0f to Color(0xFF000000).copy(alpha = 0.46f),
+                                            0.55f to Color(0xFF000000).copy(alpha = 0.22f),
+                                            1.0f to Color.Transparent
+                                        )
+                                    )
+                                )
                         )
 
                         Box(
@@ -590,6 +606,8 @@ fun FullPlayerOverlay(
                             ) { style ->
                                 OndaPlayerStyleStage(
                                     style = style,
+                                    playbackState = playbackState,
+                                    activePlayer = activePlayer,
                                     ctx = stageContext
                                 )
                             }
@@ -688,11 +706,6 @@ fun FullPlayerOverlay(
                     onUpdateConfig = viewModel::updateStudioConfig,
                     onDismiss = { showStudioOverlay = false },
                     liveStagePreview = { previewStyle ->
-                        val previewCtx = if (previewStyle == PlayerStyle.VIDEO) {
-                            stageContext.copy(activePlayer = null)
-                        } else {
-                            stageContext
-                        }
                         Box(modifier = Modifier.fillMaxSize()) {
                             OndaPlayerBackdropLayer(
                                 mode = settings.studioConfig.backdropMode,
@@ -703,7 +716,9 @@ fun FullPlayerOverlay(
                             )
                             OndaPlayerStyleStage(
                                 style = previewStyle,
-                                ctx = previewCtx,
+                                playbackState = playbackState,
+                                activePlayer = if (previewStyle == PlayerStyle.VIDEO) null else activePlayer,
+                                ctx = stageContext,
                                 modifier = Modifier.fillMaxSize()
                             )
                         }
@@ -967,20 +982,27 @@ private fun OndaPlayerBackdropLayer(
 @Composable
 private fun OndaPlayerStyleStage(
     style: PlayerStyle,
+    playbackState: PlaybackState,
+    activePlayer: Player?,
     ctx: PlayerStageContext,
     modifier: Modifier = Modifier
 ) {
     when (style) {
-        PlayerStyle.FLAGSHIP -> FlagshipPlayerStyle(ctx = ctx, modifier = modifier)
-        PlayerStyle.CLASSIC -> ClassicPlayerStyle(ctx = ctx, modifier = modifier)
-        PlayerStyle.POSTER -> PosterPlayerStyle(ctx = ctx, modifier = modifier)
-        PlayerStyle.TURNTABLE -> TurntablePlayerStyle(ctx = ctx, modifier = modifier)
-        PlayerStyle.VIDEO -> VideoPlayerStyle(ctx = ctx, modifier = modifier)
-        PlayerStyle.IPOD -> IpodPlayerStyle(ctx = ctx, modifier = modifier)
-        PlayerStyle.TIMELINE -> TimelinePlayerStyle(ctx = ctx, modifier = modifier)
-        PlayerStyle.LYRICS -> LyricsStagePlayerStyle(ctx = ctx, modifier = modifier)
-        PlayerStyle.BEDSIDE -> BedsidePlayerStyle(ctx = ctx, modifier = modifier)
-        PlayerStyle.BEDSIDE_TILES -> BedsideTilesPlayerStyle(ctx = ctx, modifier = modifier)
+        PlayerStyle.FLAGSHIP -> FlagshipPlayerStyle(playbackState = playbackState, ctx = ctx, modifier = modifier)
+        PlayerStyle.CLASSIC -> ClassicPlayerStyle(playbackState = playbackState, ctx = ctx, modifier = modifier)
+        PlayerStyle.POSTER -> PosterPlayerStyle(playbackState = playbackState, ctx = ctx, modifier = modifier)
+        PlayerStyle.TURNTABLE -> TurntablePlayerStyle(playbackState = playbackState, ctx = ctx, modifier = modifier)
+        PlayerStyle.VIDEO -> VideoPlayerStyle(
+            playbackState = playbackState,
+            activePlayer = activePlayer,
+            ctx = ctx,
+            modifier = modifier
+        )
+        PlayerStyle.IPOD -> IpodPlayerStyle(playbackState = playbackState, ctx = ctx, modifier = modifier)
+        PlayerStyle.TIMELINE -> TimelinePlayerStyle(playbackState = playbackState, ctx = ctx, modifier = modifier)
+        PlayerStyle.LYRICS -> LyricsStagePlayerStyle(playbackState = playbackState, ctx = ctx, modifier = modifier)
+        PlayerStyle.BEDSIDE -> BedsidePlayerStyle(playbackState = playbackState, ctx = ctx, modifier = modifier)
+        PlayerStyle.BEDSIDE_TILES -> BedsideTilesPlayerStyle(playbackState = playbackState, ctx = ctx, modifier = modifier)
     }
 }
 

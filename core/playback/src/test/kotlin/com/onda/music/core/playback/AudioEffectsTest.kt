@@ -230,6 +230,44 @@ class AudioEffectsTest {
         assertEquals(10, moondropMatches.first().gainsDb.size)
     }
 
+    @Test
+    fun externalPresenceScrobbleRulesSignatureAndDiscordPayloadsAreValid() {
+        assertFalse(ExternalPresenceManager.shouldScrobble(trackDurationMs = 200_000L, playedMs = 25_000L))
+        assertFalse(ExternalPresenceManager.shouldScrobble(trackDurationMs = 200_000L, playedMs = 80_000L))
+        assertTrue(ExternalPresenceManager.shouldScrobble(trackDurationMs = 200_000L, playedMs = 105_000L))
+        assertTrue(ExternalPresenceManager.shouldScrobble(trackDurationMs = 900_000L, playedMs = 245_000L))
+
+        val sig1 = ExternalPresenceManager.signAudioscrobblerParams(
+            mapOf("method" to "track.scrobble", "artist" to "Onda", "track" to "Wave", "format" to "json"),
+            "secret123"
+        )
+        val sig2 = ExternalPresenceManager.signAudioscrobblerParams(
+            mapOf("track" to "Wave", "artist" to "Onda", "method" to "track.scrobble"),
+            "secret123"
+        )
+        assertEquals(32, sig1.length)
+        assertEquals(sig1, sig2)
+
+        val identify = ExternalPresenceManager.buildDiscordIdentifyPayload("tok_123")
+        assertTrue(identify.contains("\"op\":2") && identify.contains("tok_123"))
+
+        val listening = ExternalPresenceManager.buildDiscordListeningPresencePayload(
+            title = "Midnight \"Wave\"",
+            artist = "Onda",
+            album = "OLED",
+            positionMs = 15_000L,
+            durationMs = 180_000L,
+            nowMs = 1_700_000_000_000L
+        )
+        assertTrue(listening.contains("\"op\":3"))
+        assertTrue(listening.contains("\"type\":2"))
+        assertTrue(listening.contains("Midnight \\\"Wave\\\""))
+        assertTrue(listening.contains("\"large_text\":\"OLED\""))
+
+        val cleared = ExternalPresenceManager.buildDiscordClearPresencePayload()
+        assertTrue(cleared.contains("\"activities\":[]"))
+    }
+
     private fun assertEqualsFloat(expected: Float, actual: Float) {
         assertTrue("Expected $expected but got $actual", kotlin.math.abs(expected - actual) < 0.01f)
     }

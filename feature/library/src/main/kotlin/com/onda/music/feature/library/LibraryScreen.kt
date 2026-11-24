@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -54,7 +55,9 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.material.icons.rounded.Tag
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -67,6 +70,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -90,9 +94,13 @@ import com.onda.music.core.design.dockBottomPadding
 import com.onda.music.core.design.homeRecede
 import com.onda.music.core.design.ondaBlurSource
 import com.onda.music.core.design.rememberOndaBackdropState
+import com.onda.music.core.database.ArtistPlayStatRow
+import com.onda.music.core.database.TrackPlayStatRow
 import com.onda.music.core.model.DownloadStatus
 import com.onda.music.core.model.Playlist
 import com.onda.music.core.model.Track
+import com.onda.music.core.sources.AudioTagMetadata
+import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
@@ -108,6 +116,7 @@ fun LibraryRoute(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     var pendingRelinkTrackId by remember { mutableStateOf<String?>(null) }
 
@@ -172,6 +181,22 @@ fun LibraryRoute(
             pendingRelinkTrackId = track.id
             relinkLauncher.launch(arrayOf("audio/*"))
         },
+        onSelectStatsRange = viewModel::selectStatsRange,
+        onPlayTrackById = viewModel::playTrackById,
+        onShareOledRecap = {
+            scope.launch {
+                OndaRecapCardRenderer.renderAndShare(
+                    context = context,
+                    rangeLabel = uiState.statsRange.label,
+                    totalPlayCount = uiState.periodPlayCount,
+                    totalDurationMs = uiState.periodPlayDurationMs,
+                    topTracks = uiState.topTracks,
+                    topArtists = uiState.topArtists
+                )
+            }
+        },
+        onLoadLocalTrackTags = viewModel::loadLocalTrackTags,
+        onSaveLocalTrackTags = viewModel::saveLocalTrackTags,
         modifier = modifier
     )
 }
@@ -200,12 +225,18 @@ fun LibraryScreen(
     onSelectLocalFolder: (String?) -> Unit,
     onRelinkTrack: (Track) -> Unit,
     modifier: Modifier = Modifier,
-    onSearchQueryChange: (String) -> Unit = {}
+    onSearchQueryChange: (String) -> Unit = {},
+    onSelectStatsRange: (StatsRange) -> Unit = {},
+    onPlayTrackById: (String) -> Unit = {},
+    onShareOledRecap: () -> Unit = {},
+    onLoadLocalTrackTags: suspend (Track) -> AudioTagMetadata? = { null },
+    onSaveLocalTrackTags: suspend (Track, AudioTagMetadata) -> Result<Unit> = { _, _ -> Result.success(Unit) }
 ) {
     var showCreateDialog by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<Playlist?>(null) }
     var deleteTarget by remember { mutableStateOf<Playlist?>(null) }
     var addToPlaylistTrack by remember { mutableStateOf<Track?>(null) }
+    var editTagsTrack by remember { mutableStateOf<Track?>(null) }
     var showAddTracksSheetForPlaylist by remember { mutableStateOf<Playlist?>(null) }
 
     val downloadsByTrackId = remember(uiState.downloads) {
@@ -399,6 +430,7 @@ fun LibraryScreen(
                                 onScan = onScanLocalMedia,
                                 onSelectFolder = onSelectLocalFolder,
                                 onRelinkTrack = onRelinkTrack,
+                                onEditTrackTags = { editTagsTrack = it },
                                 onPlayAll = { list, shuffled -> onPlayAll(list, shuffled) },
                                 onPlayTrack = onPlayTrack,
                                 onToggleLike = onToggleLike,
@@ -430,6 +462,11 @@ fun LibraryScreen(
                                 bottomDockClearance = bottomDockClearance,
                                 searchQuery = uiState.searchQuery,
                                 recentSongs = uiState.recentSongs,
+                                statsRange = uiState.statsRange,
+                                periodPlayCount = uiState.periodPlayCount,
+                                periodPlayDurationMs = uiState.periodPlayDurationMs,
+                                topTracks = uiState.topTracks,
+                                topArtists = uiState.topArtists,
                                 totalPlayCount = uiState.totalPlayCount,
                                 totalPlayDurationMs = uiState.totalPlayDurationMs,
                                 downloadedCount = uiState.downloads.count { it.item.status == DownloadStatus.COMPLETED },
@@ -438,6 +475,9 @@ fun LibraryScreen(
                                 downloadsByTrackId = downloadsByTrackId,
                                 hasMiniPlayer = uiState.hasMiniPlayer,
                                 revealSeen = revealSeen,
+                                onSelectStatsRange = onSelectStatsRange,
+                                onPlayTrackById = onPlayTrackById,
+                                onShareOledRecap = onShareOledRecap,
                                 onPlayAll = { list, shuffled -> onPlayAll(list, shuffled) },
                                 onPlayTrack = onPlayTrack,
                                 onToggleLike = onToggleLike,
@@ -568,6 +608,15 @@ fun LibraryScreen(
             existingTrackIds = uiState.selectedPlaylistTracks.mapTo(HashSet()) { it.id },
             onAddTrack = { track -> onAddTrackToPlaylist(playlist.id, track) },
             onDismiss = { showAddTracksSheetForPlaylist = null }
+        )
+    }
+
+    editTagsTrack?.let { target ->
+        LocalTagEditorSheet(
+            track = target,
+            onLoadMetadata = onLoadLocalTrackTags,
+            onSaveMetadata = onSaveLocalTrackTags,
+            onDismiss = { editTagsTrack = null }
         )
     }
 }
@@ -972,6 +1021,7 @@ private fun LocalTabContent(
     onScan: () -> Unit,
     onSelectFolder: (String?) -> Unit,
     onRelinkTrack: (Track) -> Unit,
+    onEditTrackTags: (Track) -> Unit,
     onPlayAll: (List<Track>, Boolean) -> Unit,
     onPlayTrack: (Track, List<Track>) -> Unit,
     onToggleLike: (Track) -> Unit,
@@ -1091,17 +1141,41 @@ private fun LocalTabContent(
             } else {
                 items(displayedLocalTracks, key = { it.id }) { track ->
                     val status = downloadsByTrackId[track.id]
-                    Box(modifier = Modifier.libraryRevealOnAppear("local_${track.id}", revealSeen)) {
-                        SwipeableLibraryTrackRow(
-                            track = track,
-                            isActive = track.id == uiState.activeTrackId,
-                            isPlaying = uiState.isPlaying,
-                            downloadStatus = status,
-                            onPlay = { onPlayTrack(track, displayedLocalTracks) },
-                            onToggleLike = { onToggleLike(track) },
-                            onAddToPlaylist = { onAddToPlaylist(track) },
-                            onToggleDownload = { onToggleDownload(track) }
-                        )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .libraryRevealOnAppear("local_${track.id}", revealSeen),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            SwipeableLibraryTrackRow(
+                                track = track,
+                                isActive = track.id == uiState.activeTrackId,
+                                isPlaying = uiState.isPlaying,
+                                downloadStatus = status,
+                                onPlay = { onPlayTrack(track, displayedLocalTracks) },
+                                onToggleLike = { onToggleLike(track) },
+                                onAddToPlaylist = { onAddToPlaylist(track) },
+                                onToggleDownload = { onToggleDownload(track) }
+                            )
+                        }
+                        if (!track.localUri.isNullOrBlank()) {
+                            IconButton(
+                                onClick = { onEditTrackTags(track) },
+                                modifier = Modifier.defaultMinSize(
+                                    minWidth = DockMetrics.MinTapTarget,
+                                    minHeight = DockMetrics.MinTapTarget
+                                )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Tag,
+                                    contentDescription = "Edit local tags",
+                                    tint = Color(0xFF9A9AA0),
+                                    modifier = Modifier.size(19.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -1223,6 +1297,11 @@ private fun HistoryTabContent(
     bottomDockClearance: Dp,
     searchQuery: String,
     recentSongs: List<Track>,
+    statsRange: StatsRange,
+    periodPlayCount: Int,
+    periodPlayDurationMs: Long,
+    topTracks: List<TrackPlayStatRow>,
+    topArtists: List<ArtistPlayStatRow>,
     totalPlayCount: Int,
     totalPlayDurationMs: Long,
     downloadedCount: Int,
@@ -1231,6 +1310,9 @@ private fun HistoryTabContent(
     downloadsByTrackId: Map<String, DownloadStatus>,
     hasMiniPlayer: Boolean,
     revealSeen: LibraryRevealSeenState,
+    onSelectStatsRange: (StatsRange) -> Unit,
+    onPlayTrackById: (String) -> Unit,
+    onShareOledRecap: () -> Unit,
     onPlayAll: (List<Track>, Boolean) -> Unit,
     onPlayTrack: (Track, List<Track>) -> Unit,
     onToggleLike: (Track) -> Unit,
@@ -1256,41 +1338,207 @@ private fun HistoryTabContent(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             if (showSummary) {
-                item(key = "history_summary") {
-                    val summaryShape = remember { SmoothCornerShape(18.dp) }
+                item(key = "stats_range_selector") {
                     Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        StatsRange.entries.forEach { range ->
+                            val selected = range == statsRange
+                            val pillShape = RoundedCornerShape(999.dp)
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
+                                    .clip(pillShape)
+                                    .background(if (selected) Color.White else Color(0xFF141414))
+                                    .border(0.75.dp, Color(0x22FFFFFF), pillShape)
+                                    .clickable { onSelectStatsRange(range) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = range.label,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (selected) Color.Black else Color(0xFF9A9AA0),
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    }
+                }
+                item(key = "history_summary") {
+                    val summaryShape = remember { SmoothCornerShape(20.dp) }
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(summaryShape)
-                            .background(Color(0xFF141416))
-                            .border(0.5.dp, Color(0x16FFFFFF), summaryShape)
+                            .background(Color(0xFF000000))
+                            .border(0.75.dp, Color(0x26FFFFFF), summaryShape)
                             .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Text(
+                                    text = "OLED RECAP · ${statsRange.label.uppercase()}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color(0xFF8E8E93)
+                                )
+                                Text(
+                                    text = "${formatHoursListened(periodPlayDurationMs)} listened",
+                                    style = MaterialTheme.typography.titleLarge.copy(fontFeatureSettings = "tnum"),
+                                    color = Color.White
+                                )
+                                Text(
+                                    text = "$periodPlayCount plays in period · $totalPlayCount lifetime ($downloadedCount offline)",
+                                    style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
+                                    color = Color(0xFF9A9AA0)
+                                )
+                            }
+                        }
+                        Button(
+                            onClick = onShareOledRecap,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .defaultMinSize(minHeight = DockMetrics.MinTapTarget),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color.White,
+                                contentColor = Color.Black
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Share,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(text = "Share Pure-Black OLED Recap", maxLines = 1)
+                        }
+                    }
+                }
+                if (topTracks.isNotEmpty()) {
+                    item(key = "stats_top_tracks") {
+                        val cardShape = remember { SmoothCornerShape(20.dp) }
                         Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(cardShape)
+                                .background(Color(0xFF0A0A0A))
+                                .border(0.75.dp, Color(0x1EFFFFFF), cardShape)
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(
-                                text = "Plays: $totalPlayCount",
-                                style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = "tnum"),
-                                color = Color.White
+                                text = "TOP TRACKS (${statsRange.label})",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFF8E8E93)
                             )
-                            Text(
-                                text = "Hours listened: ${formatHoursListened(totalPlayDurationMs)}",
-                                style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
-                                color = Color(0xFF9A9AA0)
-                            )
+                            topTracks.take(5).forEachIndexed { idx, row ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable { onPlayTrackById(row.trackId) }
+                                        .padding(horizontal = 4.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Text(
+                                        text = "${idx + 1}",
+                                        style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
+                                        color = Color(0xFF8E8E93)
+                                    )
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = row.title,
+                                            style = MaterialTheme.typography.titleSmall,
+                                            color = Color.White,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = "${row.artist} · ${row.playCount} plays",
+                                            style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
+                                            color = Color(0xFF9A9AA0),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    Text(
+                                        text = formatHoursListened(row.totalDurationMs),
+                                        style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
+                                        color = Color.White
+                                    )
+                                }
+                            }
                         }
-                        Text(
-                            text = "$downloadedCount offline",
-                            style = TextStyle(
-                                fontSize = 12.sp,
-                                fontFeatureSettings = "tnum"
-                            ),
-                            color = OndaTheme.colors.accent
-                        )
+                    }
+                }
+                if (topArtists.isNotEmpty()) {
+                    item(key = "stats_top_artists") {
+                        val cardShape = remember { SmoothCornerShape(20.dp) }
+                        val maxMs = topArtists.maxOfOrNull { it.totalDurationMs }?.coerceAtLeast(1L) ?: 1L
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(cardShape)
+                                .background(Color(0xFF0A0A0A))
+                                .border(0.75.dp, Color(0x1EFFFFFF), cardShape)
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "TOP ARTISTS (${statsRange.label})",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFF8E8E93)
+                            )
+                            topArtists.take(5).forEach { artistRow ->
+                                val frac = (artistRow.totalDurationMs.toFloat() / maxMs.toFloat()).coerceIn(0.08f, 1f)
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = artistRow.artist,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = Color.White,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Text(
+                                            text = "${artistRow.playCount} · ${formatHoursListened(artistRow.totalDurationMs)}",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                                            color = Color(0xFF9A9AA0)
+                                        )
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(4.dp)
+                                            .clip(RoundedCornerShape(999.dp))
+                                            .background(Color(0xFF1F1F1F))
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth(frac)
+                                                .height(4.dp)
+                                                .clip(RoundedCornerShape(999.dp))
+                                                .background(OndaTheme.colors.accent)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

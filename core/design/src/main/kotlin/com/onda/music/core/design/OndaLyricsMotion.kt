@@ -517,31 +517,28 @@ fun computeOndaTimedRanges(
         val trimmed = word.text.trim()
         if (trimmed.isEmpty()) return@mapNotNull null
         var start = text.indexOf(trimmed, searchFrom)
+        var matchLen = trimmed.length
         if (start < 0) {
-            val bare = trimmed.removeSuffix("...")
-            if (bare.isNotEmpty()) {
-                start = text.indexOf(bare, searchFrom)
-            }
-            if (start < 0) return@mapNotNull null
-            val end = (start + bare.length).coerceAtMost(text.length)
-            searchFrom = end
-            val endMs = word.endTimeMs.coerceAtLeast(word.startTimeMs + 60L)
-            return@mapNotNull OndaTimedRange(
-                start = start,
-                end = end,
-                startTimeSec = word.startTimeMs / 1000.0,
-                endTimeSec = endMs / 1000.0,
-                sungLength = ondaSungLength(text, start, end)
-            )
+            start = text.indexOf(trimmed, searchFrom, ignoreCase = true)
         }
-        val end = (start + trimmed.length).coerceAtMost(text.length)
+        if (start < 0) {
+            val bare = trimmed.removeSuffix("...").trim()
+            if (bare.isNotEmpty()) {
+                start = text.indexOf(bare, searchFrom, ignoreCase = true)
+                matchLen = bare.length
+            }
+        }
+        if (start < 0) return@mapNotNull null
+        val end = (start + matchLen).coerceAtMost(text.length)
         searchFrom = end
-        val endMs = word.endTimeMs.coerceAtLeast(word.startTimeMs + 60L)
+        val startSec = word.startTimeMs.coerceAtLeast(0L) / 1000.0
+        val endMs = word.endTimeMs.coerceAtLeast(word.startTimeMs + 40L)
+        val endSec = maxOf(endMs / 1000.0, startSec + 0.04)
         OndaTimedRange(
             start = start,
             end = end,
-            startTimeSec = word.startTimeMs / 1000.0,
-            endTimeSec = endMs / 1000.0,
+            startTimeSec = startSec,
+            endTimeSec = endSec,
             sungLength = ondaSungLength(text, start, end)
         )
     }

@@ -1,12 +1,15 @@
 package com.onda.music.feature.library
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.onda.music.core.database.ArtistPlayStatRow
 import com.onda.music.core.database.PlayEventDao
 import com.onda.music.core.database.PlaylistDao
 import com.onda.music.core.database.PlaylistEntity
 import com.onda.music.core.database.PlaylistSongEntity
 import com.onda.music.core.database.SongDao
+import com.onda.music.core.database.TrackPlayStatRow
 import com.onda.music.core.database.toEntity
 import com.onda.music.core.database.toModel
 import com.onda.music.core.model.DownloadStatus
@@ -15,6 +18,8 @@ import com.onda.music.core.model.Playlist
 import com.onda.music.core.model.Track
 import com.onda.music.core.playback.DownloadManager
 import com.onda.music.core.playback.PlaybackController
+import com.onda.music.core.sources.AudioTagMetadata
+import com.onda.music.core.sources.LocalAudioTagEditor
 import com.onda.music.core.sources.LocalMediaFolder
 import com.onda.music.core.sources.LocalMediaScanner
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -39,12 +44,14 @@ class LibraryViewModel @Inject constructor(
     private val playlistDao: PlaylistDao,
     private val playEventDao: PlayEventDao,
     private val localMediaScanner: LocalMediaScanner,
+    private val localAudioTagEditor: LocalAudioTagEditor,
     private val downloadManager: DownloadManager,
     private val playbackController: PlaybackController
 ) : ViewModel() {
 
     private val selectedTab = MutableStateFlow(LibraryTab.OVERVIEW)
     private val searchQuery = MutableStateFlow("")
+    private val statsRange = MutableStateFlow(StatsRange.MONTH)
     private val selectedPlaylistId = MutableStateFlow<String?>(null)
     private val localFolders = MutableStateFlow<List<LocalMediaFolder>>(emptyList())
     private val selectedLocalFolderPath = MutableStateFlow<String?>(null)
@@ -149,9 +156,38 @@ class LibraryViewModel @Inject constructor(
         val scanMessage: String?
     )
 
+    private data class PeriodStatsSlice(
+        val range: StatsRange,
+        val playCount: Int,
+        val durationMs: Long,
+        val topTracks: List<TrackPlayStatRow>,
+        val topArtists: List<ArtistPlayStatRow>
+    )
+
+    private val periodStatsFlow: Flow<PeriodStatsSlice> = statsRange.flatMapLatest { range ->
+        val sinceMs = range.days?.let { days ->
+            System.currentTimeMillis() - days.toLong() * 86_400_000L
+        } ?: 0L
+        combine(
+            playEventDao.observePlayCountSince(sinceMs),
+            playEventDao.observePlayDurationSince(sinceMs),
+            playEventDao.observeTopTracksSince(sinceMs, 10),
+            playEventDao.observeTopArtistsSince(sinceMs, 8)
+        ) { count, durationMs, topTracks, topArtists ->
+            PeriodStatsSlice(
+                range = range,
+                playCount = count,
+                durationMs = durationMs,
+                topTracks = topTracks,
+                topArtists = topArtists
+            )
+        }
+    }
+
     private data class StatsAndPlaybackSlice(
         val downloads: List<DownloadEntryUi>,
         val recentSongs: List<Track>,
+        val periodStats: PeriodStatsSlice,
         val totalPlayCount: Int,
         val totalPlayDurationMs: Long,
         val activeTrackId: String?,
@@ -207,18 +243,30 @@ class LibraryViewModel @Inject constructor(
         )
     }
 
-    private val statsAndPlaybackFlow = combine(
+    private val statsCoreFlow = combine(
         downloadsFlow,
         recentSongsFlow,
+        periodStatsFlow,
         playEventDao.observeTotalPlayCount(),
-        playEventDao.observeTotalPlayDurationMs(),
-        playbackController.playbackState
-    ) { downloads, recentSongs, playCount, playDurationMs, playbackState ->
+        playEventDao.observeTotalPlayDurationMs()
+    ) { downloads, recentSongs, periodStats, playCount, playDurationMs ->
         StatsAndPlaybackSlice(
             downloads = downloads,
             recentSongs = recentSongs,
+            periodStats = periodStats,
             totalPlayCount = playCount,
             totalPlayDurationMs = playDurationMs,
+            activeTrackId = null,
+            hasMiniPlayer = false,
+            isPlaying = false
+        )
+    }
+
+    private val statsAndPlaybackFlow = combine(
+        statsCoreFlow,
+        playbackController.playbackState
+    ) { core, playbackState ->
+        core.copy(
             activeTrackId = playbackState.currentTrack?.id,
             hasMiniPlayer = playbackState.currentTrack != null,
             isPlaying = playbackState.status == PlaybackStatus.PLAYING
@@ -251,6 +299,11 @@ class LibraryViewModel @Inject constructor(
             lastScanMessage = localScan.scanMessage,
             downloads = stats.downloads,
             recentSongs = stats.recentSongs,
+            statsRange = stats.periodStats.range,
+            periodPlayCount = stats.periodStats.playCount,
+            periodPlayDurationMs = stats.periodStats.durationMs,
+            topTracks = stats.periodStats.topTracks,
+            topArtists = stats.periodStats.topArtists,
             totalPlayCount = stats.totalPlayCount,
             totalPlayDurationMs = stats.totalPlayDurationMs,
             activeTrackId = stats.activeTrackId,
@@ -275,6 +328,39 @@ class LibraryViewModel @Inject constructor(
 
     fun updateSearchQuery(query: String) {
         searchQuery.value = query
+    }
+
+    fun selectStatsRange(range: StatsRange) {
+        statsRange.value = range
+    }
+
+    suspend fun loadLocalTrackTags(track: Track): AudioTagMetadata? {
+        val rawUri = track.localUri?.takeIf { it.isNotBlank() } ?: return null
+        return localAudioTagEditor.readFromUri(Uri.parse(rawUri)).getOrNull()
+    }
+
+    suspend fun saveLocalTrackTags(track: Track, metadata: AudioTagMetadata): Result<Unit> {
+        val rawUri = track.localUri?.takeIf { it.isNotBlank() }
+            ?: return Result.failure(IllegalStateException("Track has no local URI"))
+        val writeResult = localAudioTagEditor.writeToUriAtomic(Uri.parse(rawUri), metadata)
+        return writeResult.map { savedArtworkUri ->
+            songDao.updateTrackMetadata(
+                id = track.id,
+                title = metadata.title,
+                artist = metadata.artist,
+                album = metadata.album.takeIf { it.isNotBlank() },
+                artworkUrl = savedArtworkUri
+            )
+            lastScanMessage.value = "Updated tags for ${metadata.title}"
+        }
+    }
+
+    fun playTrackById(trackId: String) {
+        viewModelScope.launch {
+            val entity = songDao.getById(trackId) ?: return@launch
+            val track = entity.toModel()
+            playbackController.playQueue(listOf(track), startIndex = 0)
+        }
     }
 
     fun selectTab(tab: LibraryTab) {

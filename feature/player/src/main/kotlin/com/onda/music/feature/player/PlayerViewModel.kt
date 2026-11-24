@@ -215,6 +215,18 @@ class PlayerViewModel @Inject constructor(
                     }
                 }
         }
+
+        viewModelScope.launch {
+            ondaPreferences.settings
+                .map { it.lyricsOnDemandTranslateEnabled to it.languageCode }
+                .distinctUntilChanged()
+                .collect { (translateEnabled, langCode) ->
+                    val currentId = playbackState.value.currentTrack?.id
+                    if (translateEnabled && !currentId.isNullOrBlank()) {
+                        lyricsRepository.translateCachedLyrics(currentId, langCode)
+                    }
+                }
+        }
     }
 
     fun togglePlayPause() {
@@ -440,7 +452,13 @@ class PlayerViewModel @Inject constructor(
     private suspend fun loadLyricsForTrack(track: Track, forceRefresh: Boolean) {
         _isLyricsLoading.value = true
         _lyricsError.value = null
-        val result = lyricsRepository.getLyrics(track, forceRefresh = forceRefresh)
+        val currentSettings = userSettings.value
+        val result = lyricsRepository.getLyrics(
+            track = track,
+            forceRefresh = forceRefresh,
+            onDemandTranslate = currentSettings.lyricsOnDemandTranslateEnabled,
+            targetLanguageCode = currentSettings.languageCode
+        )
         if (result.isFailure) {
             _lyricsError.value = result.exceptionOrNull()?.message ?: "Lyrics unavailable"
         }

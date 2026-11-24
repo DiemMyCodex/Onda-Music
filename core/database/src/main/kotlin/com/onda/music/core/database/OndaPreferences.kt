@@ -1,5 +1,6 @@
 package com.onda.music.core.database
 
+import androidx.compose.runtime.Immutable
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
@@ -25,6 +26,7 @@ import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
+@Immutable
 @Serializable
 data class OndaUserSettings(
     val playerStyle: PlayerStyle = PlayerStyle.POSTER,
@@ -36,6 +38,7 @@ data class OndaUserSettings(
     val lyricsMotionEnabled: Boolean = true,
     val lyricsMotionStyle: LyricsMotionStyle = LyricsMotionStyle.KINETIC_GLOW,
     val lyricsFontScale: Float = 1.0f,
+    val lyricsOnDemandTranslateEnabled: Boolean = false,
     val hapticsEnabled: Boolean = true,
     val monochromeEnabled: Boolean = true,
     val ytCookie: String? = null,
@@ -55,9 +58,18 @@ data class OndaUserSettings(
     val skipSilenceEnabled: Boolean = false,
     val keepPlayingOnTaskRemoved: Boolean = true,
     val keepScreenOn: Boolean = false,
-    val onboardingCompleted: Boolean = false
+    val onboardingCompleted: Boolean = false,
+    val scrobbleEnabled: Boolean = false,
+    val scrobbleService: String = "librefm",
+    val scrobbleUsername: String = "",
+    val scrobbleSessionKey: String = "",
+    val scrobbleApiKey: String = "",
+    val scrobbleApiSecret: String = "",
+    val discordRpcEnabled: Boolean = false,
+    val discordUserToken: String? = null
 )
 
+@Immutable
 @Serializable
 data class PlaybackCheckpoint(
     val queueTrackIds: List<String> = emptyList(),
@@ -80,6 +92,7 @@ class OndaPreferences @Inject constructor(
         val lyricsMotionEnabled = booleanPreferencesKey("lyrics_motion_enabled")
         val lyricsMotionStyle = stringPreferencesKey("lyrics_motion_style")
         val lyricsFontScale = floatPreferencesKey("lyrics_font_scale")
+        val lyricsOnDemandTranslateEnabled = booleanPreferencesKey("lyrics_on_demand_translate_enabled")
         val hapticsEnabled = booleanPreferencesKey("haptics_enabled")
         val monochromeEnabled = booleanPreferencesKey("monochrome_enabled")
         val ytCookie = stringPreferencesKey("yt_cookie")
@@ -102,6 +115,14 @@ class OndaPreferences @Inject constructor(
         val keepPlayingOnTaskRemoved = booleanPreferencesKey("keep_playing_on_task_removed")
         val keepScreenOn = booleanPreferencesKey("keep_screen_on")
         val onboardingCompleted = booleanPreferencesKey("onboarding_completed")
+        val scrobbleEnabled = booleanPreferencesKey("scrobble_enabled")
+        val scrobbleService = stringPreferencesKey("scrobble_service")
+        val scrobbleUsername = stringPreferencesKey("scrobble_username")
+        val scrobbleSessionKey = stringPreferencesKey("scrobble_session_key")
+        val scrobbleApiKey = stringPreferencesKey("scrobble_api_key")
+        val scrobbleApiSecret = stringPreferencesKey("scrobble_api_secret")
+        val discordRpcEnabled = booleanPreferencesKey("discord_rpc_enabled")
+        val discordUserToken = stringPreferencesKey("discord_user_token")
     }
 
     private val safePreferences: Flow<Preferences> = dataStore.data.catch { exception ->
@@ -278,6 +299,46 @@ class OndaPreferences @Inject constructor(
         dataStore.edit { it[Keys.onboardingCompleted] = completed }
     }
 
+    suspend fun setLyricsOnDemandTranslateEnabled(enabled: Boolean) {
+        dataStore.edit { it[Keys.lyricsOnDemandTranslateEnabled] = enabled }
+    }
+
+    suspend fun setScrobbleEnabled(enabled: Boolean) {
+        dataStore.edit { it[Keys.scrobbleEnabled] = enabled }
+    }
+
+    suspend fun setScrobbleConfig(
+        service: String,
+        username: String,
+        sessionKey: String,
+        apiKey: String,
+        apiSecret: String
+    ) {
+        val cleanService = if (service.equals("lastfm", ignoreCase = true)) "lastfm" else "librefm"
+        dataStore.edit { prefs ->
+            prefs[Keys.scrobbleService] = cleanService
+            prefs[Keys.scrobbleUsername] = username.trim()
+            prefs[Keys.scrobbleSessionKey] = sessionKey.trim()
+            prefs[Keys.scrobbleApiKey] = apiKey.trim()
+            prefs[Keys.scrobbleApiSecret] = apiSecret.trim()
+        }
+    }
+
+    suspend fun setDiscordRpcEnabled(enabled: Boolean) {
+        dataStore.edit { it[Keys.discordRpcEnabled] = enabled }
+    }
+
+    suspend fun setDiscordUserToken(token: String?) {
+        val cleaned = token?.trim()?.takeIf { it.isNotEmpty() }
+        dataStore.edit { prefs ->
+            if (cleaned == null) {
+                prefs.remove(Keys.discordUserToken)
+            } else {
+                prefs[Keys.discordUserToken] = cleaned
+            }
+        }
+    }
+
     suspend fun completeOnboarding(
         languageCode: String,
         playerStyle: PlayerStyle,
@@ -346,6 +407,7 @@ class OndaPreferences @Inject constructor(
             lyricsMotionEnabled = prefs[Keys.lyricsMotionEnabled] ?: true,
             lyricsMotionStyle = lyricsStyle,
             lyricsFontScale = (prefs[Keys.lyricsFontScale] ?: 1.0f).coerceIn(0.75f, 1.75f),
+            lyricsOnDemandTranslateEnabled = prefs[Keys.lyricsOnDemandTranslateEnabled] ?: false,
             hapticsEnabled = prefs[Keys.hapticsEnabled] ?: true,
             monochromeEnabled = prefs[Keys.monochromeEnabled] ?: true,
             ytCookie = prefs[Keys.ytCookie],
@@ -365,7 +427,15 @@ class OndaPreferences @Inject constructor(
             skipSilenceEnabled = prefs[Keys.skipSilenceEnabled] ?: false,
             keepPlayingOnTaskRemoved = prefs[Keys.keepPlayingOnTaskRemoved] ?: true,
             keepScreenOn = prefs[Keys.keepScreenOn] ?: false,
-            onboardingCompleted = prefs[Keys.onboardingCompleted] ?: false
+            onboardingCompleted = prefs[Keys.onboardingCompleted] ?: false,
+            scrobbleEnabled = prefs[Keys.scrobbleEnabled] ?: false,
+            scrobbleService = if (prefs[Keys.scrobbleService].equals("lastfm", ignoreCase = true)) "lastfm" else "librefm",
+            scrobbleUsername = prefs[Keys.scrobbleUsername] ?: "",
+            scrobbleSessionKey = prefs[Keys.scrobbleSessionKey] ?: "",
+            scrobbleApiKey = prefs[Keys.scrobbleApiKey] ?: "",
+            scrobbleApiSecret = prefs[Keys.scrobbleApiSecret] ?: "",
+            discordRpcEnabled = prefs[Keys.discordRpcEnabled] ?: false,
+            discordUserToken = prefs[Keys.discordUserToken]
         )
     }
 
@@ -379,6 +449,7 @@ class OndaPreferences @Inject constructor(
         prefs[Keys.lyricsMotionEnabled] = settings.lyricsMotionEnabled
         prefs[Keys.lyricsMotionStyle] = settings.lyricsMotionStyle.name
         prefs[Keys.lyricsFontScale] = settings.lyricsFontScale.coerceIn(0.75f, 1.75f)
+        prefs[Keys.lyricsOnDemandTranslateEnabled] = settings.lyricsOnDemandTranslateEnabled
         prefs[Keys.hapticsEnabled] = settings.hapticsEnabled
         prefs[Keys.monochromeEnabled] = settings.monochromeEnabled
         if (settings.ytCookie.isNullOrBlank()) {
@@ -415,6 +486,18 @@ class OndaPreferences @Inject constructor(
         prefs[Keys.keepPlayingOnTaskRemoved] = settings.keepPlayingOnTaskRemoved
         prefs[Keys.keepScreenOn] = settings.keepScreenOn
         prefs[Keys.onboardingCompleted] = settings.onboardingCompleted
+        prefs[Keys.scrobbleEnabled] = settings.scrobbleEnabled
+        prefs[Keys.scrobbleService] = if (settings.scrobbleService.equals("lastfm", ignoreCase = true)) "lastfm" else "librefm"
+        prefs[Keys.scrobbleUsername] = settings.scrobbleUsername
+        prefs[Keys.scrobbleSessionKey] = settings.scrobbleSessionKey
+        prefs[Keys.scrobbleApiKey] = settings.scrobbleApiKey
+        prefs[Keys.scrobbleApiSecret] = settings.scrobbleApiSecret
+        prefs[Keys.discordRpcEnabled] = settings.discordRpcEnabled
+        if (settings.discordUserToken.isNullOrBlank()) {
+            prefs.remove(Keys.discordUserToken)
+        } else {
+            prefs[Keys.discordUserToken] = settings.discordUserToken
+        }
     }
 
     private fun decodeAudioOutputProfiles(raw: String?): Map<String, AudioOutputEqProfile> {

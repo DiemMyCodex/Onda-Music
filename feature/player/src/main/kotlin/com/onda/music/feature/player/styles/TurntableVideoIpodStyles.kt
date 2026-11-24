@@ -133,6 +133,7 @@ import com.onda.music.core.design.OndaMonogramMark
 import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.design.SmoothCornerShape
 import com.onda.music.core.model.IpodFinish
+import com.onda.music.core.model.PlaybackState
 import com.onda.music.core.model.PlaybackStatus
 import com.onda.music.feature.player.LyricsPane
 import com.onda.music.feature.player.OndaLikeSlot
@@ -183,6 +184,7 @@ private fun isOnTurntableArm(
 
 @Composable
 fun TurntablePlayerStyle(
+    playbackState: PlaybackState,
     ctx: PlayerStageContext,
     modifier: Modifier = Modifier
 ) {
@@ -191,7 +193,7 @@ fun TurntablePlayerStyle(
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
 
-    val state = ctx.playbackState
+    val state = playbackState
     val track = state.currentTrack
     val isPlaying = state.status == PlaybackStatus.PLAYING
 
@@ -655,6 +657,8 @@ private enum class CinemaSeekSide {
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 fun VideoPlayerStyle(
+    playbackState: PlaybackState,
+    activePlayer: Player?,
     ctx: PlayerStageContext,
     modifier: Modifier = Modifier
 ) {
@@ -662,9 +666,9 @@ fun VideoPlayerStyle(
     val palette = OndaTheme.palette
     val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
-    val state = ctx.playbackState
+    val state = playbackState
     val track = state.currentTrack
-    val player = ctx.activePlayer
+    val player = activePlayer
     val isPlaying = state.status == PlaybackStatus.PLAYING
     val durationMs = state.durationMs.coerceAtLeast(1L)
 
@@ -1741,6 +1745,7 @@ private fun quadrantForAngleDeg(angleDeg: Float): DialQuadrant {
 
 @Composable
 fun IpodPlayerStyle(
+    playbackState: PlaybackState,
     ctx: PlayerStageContext,
     modifier: Modifier = Modifier
 ) {
@@ -1751,7 +1756,7 @@ fun IpodPlayerStyle(
     val scope = rememberCoroutineScope()
     val vibrator = remember(context) { resolveDialVibrator(context) }
 
-    val state = ctx.playbackState
+    val state = playbackState
     val track = state.currentTrack
     val isPlaying = state.status == PlaybackStatus.PLAYING
     val finishPalette = remember(ctx.settings.studioConfig.ipodFinish) {

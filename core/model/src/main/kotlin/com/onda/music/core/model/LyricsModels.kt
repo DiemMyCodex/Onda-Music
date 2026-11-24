@@ -25,7 +25,10 @@ data class LyricsLine(
 
 @Serializable
 enum class LyricsSource {
+    BETTER_LYRICS,
+    SIMP_MUSIC,
     LRCLIB,
+    NETEASE,
     YOUTUBE_MUSIC,
     EMBEDDED,
     CACHE

@@ -83,7 +83,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -128,6 +130,7 @@ import com.onda.music.core.design.RoundedHighlight
 import com.onda.music.core.model.LyricsDocument
 import com.onda.music.core.model.LyricsLine
 import com.onda.music.core.model.LyricsMotionStyle
+import com.onda.music.core.model.PlaybackState
 import com.onda.music.core.model.PlaybackStatus
 import com.onda.music.core.model.StudioQuickAction
 import com.onda.music.feature.player.GlassPillButton
@@ -159,10 +162,11 @@ import kotlin.math.roundToInt
 
 @Composable
 fun FlagshipPlayerStyle(
+    playbackState: PlaybackState,
     ctx: PlayerStageContext,
     modifier: Modifier = Modifier
 ) {
-    val state = ctx.playbackState
+    val state = playbackState
     val track = state.currentTrack
     val studio = ctx.settings.studioConfig
     val palette = OndaTheme.palette
@@ -341,10 +345,11 @@ fun FlagshipPlayerStyle(
 
 @Composable
 fun ClassicPlayerStyle(
+    playbackState: PlaybackState,
     ctx: PlayerStageContext,
     modifier: Modifier = Modifier
 ) {
-    val state = ctx.playbackState
+    val state = playbackState
     val track = state.currentTrack
     val studio = ctx.settings.studioConfig
     val palette = OndaTheme.palette
@@ -620,10 +625,10 @@ private fun extractPosterAtmosphericColors(palette: OndaArtworkPalette): PosterA
     val deepSat = if (hsl[1] < 0.05f) 0.08f else (glowSat * 0.72f).coerceIn(0.20f, 0.52f)
 
     return PosterAtmosphericColors(
-        upperRightGlow = hslToColor(baseHue, glowSat, glowLightness),
-        diagonalMidTone = hslToColor(baseHue, midSat, 0.17f),
-        lowerLeftDeep = hslToColor(baseHue, deepSat, 0.065f),
-        bottomEdgeShade = hslToColor(baseHue, deepSat * 0.8f, 0.032f)
+        upperRightGlow = hslToColor(baseHue, glowSat, glowLightness.coerceIn(0.22f, 0.30f)),
+        diagonalMidTone = hslToColor(baseHue, midSat * 0.85f, 0.10f),
+        lowerLeftDeep = Color(0xFF000000),
+        bottomEdgeShade = Color(0xFF000000)
     )
 }
 
@@ -635,10 +640,10 @@ internal data class PosterArcHit(
 
 internal fun evaluatePosterArcPoint(t: Float, w: Float, h: Float): Offset {
     val u = 1f - t
-    val p0 = Offset(0f, h * 0.964f)
-    val p1 = Offset(w * 0.34f, h * 0.995f)
-    val p2 = Offset(w * 0.72f, h * 0.880f)
-    val p3 = Offset(w, h * 0.643f)
+    val p0 = Offset(0f, h * 0.955f)
+    val p1 = Offset(w * 0.36f, h * 0.985f)
+    val p2 = Offset(w * 0.76f, h * 0.885f)
+    val p3 = Offset(w, h * 0.720f)
     val uu = u * u
     val tt = t * t
     return Offset(
@@ -649,10 +654,10 @@ internal fun evaluatePosterArcPoint(t: Float, w: Float, h: Float): Offset {
 
 internal fun evaluatePosterArcTangent(t: Float, w: Float, h: Float): Offset {
     val u = 1f - t
-    val p0 = Offset(0f, h * 0.964f)
-    val p1 = Offset(w * 0.34f, h * 0.995f)
-    val p2 = Offset(w * 0.72f, h * 0.880f)
-    val p3 = Offset(w, h * 0.643f)
+    val p0 = Offset(0f, h * 0.955f)
+    val p1 = Offset(w * 0.36f, h * 0.985f)
+    val p2 = Offset(w * 0.76f, h * 0.885f)
+    val p3 = Offset(w, h * 0.720f)
     val dx = 3f * u * u * (p1.x - p0.x) + 6f * u * t * (p2.x - p1.x) + 3f * t * t * (p3.x - p2.x)
     val dy = 3f * u * u * (p1.y - p0.y) + 6f * u * t * (p2.y - p1.y) + 3f * t * t * (p3.y - p2.y)
     val len = hypot(dx, dy).coerceAtLeast(1f)
@@ -737,12 +742,13 @@ private class PosterArcRingState(private val scope: CoroutineScope) {
 
 @Composable
 fun PosterPlayerStyle(
+    playbackState: PlaybackState,
     ctx: PlayerStageContext,
     modifier: Modifier = Modifier
 ) {
     val palette = OndaTheme.palette
     val reducedMotion = OndaTheme.reducedMotion
-    val state = ctx.playbackState
+    val state = playbackState
     val track = state.currentTrack
     val haptics = LocalHapticFeedback.current
     val isPlaying = state.status == PlaybackStatus.PLAYING
@@ -789,11 +795,11 @@ fun PosterPlayerStyle(
             val h = size.height
             moveTo(0f, 0f)
             lineTo(w, 0f)
-            lineTo(w, h * 0.643f)
+            lineTo(w, h * 0.720f)
             cubicTo(
-                w * 0.72f, h * 0.880f,
-                w * 0.34f, h * 0.995f,
-                0f, h * 0.964f
+                w * 0.76f, h * 0.885f,
+                w * 0.36f, h * 0.985f,
+                0f, h * 0.955f
             )
             close()
         }
@@ -822,44 +828,36 @@ fun PosterPlayerStyle(
                 val maxDim = maxOf(w, h)
                 val diagonalBackdropBrush = Brush.linearGradient(
                     colorStops = arrayOf(
-                        0.00f to atmosphericColors.upperRightGlow.copy(alpha = 0.86f),
-                        0.38f to atmosphericColors.diagonalMidTone.copy(alpha = 0.82f),
-                        0.74f to atmosphericColors.lowerLeftDeep.copy(alpha = 0.94f),
-                        1.00f to atmosphericColors.bottomEdgeShade
+                        0.00f to atmosphericColors.upperRightGlow.copy(alpha = 0.44f),
+                        0.28f to atmosphericColors.diagonalMidTone.copy(alpha = 0.34f),
+                        0.58f to Color(0xFF000000),
+                        1.00f to Color(0xFF000000)
                     ),
-                    start = Offset(w * 0.90f, h * 0.33f),
-                    end = Offset(w * 0.06f, h * 0.98f)
+                    start = Offset(w * 0.92f, h * 0.38f),
+                    end = Offset(w * 0.14f, h * 0.76f)
                 )
                 val upperRightCurveGlowBrush = Brush.radialGradient(
                     colorStops = arrayOf(
-                        0.00f to atmosphericColors.upperRightGlow.copy(alpha = 0.85f),
-                        0.46f to atmosphericColors.diagonalMidTone.copy(alpha = 0.48f),
+                        0.00f to atmosphericColors.upperRightGlow.copy(alpha = 0.42f),
+                        0.45f to atmosphericColors.diagonalMidTone.copy(alpha = 0.18f),
                         1.00f to Color.Transparent
                     ),
-                    center = Offset(w * 0.84f, h * 0.40f),
-                    radius = maxDim * 0.62f
-                )
-                val backlitGlassAtmosphereBrush = Brush.radialGradient(
-                    colorStops = arrayOf(
-                        0.00f to atmosphericColors.upperRightGlow.copy(alpha = 0.30f),
-                        0.55f to atmosphericColors.diagonalMidTone.copy(alpha = 0.16f),
-                        1.00f to Color.Transparent
-                    ),
-                    center = Offset(w * 0.52f, h * 0.66f),
-                    radius = maxDim * 0.56f
+                    center = Offset(w * 0.84f, h * 0.44f),
+                    radius = maxDim * 0.46f
                 )
                 val bottomReadabilityScrimBrush = Brush.verticalGradient(
                     colorStops = arrayOf(
                         0.00f to Color.Transparent,
-                        0.72f to Color.Transparent,
-                        1.00f to atmosphericColors.bottomEdgeShade.copy(alpha = 0.82f)
+                        0.48f to Color.Transparent,
+                        0.66f to Color(0xE6000000),
+                        0.78f to Color(0xFF000000),
+                        1.00f to Color(0xFF000000)
                     )
                 )
                 onDrawBehind {
-                    drawRect(color = atmosphericColors.bottomEdgeShade)
+                    drawRect(color = Color(0xFF000000))
                     drawRect(brush = diagonalBackdropBrush)
                     drawRect(brush = upperRightCurveGlowBrush)
-                    drawRect(brush = backlitGlassAtmosphereBrush)
                     drawRect(brush = bottomReadabilityScrimBrush)
                 }
             }
@@ -882,11 +880,11 @@ fun PosterPlayerStyle(
                     val w = size.width
                     val h = size.height
                     val fullArcPath = Path().apply {
-                        moveTo(0f, h * 0.964f)
+                        moveTo(0f, h * 0.955f)
                         cubicTo(
-                            w * 0.34f, h * 0.995f,
-                            w * 0.72f, h * 0.880f,
-                            w, h * 0.643f
+                            w * 0.36f, h * 0.985f,
+                            w * 0.76f, h * 0.885f,
+                            w, h * 0.720f
                         )
                     }
                     val progressArcPath = Path()
@@ -963,14 +961,40 @@ fun PosterPlayerStyle(
                             val displayedMs = if (ringState.scrubMs >= 0L) ringState.scrubMs else positionMs
                             val startLayout = measurer.measure(formatDurationMs(displayedMs), arcTimeStyle)
                             val endLayout = measurer.measure(formatDurationMs(durationMs), arcTimeStyle)
+                            val pillPadH = 7.dp.toPx()
+                            val pillPadV = 3.dp.toPx()
+                            val pillCorner = CornerRadius(999.dp.toPx(), 999.dp.toPx())
+                            val pillBg = Color(0xA6000000).copy(alpha = 0.72f * labelAlpha)
+
+                            val startTopLeft = Offset(16.dp.toPx(), h * 0.955f + 16.dp.toPx())
+                            drawRoundRect(
+                                color = pillBg,
+                                topLeft = Offset(startTopLeft.x - pillPadH, startTopLeft.y - pillPadV),
+                                size = Size(
+                                    startLayout.size.width + pillPadH * 2f,
+                                    startLayout.size.height + pillPadV * 2f
+                                ),
+                                cornerRadius = pillCorner
+                            )
                             drawText(
                                 textLayoutResult = startLayout,
-                                topLeft = Offset(16.dp.toPx(), (h * 0.964f + 12.dp.toPx()).coerceAtMost(h - startLayout.size.height)),
+                                topLeft = startTopLeft,
                                 alpha = labelAlpha
+                            )
+
+                            val endTopLeft = Offset(w - endLayout.size.width - 16.dp.toPx(), h * 0.720f + 18.dp.toPx())
+                            drawRoundRect(
+                                color = pillBg,
+                                topLeft = Offset(endTopLeft.x - pillPadH, endTopLeft.y - pillPadV),
+                                size = Size(
+                                    endLayout.size.width + pillPadH * 2f,
+                                    endLayout.size.height + pillPadV * 2f
+                                ),
+                                cornerRadius = pillCorner
                             )
                             drawText(
                                 textLayoutResult = endLayout,
-                                topLeft = Offset(w - endLayout.size.width - 16.dp.toPx(), h * 0.643f + 12.dp.toPx()),
+                                topLeft = endTopLeft,
                                 alpha = labelAlpha
                             )
                         }
@@ -1935,21 +1959,42 @@ private fun PosterSpotlightStanza(
         }
     }
 
-    OndaLyricSweepLine(
-        text = line.text,
-        words = wordSlices,
-        lineStartMs = line.startTimeMs,
-        lineEndMs = resolvedEndMs,
-        positionProvider = smoothPositionProvider,
-        style = spotlightStyle,
-        motionStyle = motionStyle,
-        motionActive = motionActive,
-        activeColor = Color.White,
-        baseColor = Color(0x5AFFFFFF),
-        glowColor = glowColor,
-        textAlign = TextAlign.Start,
-        motionScale = 1.1f
-    )
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        OndaLyricSweepLine(
+            text = line.text,
+            words = wordSlices,
+            lineStartMs = line.startTimeMs,
+            lineEndMs = resolvedEndMs,
+            positionProvider = smoothPositionProvider,
+            style = spotlightStyle,
+            motionStyle = motionStyle,
+            motionActive = motionActive,
+            activeColor = Color.White,
+            baseColor = Color(0x5AFFFFFF),
+            glowColor = glowColor,
+            textAlign = TextAlign.Start,
+            motionScale = 1.1f
+        )
+        val translated = line.translatedText
+        if (!translated.isNullOrBlank()) {
+            Text(
+                text = translated,
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontSize = 14.sp,
+                    lineHeight = 19.sp,
+                    fontWeight = FontWeight.Medium
+                ),
+                color = Color(0xB3FFFFFF),
+                textAlign = TextAlign.Start,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -2077,32 +2122,50 @@ private fun PosterLyricRow(
             .padding(horizontal = 4.dp, vertical = 2.dp),
         contentAlignment = Alignment.CenterStart
     ) {
-        if (showWordSweep) {
-            OndaLyricSweepLine(
-                text = line.text,
-                words = resolvedWords,
-                lineStartMs = line.startTimeMs,
-                lineEndMs = resolvedEndMs,
-                positionProvider = smoothPositionProvider,
-                style = textStyle,
-                motionStyle = motionStyle,
-                motionActive = motionActive,
-                activeColor = Color.White,
-                baseColor = Color(0x5AFFFFFF),
-                glowColor = glowColor,
-                textAlign = TextAlign.Start,
-                waveAmplitudeProvider = { focus },
-                riseAmplitudeProvider = { focus },
-                motionScale = 1.08f
-            )
-        } else {
-            Text(
-                text = line.text,
-                style = textStyle,
-                color = Color.White,
-                textAlign = TextAlign.Start,
-                modifier = Modifier.fillMaxWidth()
-            )
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            if (showWordSweep) {
+                OndaLyricSweepLine(
+                    text = line.text,
+                    words = resolvedWords,
+                    lineStartMs = line.startTimeMs,
+                    lineEndMs = resolvedEndMs,
+                    positionProvider = smoothPositionProvider,
+                    style = textStyle,
+                    motionStyle = motionStyle,
+                    motionActive = motionActive,
+                    activeColor = Color.White,
+                    baseColor = Color(0x5AFFFFFF),
+                    glowColor = glowColor,
+                    textAlign = TextAlign.Start,
+                    waveAmplitudeProvider = { focus },
+                    riseAmplitudeProvider = { focus },
+                    motionScale = 1.08f
+                )
+            } else {
+                Text(
+                    text = line.text,
+                    style = textStyle,
+                    color = Color.White,
+                    textAlign = TextAlign.Start,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            val translated = line.translatedText
+            if (!translated.isNullOrBlank()) {
+                Text(
+                    text = translated,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontSize = 14.sp,
+                        lineHeight = 19.sp
+                    ),
+                    color = Color(0xB3FFFFFF),
+                    textAlign = TextAlign.Start,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         }
     }
 }

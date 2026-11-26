@@ -54,5 +54,6 @@ data class PlayerStageContext(
     val onOpenSongMenu: (Track, Int?) -> Unit = { _, _ -> },
     val onPlayNext: (Track) -> Unit = {},
     val onAddToQueue: (Track) -> Unit = {},
-    val onUpdateStudioConfig: (PlayerStudioConfig) -> Unit = {}
+    val onUpdateStudioConfig: (PlayerStudioConfig) -> Unit = {},
+    val isPreview: Boolean = false
 )

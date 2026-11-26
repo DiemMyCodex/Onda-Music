@@ -76,6 +76,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -89,11 +91,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.onda.music.core.design.DockMetrics
 import com.onda.music.core.design.GlassTokens
 import com.onda.music.core.design.OndaTheme
+import com.onda.music.core.design.RevealSeenState
 import com.onda.music.core.design.SmoothCornerShape
 import com.onda.music.core.design.dockBottomPadding
 import com.onda.music.core.design.homeRecede
 import com.onda.music.core.design.ondaBlurSource
 import com.onda.music.core.design.rememberOndaBackdropState
+import com.onda.music.core.design.rememberRevealSeenState
+import com.onda.music.core.design.revealOnAppear
 import com.onda.music.core.database.ArtistPlayStatRow
 import com.onda.music.core.database.TrackPlayStatRow
 import com.onda.music.core.model.DownloadStatus
@@ -185,13 +190,15 @@ fun LibraryRoute(
         onPlayTrackById = viewModel::playTrackById,
         onShareOledRecap = {
             scope.launch {
+                val strings = resolveLibraryStrings(uiState.languageCode)
                 OndaRecapCardRenderer.renderAndShare(
                     context = context,
-                    rangeLabel = uiState.statsRange.label,
+                    rangeLabel = strings.statsRangeLabel(uiState.statsRange),
                     totalPlayCount = uiState.periodPlayCount,
                     totalDurationMs = uiState.periodPlayDurationMs,
                     topTracks = uiState.topTracks,
-                    topArtists = uiState.topArtists
+                    topArtists = uiState.topArtists,
+                    languageCode = uiState.languageCode
                 )
             }
         },
@@ -287,9 +294,10 @@ fun LibraryScreen(
         }
     }
 
+    val strings = remember(uiState.languageCode) { resolveLibraryStrings(uiState.languageCode) }
     val isCollapsed by rememberLibraryCollapsed(activeListState)
     val collapseProgress by rememberLibraryCollapseProgress(isCollapsed)
-    val revealSeen = rememberLibraryRevealSeenState()
+    val revealSeen = rememberRevealSeenState()
     val expandedTopPadding = libraryExpandedTopPadding()
     val collapsedTopPadding = libraryCollapsedTopPadding()
     val bottomDockClearance = DockMetrics.rememberBottomPadding(hasMiniPlayer = uiState.hasMiniPlayer)
@@ -365,6 +373,7 @@ fun LibraryScreen(
                                 coverPool = coverPool,
                                 downloadsByTrackId = downloadsByTrackId,
                                 revealSeen = revealSeen,
+                                strings = strings,
                                 onSelectTab = onSelectTab,
                                 onOpenPlaylist = onOpenPlaylist,
                                 onCreatePlaylist = { showCreateDialog = true },
@@ -384,6 +393,7 @@ fun LibraryScreen(
                                 uiState = uiState,
                                 coverPool = coverPool,
                                 revealSeen = revealSeen,
+                                strings = strings,
                                 onOpenPlaylist = onOpenPlaylist,
                                 onCreatePlaylist = { showCreateDialog = true },
                                 onRenamePlaylist = { renameTarget = it },
@@ -405,11 +415,12 @@ fun LibraryScreen(
                                     downloadsByTrackId = downloadsByTrackId,
                                     hasMiniPlayer = uiState.hasMiniPlayer,
                                     revealSeen = revealSeen,
-                                    emptyTitle = if (query.isNotEmpty()) "No matching liked songs" else "No liked songs yet",
+                                    strings = strings,
+                                    emptyTitle = if (query.isNotEmpty()) strings.noMatchingLikedTitle else strings.noLikedYetTitle,
                                     emptySubtitle = if (query.isNotEmpty()) {
-                                        "No liked tracks match \"$query\"."
+                                        strings.noMatchingLikedSubtitle(query)
                                     } else {
-                                        "Tap the heart on any track to save it here."
+                                        strings.noLikedYetSubtitle
                                     },
                                     onPlayAll = { shuffled -> onPlayAll(filteredLiked, shuffled) },
                                     onPlayTrack = { track -> onPlayTrack(track, filteredLiked) },
@@ -426,6 +437,7 @@ fun LibraryScreen(
                                 uiState = uiState,
                                 downloadsByTrackId = downloadsByTrackId,
                                 revealSeen = revealSeen,
+                                strings = strings,
                                 onRequestPermission = onRequestLocalPermission,
                                 onScan = onScanLocalMedia,
                                 onSelectFolder = onSelectLocalFolder,
@@ -446,6 +458,7 @@ fun LibraryScreen(
                                 downloads = uiState.downloads,
                                 hasMiniPlayer = uiState.hasMiniPlayer,
                                 revealSeen = revealSeen,
+                                strings = strings,
                                 onPlayTrack = { track ->
                                     val downloadedQueue = uiState.downloads
                                         .filter { it.item.status == DownloadStatus.COMPLETED }
@@ -475,6 +488,7 @@ fun LibraryScreen(
                                 downloadsByTrackId = downloadsByTrackId,
                                 hasMiniPlayer = uiState.hasMiniPlayer,
                                 revealSeen = revealSeen,
+                                strings = strings,
                                 onSelectStatsRange = onSelectStatsRange,
                                 onPlayTrackById = onPlayTrackById,
                                 onShareOledRecap = onShareOledRecap,
@@ -497,6 +511,8 @@ fun LibraryScreen(
                     onSelectTab = onSelectTab,
                     onCreatePlaylist = { showCreateDialog = true },
                     onOpenSettings = onOpenSettings,
+                    blurEnabled = uiState.glassBlurEnabled,
+                    strings = strings,
                     modifier = Modifier.align(Alignment.TopCenter)
                 )
         }
@@ -528,6 +544,8 @@ fun LibraryScreen(
                     isPlaying = uiState.isPlaying,
                     hasMiniPlayer = uiState.hasMiniPlayer,
                     bottomDockClearance = bottomDockClearance,
+                    revealSeen = revealSeen,
+                    strings = strings,
                     onBack = onClosePlaylist,
                     onPlayAll = { shuffled -> onPlayAll(shownTracks, shuffled) },
                     onPlayTrack = { track -> onPlayTrack(track, shownTracks) },
@@ -548,29 +566,31 @@ fun LibraryScreen(
 
     if (showCreateDialog) {
         PlaylistEditorDialog(
-            title = "Create Playlist",
-            confirmLabel = "Create",
+            title = strings.createPlaylistTitle,
+            confirmLabel = strings.createLabel,
             initialName = "",
             initialDescription = "",
             onDismiss = { showCreateDialog = false },
             onConfirm = { name, desc ->
                 onCreatePlaylist(name, desc)
                 showCreateDialog = false
-            }
+            },
+            strings = strings
         )
     }
 
     renameTarget?.let { target ->
         PlaylistEditorDialog(
-            title = "Rename Playlist",
-            confirmLabel = "Save",
+            title = strings.renamePlaylistTitle,
+            confirmLabel = strings.saveLabel,
             initialName = target.name,
             initialDescription = target.description.orEmpty(),
             onDismiss = { renameTarget = null },
             onConfirm = { name, desc ->
                 onRenamePlaylist(target.id, name, desc)
                 renameTarget = null
-            }
+            },
+            strings = strings
         )
     }
 
@@ -581,7 +601,8 @@ fun LibraryScreen(
             onConfirm = {
                 onDeletePlaylist(target.id)
                 deleteTarget = null
-            }
+            },
+            strings = strings
         )
     }
 
@@ -597,7 +618,8 @@ fun LibraryScreen(
                 addToPlaylistTrack = null
                 showCreateDialog = true
             },
-            onDismiss = { addToPlaylistTrack = null }
+            onDismiss = { addToPlaylistTrack = null },
+            strings = strings
         )
     }
 
@@ -607,7 +629,8 @@ fun LibraryScreen(
             candidateTracks = allCandidateTracks,
             existingTrackIds = uiState.selectedPlaylistTracks.mapTo(HashSet()) { it.id },
             onAddTrack = { track -> onAddTrackToPlaylist(playlist.id, track) },
-            onDismiss = { showAddTracksSheetForPlaylist = null }
+            onDismiss = { showAddTracksSheetForPlaylist = null },
+            strings = strings
         )
     }
 
@@ -616,7 +639,8 @@ fun LibraryScreen(
             track = target,
             onLoadMetadata = onLoadLocalTrackTags,
             onSaveMetadata = onSaveLocalTrackTags,
-            onDismiss = { editTagsTrack = null }
+            onDismiss = { editTagsTrack = null },
+            strings = strings
         )
     }
 }
@@ -631,7 +655,8 @@ private fun OverviewTabContent(
     allCandidateTracks: List<Track>,
     coverPool: List<String>,
     downloadsByTrackId: Map<String, DownloadStatus>,
-    revealSeen: LibraryRevealSeenState,
+    revealSeen: RevealSeenState,
+    strings: LibraryStrings,
     onSelectTab: (LibraryTab) -> Unit,
     onOpenPlaylist: (String) -> Unit,
     onCreatePlaylist: () -> Unit,
@@ -693,53 +718,71 @@ private fun OverviewTabContent(
                 if (matchingPlaylists.isEmpty() && matchingTracks.isEmpty()) {
                     item(key = "overview_search_empty") {
                         EmptyLibrarySection(
-                            title = "No matches found",
-                            subtitle = "No playlists or tracks match \"$query\"."
+                            title = strings.noMatchesFoundTitle,
+                            subtitle = strings.noMatchesOverviewSubtitle(query)
                         )
                     }
                 } else {
                     if (matchingPlaylists.isNotEmpty()) {
                         item(key = "overview_match_playlists_hdr") {
                             LibrarySectionHeader(
-                                title = "Matching Playlists",
+                                title = strings.matchingPlaylistsHeader,
                                 trailingCount = "${matchingPlaylists.size}"
                             )
                         }
                         items(matchingPlaylists, key = { "ov_pl_${it.id}" }) { playlist ->
                             val plCovers = uiState.playlistCoversById[playlist.id].orEmpty()
-                            PlaylistRowCard(
-                                playlist = playlist,
-                                coverPool = plCovers,
-                                onOpen = { onOpenPlaylist(playlist.id) },
-                                onRename = { onRenamePlaylist(playlist) },
-                                onDelete = { onDeletePlaylist(playlist) }
-                            )
+                            Box(
+                                modifier = Modifier.revealOnAppear(
+                                    key = "ov_match_pl_${playlist.id}",
+                                    seenState = revealSeen,
+                                    cascade = true
+                                )
+                            ) {
+                                PlaylistRowCard(
+                                    playlist = playlist,
+                                    coverPool = plCovers,
+                                    onOpen = { onOpenPlaylist(playlist.id) },
+                                    onRename = { onRenamePlaylist(playlist) },
+                                    onDelete = { onDeletePlaylist(playlist) },
+                                    strings = strings
+                                )
+                            }
                         }
                     }
                     if (matchingTracks.isNotEmpty()) {
                         item(key = "overview_match_tracks_hdr") {
                             LibrarySectionHeader(
-                                title = "Matching Tracks",
+                                title = strings.matchingTracksHeader,
                                 trailingCount = "${matchingTracks.size}"
                             )
                         }
                         items(matchingTracks, key = { "ov_tr_${it.id}" }) { track ->
-                            SwipeableLibraryTrackRow(
-                                track = track,
-                                isActive = track.id == uiState.activeTrackId,
-                                isPlaying = uiState.isPlaying,
-                                downloadStatus = downloadsByTrackId[track.id],
-                                onPlay = { onPlayTrack(track, matchingTracks) },
-                                onToggleLike = { onToggleLike(track) },
-                                onAddToPlaylist = { onAddToPlaylist(track) },
-                                onToggleDownload = { onToggleDownload(track) }
-                            )
+                            Box(
+                                modifier = Modifier.revealOnAppear(
+                                    key = "ov_match_tr_${track.id}",
+                                    seenState = revealSeen,
+                                    cascade = true
+                                )
+                            ) {
+                                SwipeableLibraryTrackRow(
+                                    track = track,
+                                    isActive = track.id == uiState.activeTrackId,
+                                    isPlaying = uiState.isPlaying,
+                                    downloadStatus = downloadsByTrackId[track.id],
+                                    onPlay = { onPlayTrack(track, matchingTracks) },
+                                    onToggleLike = { onToggleLike(track) },
+                                    onAddToPlaylist = { onAddToPlaylist(track) },
+                                    onToggleDownload = { onToggleDownload(track) },
+                                    strings = strings
+                                )
+                            }
                         }
                     }
                 }
             } else {
                 item(key = "overview_hub_grid") {
-                    Box(modifier = Modifier.libraryRevealOnAppear("ov_hub", revealSeen)) {
+                    Box(modifier = Modifier.revealOnAppear("ov_hub", revealSeen, cascade = true)) {
                         LibraryOverviewHubGrid(
                             playlistsCount = uiState.playlists.size,
                             playlistsCovers = playlistsCovers,
@@ -752,36 +795,39 @@ private fun OverviewTabContent(
                             onOpenPlaylists = { onSelectTab(LibraryTab.PLAYLISTS) },
                             onOpenLocal = { onSelectTab(LibraryTab.LOCAL) },
                             onOpenDownloads = { onSelectTab(LibraryTab.DOWNLOADS) },
-                            onOpenHistory = { onSelectTab(LibraryTab.HISTORY) }
+                            onOpenHistory = { onSelectTab(LibraryTab.HISTORY) },
+                            strings = strings
                         )
                     }
                 }
 
                 item(key = "overview_liked_card") {
-                    Box(modifier = Modifier.libraryRevealOnAppear("ov_liked", revealSeen)) {
+                    Box(modifier = Modifier.revealOnAppear("ov_liked", revealSeen, cascade = true)) {
                         LikedSongsSignatureCard(
                             count = uiState.likedSongs.size,
                             onOpen = { onSelectTab(LibraryTab.LIKED) },
-                            onQuickShuffle = { onPlayAll(uiState.likedSongs, true) }
+                            onQuickShuffle = { onPlayAll(uiState.likedSongs, true) },
+                            strings = strings
                         )
                     }
                 }
 
                 item(key = "overview_recent_card") {
-                    Box(modifier = Modifier.libraryRevealOnAppear("ov_recent", revealSeen)) {
+                    Box(modifier = Modifier.revealOnAppear("ov_recent", revealSeen, cascade = true)) {
                         RecentlyPlayedTelemetryCard(
                             recentCovers = recentCovers,
                             totalPlayCount = uiState.totalPlayCount,
                             totalPlayDurationMs = uiState.totalPlayDurationMs,
-                            onOpen = { onSelectTab(LibraryTab.HISTORY) }
+                            onOpen = { onSelectTab(LibraryTab.HISTORY) },
+                            strings = strings
                         )
                     }
                 }
 
                 item(key = "overview_playlists_hdr") {
                     LibrarySectionHeader(
-                        title = "Your Playlists",
-                        actionLabel = "New",
+                        title = strings.yourPlaylistsHeader,
+                        actionLabel = strings.newLabel,
                         onAction = onCreatePlaylist
                     )
                 }
@@ -789,9 +835,9 @@ private fun OverviewTabContent(
                 if (uiState.playlists.isEmpty()) {
                     item(key = "overview_playlists_empty") {
                         EmptyLibrarySection(
-                            title = "No playlists yet",
-                            subtitle = "Create a playlist to organize your favorite tracks.",
-                            actionLabel = "Create Playlist",
+                            title = strings.noPlaylistsYetTitle,
+                            subtitle = strings.noPlaylistsOverviewSubtitle,
+                            actionLabel = strings.createPlaylistActionLabel,
                             onAction = onCreatePlaylist
                         )
                     }
@@ -809,13 +855,14 @@ private fun OverviewTabContent(
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
-                                        .libraryRevealOnAppear("ov_grid_${playlist.id}", revealSeen)
+                                        .revealOnAppear("ov_grid_${playlist.id}", revealSeen, cascade = true)
                                 ) {
                                     PlaylistGridCard(
                                         playlist = playlist,
                                         covers = covers,
                                         onOpen = { onOpenPlaylist(playlist.id) },
-                                        modifier = Modifier.fillMaxWidth()
+                                        modifier = Modifier.fillMaxWidth(),
+                                        strings = strings
                                     )
                                 }
                             }
@@ -847,7 +894,8 @@ private fun PlaylistsTabContent(
     bottomDockClearance: Dp,
     uiState: LibraryUiState,
     coverPool: List<String>,
-    revealSeen: LibraryRevealSeenState,
+    revealSeen: RevealSeenState,
+    strings: LibraryStrings,
     onOpenPlaylist: (String) -> Unit,
     onCreatePlaylist: () -> Unit,
     onRenamePlaylist: (Playlist) -> Unit,
@@ -872,25 +920,21 @@ private fun PlaylistsTabContent(
         ) {
             item(key = "playlists_header") {
                 LibrarySectionHeader(
-                    title = if (query.isNotEmpty()) {
-                        "Playlists (${displayedPlaylists.size})"
-                    } else {
-                        "Collections (${displayedPlaylists.size})"
-                    },
-                    actionLabel = "New",
+                    title = strings.playlistsSectionTitle(query, displayedPlaylists.size),
+                    actionLabel = strings.newLabel,
                     onAction = onCreatePlaylist
                 )
             }
             if (displayedPlaylists.isEmpty()) {
                 item(key = "playlists_empty") {
                     EmptyLibrarySection(
-                        title = if (query.isNotEmpty()) "No matching playlists" else "No playlists yet",
+                        title = if (query.isNotEmpty()) strings.noMatchingPlaylistsTitle else strings.noPlaylistsYetTitle,
                         subtitle = if (query.isNotEmpty()) {
-                            "No playlists match \"$query\"."
+                            strings.noMatchingPlaylistsSubtitle(query)
                         } else {
-                            "Create a playlist and drag tracks into any order."
+                            strings.noPlaylistsTabSubtitle
                         },
-                        actionLabel = if (query.isEmpty()) "Create Playlist" else null,
+                        actionLabel = if (query.isEmpty()) strings.createPlaylistActionLabel else null,
                         onAction = if (query.isEmpty()) onCreatePlaylist else null
                     )
                 }
@@ -906,13 +950,14 @@ private fun PlaylistsTabContent(
                             listOf(coverPool[index % coverPool.size])
                         }
                     }
-                    Box(modifier = Modifier.libraryRevealOnAppear("pl_${playlist.id}", revealSeen)) {
+                    Box(modifier = Modifier.revealOnAppear("pl_${playlist.id}", revealSeen, cascade = true)) {
                         PlaylistRowCard(
                             playlist = playlist,
                             coverPool = playlistCovers,
                             onOpen = { onOpenPlaylist(playlist.id) },
                             onRename = { onRenamePlaylist(playlist) },
-                            onDelete = { onDeletePlaylist(playlist) }
+                            onDelete = { onDeletePlaylist(playlist) },
+                            strings = strings
                         )
                     }
                 }
@@ -941,7 +986,8 @@ private fun TracksTabContent(
     isPlaying: Boolean,
     downloadsByTrackId: Map<String, DownloadStatus>,
     hasMiniPlayer: Boolean,
-    revealSeen: LibraryRevealSeenState,
+    revealSeen: RevealSeenState,
+    strings: LibraryStrings,
     emptyTitle: String,
     emptySubtitle: String,
     onPlayAll: (Boolean) -> Unit,
@@ -964,10 +1010,11 @@ private fun TracksTabContent(
         ) {
             item(key = "tracks_actions") {
                 QuickPlayActionRow(
-                    countLabel = "${tracks.size} tracks",
+                    countLabel = strings.tracksLabelText(tracks.size),
                     hasTracks = tracks.isNotEmpty(),
                     onPlayAll = { onPlayAll(false) },
-                    onShuffleAll = { onPlayAll(true) }
+                    onShuffleAll = { onPlayAll(true) },
+                    strings = strings
                 )
             }
             if (tracks.isEmpty()) {
@@ -980,7 +1027,7 @@ private fun TracksTabContent(
             } else {
                 items(tracks, key = { it.id }) { track ->
                     val status = downloadsByTrackId[track.id]
-                    Box(modifier = Modifier.libraryRevealOnAppear("liked_${track.id}", revealSeen)) {
+                    Box(modifier = Modifier.revealOnAppear("liked_${track.id}", revealSeen, cascade = true)) {
                         SwipeableLibraryTrackRow(
                             track = track,
                             isActive = track.id == activeTrackId,
@@ -989,7 +1036,8 @@ private fun TracksTabContent(
                             onPlay = { onPlayTrack(track) },
                             onToggleLike = { onToggleLike(track) },
                             onAddToPlaylist = { onAddToPlaylist(track) },
-                            onToggleDownload = { onToggleDownload(track) }
+                            onToggleDownload = { onToggleDownload(track) },
+                            strings = strings
                         )
                     }
                 }
@@ -1016,7 +1064,8 @@ private fun LocalTabContent(
     bottomDockClearance: Dp,
     uiState: LibraryUiState,
     downloadsByTrackId: Map<String, DownloadStatus>,
-    revealSeen: LibraryRevealSeenState,
+    revealSeen: RevealSeenState,
+    strings: LibraryStrings,
     onRequestPermission: () -> Unit,
     onScan: () -> Unit,
     onSelectFolder: (String?) -> Unit,
@@ -1029,15 +1078,16 @@ private fun LocalTabContent(
     onToggleDownload: (Track) -> Unit
 ) {
     val query = uiState.searchQuery.trim()
-    val folderFiltered = remember(uiState.localSongs, uiState.selectedLocalFolderPath) {
-        val folderPath = uiState.selectedLocalFolderPath
-        if (folderPath.isNullOrBlank()) {
-            uiState.localSongs
-        } else {
-            uiState.localSongs.filter { track ->
-                track.localUri?.contains(folderPath, ignoreCase = true) == true
-            }.ifEmpty { uiState.localSongs }
-        }
+    val folderFiltered = remember(
+        uiState.localSongs,
+        uiState.localTrackFolders,
+        uiState.selectedLocalFolderPath
+    ) {
+        filterLocalTracksByFolder(
+            tracks = uiState.localSongs,
+            trackFolders = uiState.localTrackFolders,
+            folderPath = uiState.selectedLocalFolderPath
+        )
     }
     val displayedLocalTracks = remember(folderFiltered, query) {
         filterTracksByQuery(folderFiltered, query)
@@ -1065,7 +1115,8 @@ private fun LocalTabContent(
                         isScanning = uiState.isScanningLocal,
                         lastScanMessage = uiState.lastScanMessage,
                         onRequestPermission = onRequestPermission,
-                        onScan = onScan
+                        onScan = onScan,
+                        strings = strings
                     )
                 }
             }
@@ -1081,7 +1132,7 @@ private fun LocalTabContent(
                             val pillShape = RoundedCornerShape(50)
                             Box(
                                 modifier = Modifier
-                                    .heightIn(min = 38.dp)
+                                    .defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
                                     .libraryPressBounce(interactionSource, pressedScale = 0.95f)
                                     .clip(pillShape)
                                     .background(if (selected) Color.White else Color(0xFF141416))
@@ -1094,10 +1145,10 @@ private fun LocalTabContent(
                                     )
                                     .clickable(
                                         interactionSource = interactionSource,
-                                        indication = LibraryHighlightIndication(cornerRadius = 19.dp),
+                                        indication = LibraryHighlightIndication(cornerRadius = 22.dp),
                                         onClick = { onSelectFolder(folder.path) }
                                     )
-                                    .padding(horizontal = 14.dp, vertical = 9.dp),
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
@@ -1115,36 +1166,48 @@ private fun LocalTabContent(
                 item(key = "relink_card") {
                     RelinkTracksCard(
                         tracks = uiState.songsNeedingRelink,
-                        onRelinkTrack = onRelinkTrack
+                        onRelinkTrack = onRelinkTrack,
+                        strings = strings
                     )
                 }
             }
             item(key = "local_actions") {
                 QuickPlayActionRow(
-                    countLabel = "${displayedLocalTracks.size} local tracks",
+                    countLabel = strings.localTracksCountText(displayedLocalTracks.size),
                     hasTracks = displayedLocalTracks.isNotEmpty(),
                     onPlayAll = { onPlayAll(displayedLocalTracks, false) },
-                    onShuffleAll = { onPlayAll(displayedLocalTracks, true) }
+                    onShuffleAll = { onPlayAll(displayedLocalTracks, true) },
+                    strings = strings
                 )
             }
             if (displayedLocalTracks.isEmpty()) {
                 item(key = "local_empty") {
+                    val hasSelectedFolder = !uiState.selectedLocalFolderPath.isNullOrBlank()
+                    val emptyTitle = when {
+                        query.isNotEmpty() -> strings.noMatchingLocalTitle
+                        hasSelectedFolder && uiState.isScanningLocal -> strings.scanningFoldersTitle
+                        hasSelectedFolder -> strings.emptyFolderTitle
+                        else -> strings.noLocalIndexedTitle
+                    }
+                    val emptySubtitle = when {
+                        query.isNotEmpty() -> strings.noMatchingLocalSubtitle(query)
+                        hasSelectedFolder && uiState.isScanningLocal -> strings.scanningFoldersSubtitle
+                        hasSelectedFolder -> strings.emptyFolderSubtitle
+                        else -> strings.noLocalIndexedSubtitle
+                    }
                     EmptyLibrarySection(
-                        title = if (query.isNotEmpty()) "No matching local tracks" else "No local audio indexed",
-                        subtitle = if (query.isNotEmpty()) {
-                            "No local tracks match \"$query\"."
-                        } else {
-                            "Tap Scan above after granting audio storage permission."
-                        }
+                        title = emptyTitle,
+                        subtitle = emptySubtitle
                     )
                 }
             } else {
                 items(displayedLocalTracks, key = { it.id }) { track ->
                     val status = downloadsByTrackId[track.id]
+                    val localUri = track.localUri
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .libraryRevealOnAppear("local_${track.id}", revealSeen),
+                            .revealOnAppear("local_${track.id}", revealSeen, cascade = true),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
@@ -1157,10 +1220,11 @@ private fun LocalTabContent(
                                 onPlay = { onPlayTrack(track, displayedLocalTracks) },
                                 onToggleLike = { onToggleLike(track) },
                                 onAddToPlaylist = { onAddToPlaylist(track) },
-                                onToggleDownload = { onToggleDownload(track) }
+                                onToggleDownload = { onToggleDownload(track) },
+                                strings = strings
                             )
                         }
-                        if (!track.localUri.isNullOrBlank()) {
+                        if (!localUri.isNullOrBlank()) {
                             IconButton(
                                 onClick = { onEditTrackTags(track) },
                                 modifier = Modifier.defaultMinSize(
@@ -1170,7 +1234,7 @@ private fun LocalTabContent(
                             ) {
                                 Icon(
                                     imageVector = Icons.Rounded.Tag,
-                                    contentDescription = "Edit local tags",
+                                    contentDescription = strings.editLocalTagsDesc,
                                     tint = Color(0xFF9A9AA0),
                                     modifier = Modifier.size(19.dp)
                                 )
@@ -1207,7 +1271,8 @@ private fun DownloadsTabContent(
     searchQuery: String,
     downloads: List<DownloadEntryUi>,
     hasMiniPlayer: Boolean,
-    revealSeen: LibraryRevealSeenState,
+    revealSeen: RevealSeenState,
+    strings: LibraryStrings,
     onPlayTrack: (Track) -> Unit,
     onRetry: (Track) -> Unit,
     onCancelOrDelete: (String, Boolean) -> Unit
@@ -1218,9 +1283,10 @@ private fun DownloadsTabContent(
             downloads
         } else {
             downloads.filter { entry ->
-                val title = entry.track?.title ?: entry.item.trackId
-                val artist = entry.track?.artist.orEmpty()
-                val album = entry.track?.album.orEmpty()
+                val track = entry.track
+                val title = track?.title ?: entry.item.trackId
+                val artist = track?.artist.orEmpty()
+                val album = track?.album.orEmpty()
                 title.contains(query, ignoreCase = true) ||
                     artist.contains(query, ignoreCase = true) ||
                     album.contains(query, ignoreCase = true)
@@ -1245,7 +1311,7 @@ private fun DownloadsTabContent(
         ) {
             item(key = "downloads_header") {
                 Text(
-                    text = "$completedCount offline ready  |  ${displayedDownloads.size} total",
+                    text = strings.downloadsSummaryText(completedCount, displayedDownloads.size),
                     style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
                     color = Color(0xFF9A9AA0),
                     modifier = Modifier.padding(vertical = 4.dp)
@@ -1254,11 +1320,11 @@ private fun DownloadsTabContent(
             if (displayedDownloads.isEmpty()) {
                 item(key = "downloads_empty") {
                     EmptyLibrarySection(
-                        title = if (query.isNotEmpty()) "No matching downloads" else "No downloads yet",
+                        title = if (query.isNotEmpty()) strings.noMatchingDownloadsTitle else strings.noDownloadsYetTitle,
                         subtitle = if (query.isNotEmpty()) {
-                            "No downloads match \"$query\"."
+                            strings.noMatchingDownloadsSubtitle(query)
                         } else {
-                            "Download tracks from Search, Home, or Liked songs for offline playback."
+                            strings.noDownloadsYetSubtitle
                         }
                     )
                 }
@@ -1266,12 +1332,13 @@ private fun DownloadsTabContent(
                 items(displayedDownloads, key = { it.item.trackId }) { entry ->
                     val isActive = entry.item.status == DownloadStatus.QUEUED ||
                         entry.item.status == DownloadStatus.DOWNLOADING
-                    Box(modifier = Modifier.libraryRevealOnAppear("dl_${entry.item.trackId}", revealSeen)) {
+                    Box(modifier = Modifier.revealOnAppear("dl_${entry.item.trackId}", revealSeen, cascade = true)) {
                         DownloadRowCard(
                             entry = entry,
                             onPlay = { entry.track?.let(onPlayTrack) },
                             onRetry = { entry.track?.let(onRetry) },
-                            onDeleteOrCancel = { onCancelOrDelete(entry.item.trackId, isActive) }
+                            onDeleteOrCancel = { onCancelOrDelete(entry.item.trackId, isActive) },
+                            strings = strings
                         )
                     }
                 }
@@ -1309,7 +1376,8 @@ private fun HistoryTabContent(
     isPlaying: Boolean,
     downloadsByTrackId: Map<String, DownloadStatus>,
     hasMiniPlayer: Boolean,
-    revealSeen: LibraryRevealSeenState,
+    revealSeen: RevealSeenState,
+    strings: LibraryStrings,
     onSelectStatsRange: (StatsRange) -> Unit,
     onPlayTrackById: (String) -> Unit,
     onShareOledRecap: () -> Unit,
@@ -1324,6 +1392,9 @@ private fun HistoryTabContent(
         filterTracksByQuery(recentSongs, query)
     }
     val showSummary = query.isEmpty()
+    val reducedMotion = OndaTheme.reducedMotion
+    var barsRevealed by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { barsRevealed = true }
 
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -1357,7 +1428,7 @@ private fun HistoryTabContent(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    text = range.label,
+                                    text = strings.statsRangeLabel(range),
                                     style = MaterialTheme.typography.labelMedium,
                                     color = if (selected) Color.Black else Color(0xFF9A9AA0),
                                     maxLines = 1
@@ -1371,6 +1442,7 @@ private fun HistoryTabContent(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .revealOnAppear("hist_summary", revealSeen, cascade = true)
                             .clip(summaryShape)
                             .background(Color(0xFF000000))
                             .border(0.75.dp, Color(0x26FFFFFF), summaryShape)
@@ -1387,17 +1459,17 @@ private fun HistoryTabContent(
                                 verticalArrangement = Arrangement.spacedBy(2.dp)
                             ) {
                                 Text(
-                                    text = "OLED RECAP · ${statsRange.label.uppercase()}",
+                                    text = strings.oledRecapHeader(statsRange),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = Color(0xFF8E8E93)
                                 )
                                 Text(
-                                    text = "${formatHoursListened(periodPlayDurationMs)} listened",
+                                    text = strings.hoursListenedText(formatHoursListened(periodPlayDurationMs)),
                                     style = MaterialTheme.typography.titleLarge.copy(fontFeatureSettings = "tnum"),
                                     color = Color.White
                                 )
                                 Text(
-                                    text = "$periodPlayCount plays in period · $totalPlayCount lifetime ($downloadedCount offline)",
+                                    text = strings.periodPlaysSummary(periodPlayCount, totalPlayCount, downloadedCount),
                                     style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
                                     color = Color(0xFF9A9AA0)
                                 )
@@ -1419,7 +1491,7 @@ private fun HistoryTabContent(
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text(text = "Share Pure-Black OLED Recap", maxLines = 1)
+                            Text(text = strings.shareOledRecapLabel, maxLines = 1)
                         }
                     }
                 }
@@ -1429,6 +1501,7 @@ private fun HistoryTabContent(
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .revealOnAppear("hist_top_tracks", revealSeen, cascade = true)
                                 .clip(cardShape)
                                 .background(Color(0xFF0A0A0A))
                                 .border(0.75.dp, Color(0x1EFFFFFF), cardShape)
@@ -1436,7 +1509,7 @@ private fun HistoryTabContent(
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(
-                                text = "TOP TRACKS (${statsRange.label})",
+                                text = strings.topTracksHeader(statsRange),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = Color(0xFF8E8E93)
                             )
@@ -1465,7 +1538,7 @@ private fun HistoryTabContent(
                                             overflow = TextOverflow.Ellipsis
                                         )
                                         Text(
-                                            text = "${row.artist} · ${row.playCount} plays",
+                                            text = strings.artistTrackPlaysText(row.artist, row.playCount),
                                             style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
                                             color = Color(0xFF9A9AA0),
                                             maxLines = 1,
@@ -1489,6 +1562,7 @@ private fun HistoryTabContent(
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .revealOnAppear("hist_top_artists", revealSeen, cascade = true)
                                 .clip(cardShape)
                                 .background(Color(0xFF0A0A0A))
                                 .border(0.75.dp, Color(0x1EFFFFFF), cardShape)
@@ -1496,12 +1570,21 @@ private fun HistoryTabContent(
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(
-                                text = "TOP ARTISTS (${statsRange.label})",
+                                text = strings.topArtistsHeader(statsRange),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = Color(0xFF8E8E93)
                             )
                             topArtists.take(5).forEach { artistRow ->
                                 val frac = (artistRow.totalDurationMs.toFloat() / maxMs.toFloat()).coerceIn(0.08f, 1f)
+                                val animatedFrac by animateFloatAsState(
+                                    targetValue = if (barsRevealed || reducedMotion) frac else 0f,
+                                    animationSpec = if (reducedMotion) {
+                                        snap()
+                                    } else {
+                                        spring(dampingRatio = 0.82f, stiffness = 380f)
+                                    },
+                                    label = "topArtistBarScale"
+                                )
                                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -1530,8 +1613,12 @@ private fun HistoryTabContent(
                                     ) {
                                         Box(
                                             modifier = Modifier
-                                                .fillMaxWidth(frac)
+                                                .fillMaxWidth()
                                                 .height(4.dp)
+                                                .graphicsLayer {
+                                                    scaleX = animatedFrac.coerceIn(0f, 1f)
+                                                    transformOrigin = TransformOrigin(0f, 0.5f)
+                                                }
                                                 .clip(RoundedCornerShape(999.dp))
                                                 .background(OndaTheme.colors.accent)
                                         )
@@ -1544,27 +1631,28 @@ private fun HistoryTabContent(
             }
             item(key = "history_actions") {
                 QuickPlayActionRow(
-                    countLabel = "Recently played (${displayedRecent.size})",
+                    countLabel = strings.recentlyPlayedHeader(displayedRecent.size),
                     hasTracks = displayedRecent.isNotEmpty(),
                     onPlayAll = { onPlayAll(displayedRecent, false) },
-                    onShuffleAll = { onPlayAll(displayedRecent, true) }
+                    onShuffleAll = { onPlayAll(displayedRecent, true) },
+                    strings = strings
                 )
             }
             if (displayedRecent.isEmpty()) {
                 item(key = "history_empty") {
                     EmptyLibrarySection(
-                        title = if (query.isNotEmpty()) "No matching history" else "No playback history yet",
+                        title = if (query.isNotEmpty()) strings.noMatchingHistoryTitle else strings.noHistoryYetTitle,
                         subtitle = if (query.isNotEmpty()) {
-                            "No recent tracks match \"$query\"."
+                            strings.noMatchingHistorySubtitle(query)
                         } else {
-                            "Play any song and your recent listening recap will appear here."
+                            strings.noHistoryYetSubtitle
                         }
                     )
                 }
             } else {
                 items(displayedRecent, key = { it.id }) { track ->
                     val status = downloadsByTrackId[track.id]
-                    Box(modifier = Modifier.libraryRevealOnAppear("hist_${track.id}", revealSeen)) {
+                    Box(modifier = Modifier.revealOnAppear("hist_${track.id}", revealSeen, cascade = true)) {
                         SwipeableLibraryTrackRow(
                             track = track,
                             isActive = track.id == activeTrackId,
@@ -1573,7 +1661,8 @@ private fun HistoryTabContent(
                             onPlay = { onPlayTrack(track, displayedRecent) },
                             onToggleLike = { onToggleLike(track) },
                             onAddToPlaylist = { onAddToPlaylist(track) },
-                            onToggleDownload = { onToggleDownload(track) }
+                            onToggleDownload = { onToggleDownload(track) },
+                            strings = strings
                         )
                     }
                 }
@@ -1600,14 +1689,15 @@ private fun SwipeableLibraryTrackRow(
     onPlay: () -> Unit,
     onToggleLike: () -> Unit,
     onAddToPlaylist: () -> Unit,
-    onToggleDownload: () -> Unit
+    onToggleDownload: () -> Unit,
+    strings: LibraryStrings = resolveLibraryStrings("en")
 ) {
     LibrarySwipeActionsBox(
         start = {
             LibrarySwipeAction(
                 icon = if (track.liked) Icons.Rounded.FavoriteBorder else Icons.Rounded.Favorite,
                 color = SwipeLikeColor,
-                label = if (track.liked) "Unlike" else "Like",
+                label = if (track.liked) strings.unlikeLabel else strings.likeLabel,
                 onTrigger = onToggleLike
             )
         },
@@ -1618,7 +1708,7 @@ private fun SwipeableLibraryTrackRow(
             LibrarySwipeAction(
                 icon = if (isDownloaded) Icons.Rounded.DeleteOutline else Icons.Rounded.Download,
                 color = if (isDownloaded) SwipeRemoveColor else SwipeDownloadColor,
-                label = if (isDownloaded) "Remove" else "Download",
+                label = if (isDownloaded) strings.removeSwipeLabel else strings.downloadSwipeLabel,
                 onTrigger = onToggleDownload
             )
         }
@@ -1631,7 +1721,8 @@ private fun SwipeableLibraryTrackRow(
             onPlay = onPlay,
             onToggleLike = onToggleLike,
             onAddToPlaylist = onAddToPlaylist,
-            onDownloadClick = onToggleDownload
+            onDownloadClick = onToggleDownload,
+            strings = strings
         )
     }
 }
@@ -1644,6 +1735,8 @@ private fun PlaylistDetailView(
     isPlaying: Boolean,
     hasMiniPlayer: Boolean,
     bottomDockClearance: Dp,
+    revealSeen: RevealSeenState,
+    strings: LibraryStrings,
     onBack: () -> Unit,
     onPlayAll: (Boolean) -> Unit,
     onPlayTrack: (Track) -> Unit,
@@ -1688,7 +1781,7 @@ private fun PlaylistDetailView(
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                    contentDescription = "Back to playlists",
+                    contentDescription = strings.backToPlaylistsDesc,
                     tint = Color.White
                 )
             }
@@ -1701,7 +1794,7 @@ private fun PlaylistDetailView(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "${localTracks.size} tracks  |  Swipe or drag handle",
+                    text = strings.playlistDetailSubtitle(localTracks.size),
                     style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
                     color = Color(0xFF9A9AA0),
                     maxLines = 1,
@@ -1714,7 +1807,7 @@ private fun PlaylistDetailView(
             ) {
                 Icon(
                     imageVector = Icons.Rounded.Edit,
-                    contentDescription = "Rename playlist",
+                    contentDescription = strings.renamePlaylistDesc,
                     tint = Color(0xFF9A9AA0)
                 )
             }
@@ -1724,7 +1817,7 @@ private fun PlaylistDetailView(
             ) {
                 Icon(
                     imageVector = Icons.Rounded.DeleteOutline,
-                    contentDescription = "Delete playlist",
+                    contentDescription = strings.deletePlaylistDesc,
                     tint = OndaTheme.colors.error
                 )
             }
@@ -1764,7 +1857,7 @@ private fun PlaylistDetailView(
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text(text = "Play", maxLines = 1)
+                            Text(text = strings.playLabel, maxLines = 1)
                         }
                         OutlinedButton(
                             onClick = { onPlayAll(true) },
@@ -1779,7 +1872,7 @@ private fun PlaylistDetailView(
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text(text = "Shuffle", maxLines = 1)
+                            Text(text = strings.shuffleLabel, maxLines = 1)
                         }
                         OutlinedButton(
                             onClick = onAddTracksClick,
@@ -1793,7 +1886,7 @@ private fun PlaylistDetailView(
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text(text = "Add", maxLines = 1)
+                            Text(text = strings.addLabel, maxLines = 1)
                         }
                     }
                 }
@@ -1801,9 +1894,9 @@ private fun PlaylistDetailView(
                 if (localTracks.isEmpty()) {
                     item(key = "playlist_detail_empty") {
                         EmptyLibrarySection(
-                            title = "Playlist is empty",
-                            subtitle = "Add tracks from your saved, liked, or local songs.",
-                            actionLabel = "Add Tracks",
+                            title = strings.playlistEmptyTitle,
+                            subtitle = strings.playlistEmptySubtitle,
+                            actionLabel = strings.addTracksLabel,
                             onAction = onAddTracksClick
                         )
                     }
@@ -1815,98 +1908,106 @@ private fun PlaylistDetailView(
                             val rowShape = remember { SmoothCornerShape(16.dp) }
                             val bgColor = if (isDragging || isActive) Color(0xFF1C1C22) else Color(0xFF141416)
                             val borderColor = if (isDragging || isActive) Color(0x30FFFFFF) else Color(0x16FFFFFF)
-                            LibrarySwipeActionsBox(
-                                enabled = !isDraggingTracks && !isDragging,
-                                start = {
-                                    LibrarySwipeAction(
-                                        icon = if (track.liked) Icons.Rounded.FavoriteBorder else Icons.Rounded.Favorite,
-                                        color = SwipeLikeColor,
-                                        label = if (track.liked) "Unlike" else "Like",
-                                        onTrigger = { onToggleLike(track) }
-                                    )
-                                },
-                                end = {
-                                    LibrarySwipeAction(
-                                        icon = Icons.Rounded.Close,
-                                        color = SwipeRemoveColor,
-                                        label = "Remove",
-                                        onTrigger = { onRemoveTrack(track.id) }
-                                    )
-                                }
+                            Box(
+                                modifier = Modifier.revealOnAppear(
+                                    key = "pl_tr_${playlist.id}_${track.id}",
+                                    seenState = revealSeen,
+                                    cascade = true
+                                )
                             ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .heightIn(min = 66.dp)
-                                        .libraryPressBounce(rowInteraction, pressedScale = 0.98f)
-                                        .clip(rowShape)
-                                        .background(bgColor)
-                                        .border(0.5.dp, borderColor, rowShape)
-                                        .clickable(
-                                            interactionSource = rowInteraction,
-                                            indication = LibraryHighlightIndication(cornerRadius = 16.dp),
-                                            onClick = { onPlayTrack(track) }
+                                LibrarySwipeActionsBox(
+                                    enabled = !isDraggingTracks && !isDragging,
+                                    start = {
+                                        LibrarySwipeAction(
+                                            icon = if (track.liked) Icons.Rounded.FavoriteBorder else Icons.Rounded.Favorite,
+                                            color = SwipeLikeColor,
+                                            label = if (track.liked) strings.unlikeLabel else strings.likeLabel,
+                                            onTrigger = { onToggleLike(track) }
                                         )
-                                        .padding(start = 10.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                    },
+                                    end = {
+                                        LibrarySwipeAction(
+                                            icon = Icons.Rounded.Close,
+                                            color = SwipeRemoveColor,
+                                            label = strings.removeSwipeLabel,
+                                            onTrigger = { onRemoveTrack(track.id) }
+                                        )
+                                    }
                                 ) {
-                                    TrackArtworkBox(
-                                        artworkUrl = track.artworkUrl,
-                                        title = track.title,
-                                        isActive = isActive,
-                                        isPlaying = isPlaying
-                                    )
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = track.title,
-                                            style = MaterialTheme.typography.titleSmall,
-                                            color = if (isActive) OndaTheme.colors.accent else Color.White,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        Text(
-                                            text = "${track.artist}  |  ${formatDurationMs(track.durationMs)}",
-                                            style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
-                                            color = Color(0xFF9A9AA0),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                    IconButton(
-                                        onClick = { onRemoveTrack(track.id) },
-                                        modifier = Modifier.defaultMinSize(
-                                            minWidth = DockMetrics.MinTapTarget,
-                                            minHeight = DockMetrics.MinTapTarget
-                                        )
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Close,
-                                            contentDescription = "Remove from playlist",
-                                            tint = Color(0xFF9A9AA0)
-                                        )
-                                    }
-                                    IconButton(
-                                        onClick = {},
+                                    Row(
                                         modifier = Modifier
-                                            .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-                                            .draggableHandle(
-                                                onDragStarted = {
-                                                    isDraggingTracks = true
-                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                },
-                                                onDragStopped = {
-                                                    isDraggingTracks = false
-                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                    onReorderTracks(localTracks)
-                                                }
+                                            .fillMaxWidth()
+                                            .heightIn(min = 66.dp)
+                                            .libraryPressBounce(rowInteraction, pressedScale = 0.98f)
+                                            .clip(rowShape)
+                                            .background(bgColor)
+                                            .border(0.5.dp, borderColor, rowShape)
+                                            .clickable(
+                                                interactionSource = rowInteraction,
+                                                indication = LibraryHighlightIndication(cornerRadius = 16.dp),
+                                                onClick = { onPlayTrack(track) }
                                             )
+                                            .padding(start = 10.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.DragHandle,
-                                            contentDescription = "Reorder track",
-                                            tint = if (isDragging) OndaTheme.colors.accent else Color(0xFF9A9AA0)
+                                        TrackArtworkBox(
+                                            artworkUrl = track.artworkUrl,
+                                            title = track.title,
+                                            isActive = isActive,
+                                            isPlaying = isPlaying
                                         )
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = track.title,
+                                                style = MaterialTheme.typography.titleSmall,
+                                                color = if (isActive) OndaTheme.colors.accent else Color.White,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = "${track.artist}  |  ${formatDurationMs(track.durationMs)}",
+                                                style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
+                                                color = Color(0xFF9A9AA0),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        IconButton(
+                                            onClick = { onRemoveTrack(track.id) },
+                                            modifier = Modifier.defaultMinSize(
+                                                minWidth = DockMetrics.MinTapTarget,
+                                                minHeight = DockMetrics.MinTapTarget
+                                            )
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.Close,
+                                                contentDescription = strings.removeFromPlaylistDesc,
+                                                tint = Color(0xFF9A9AA0)
+                                            )
+                                        }
+                                        IconButton(
+                                            onClick = {},
+                                            modifier = Modifier
+                                                .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                                                .draggableHandle(
+                                                    onDragStarted = {
+                                                        isDraggingTracks = true
+                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    },
+                                                    onDragStopped = {
+                                                        isDraggingTracks = false
+                                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                        onReorderTracks(localTracks)
+                                                    }
+                                                )
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.DragHandle,
+                                                contentDescription = strings.reorderTrackDesc,
+                                                tint = if (isDragging) OndaTheme.colors.accent else Color(0xFF9A9AA0)
+                                            )
+                                        }
                                     }
                                 }
                             }

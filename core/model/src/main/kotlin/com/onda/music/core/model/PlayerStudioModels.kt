@@ -8,7 +8,8 @@ enum class StudioBackdropMode(val label: String) {
     OLED_PURE("OLED Pure"),
     ACOUSTIC_MIST("Acoustic Mist"),
     AGSL_MESH("Onda Mesh"),
-    VINYL_DARK("Vinyl Vignette")
+    VINYL_DARK("Vinyl Vignette"),
+    AURORA_RIBBONS("Aurora Ribbons")
 }
 
 @Serializable
@@ -23,7 +24,8 @@ enum class StudioArtworkFrame(val label: String) {
 enum class StudioSeekbarStyle(val label: String) {
     HARMONIC_WAVE("Harmonic Wave"),
     PRECISION_BAR("Precision Rail"),
-    SEGMENTED_PULSE("Pulse Ticks")
+    SEGMENTED_PULSE("Pulse Ticks"),
+    LIQUID_SPECTRUM("Liquid Spectrum")
 }
 
 @Serializable

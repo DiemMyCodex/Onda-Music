@@ -62,6 +62,7 @@ data class LinkImportProgress(
 sealed interface DrillDownTarget {
     data class AlbumTarget(val album: Album) : DrillDownTarget
     data class PlaylistTarget(val playlist: Playlist) : DrillDownTarget
+    data class MoodTarget(val mood: MoodCategory) : DrillDownTarget
 }
 
 @Immutable
@@ -101,6 +102,8 @@ data class SearchUiState(
     val isSubmitted: Boolean = false,
     val activeFilter: SearchSourceFilter = SearchSourceFilter.ALL,
     val monochromeEnabled: Boolean = true,
+    val languageCode: String = "en",
+    val glassBlurEnabled: Boolean = true,
     val isSearching: Boolean = false,
     val searchError: String? = null,
     val ytResults: SearchResultBundle = SearchResultBundle(),
@@ -129,7 +132,305 @@ data class SearchUiState(
         )
 }
 
+@Immutable
+data class SearchStrings(
+    val isVietnamese: Boolean,
+    val screenTitle: String,
+    val screenSubtitle: String,
+    val settingsDescription: String,
+    val backDescription: String,
+    val searchPlaceholder: String,
+    val clearSearchDescription: String,
+    val filterAll: String,
+    val filterYoutube: String,
+    val filterMonochrome: String,
+    val filterLocal: String,
+    val importLinkTitle: String,
+    val importLinkSubtitle: String,
+    val openLinkImporterDescription: String,
+    val recentSearchesTitle: String,
+    val clearAction: String,
+    val removePrefix: String,
+    val moodsAndGenresTitle: String,
+    val moodsAndGenresSubtitle: String,
+    val loadingMoods: String,
+    val noMoodsAvailable: String,
+    val retryMoodsDescription: String,
+    val trackFallbackLabel: String,
+    val likeDescription: String,
+    val unlikeDescription: String,
+    val badgeFlac: String,
+    val badgeLocal: String,
+    val badgeYt: String,
+    val albumFallbackLabel: String,
+    val ytMusicPlaylistSubtitle: String,
+    val inspectPlaylistDescription: String,
+    val pausedDescription: String,
+    val focusedEmptyHint: String,
+    val searchingAcrossSources: String,
+    val retryAction: String,
+    val monochromeHeader: String,
+    val ytTracksHeader: String,
+    val albumsHeader: String,
+    val playlistsHeader: String,
+    val artistsHeader: String,
+    val localLibraryHeader: String,
+    val playAction: String,
+    val playAllAction: String,
+    val shuffleAction: String,
+    val closeCollectionDescription: String,
+    val loadingTracks: String,
+    val emptyCollectionMessage: String,
+    val playlistLabel: String,
+    val moodStationSubtitle: String,
+    val moodCategoriesErrorFallback: String,
+    val moodTracksErrorFallback: String,
+    val searchFailedFallback: String,
+    val albumTracksErrorFallback: String,
+    val playlistTracksErrorFallback: String,
+    val importSheetSubtitle: String,
+    val closeDescription: String,
+    val clearLinkDescription: String,
+    val pasteLinkDescription: String,
+    val fetchAndSavePlaylist: String,
+    val importFailedFallback: String,
+    val readingLink: String,
+    val fetchingMetadata: String,
+    val savingToLibrary: String,
+    val importedPlaylistFallback: String,
+    val inspectAction: String,
+    val importAnotherLink: String,
+    val tryAgainAction: String,
+    val emptyLinkError: String,
+    val importLinkFailedFallback: String
+) {
+    fun filterLabel(filter: SearchSourceFilter): String = when (filter) {
+        SearchSourceFilter.ALL -> filterAll
+        SearchSourceFilter.YOUTUBE -> filterYoutube
+        SearchSourceFilter.MONOCHROME -> filterMonochrome
+        SearchSourceFilter.LOCAL -> filterLocal
+    }
+
+    fun trackCountLabel(count: Int): String = if (isVietnamese) "$count bài hát" else "$count tracks"
+
+    fun losslessMatchCountLabel(count: Int): String = if (isVietnamese) {
+        "$count bản khớp lossless"
+    } else {
+        "$count lossless matches"
+    }
+
+    fun localCountLabel(count: Int): String = if (isVietnamese) "$count trên thiết bị" else "$count on device"
+
+    fun removeHistoryDescription(query: String): String = "$removePrefix $query"
+
+    fun emptyResultsLabel(filterLabel: String, query: String): String = if (isVietnamese) {
+        "Không tìm thấy kết quả trong $filterLabel cho \"$query\""
+    } else {
+        "No results found in $filterLabel for \"$query\""
+    }
+
+    fun matchingProgressLabel(processed: Int, total: Int, matched: Int): String = if (isVietnamese) {
+        "Đang khớp $processed / $total (khớp $matched)"
+    } else {
+        "Matching $processed / $total ($matched matched)"
+    }
+
+    fun savedTracksSummary(matched: Int, total: Int): String = if (isVietnamese) {
+        "Đã lưu $matched / $total bài hát"
+    } else {
+        "Saved $matched of $total tracks"
+    }
+
+    fun importedFromProvider(providerName: String): String = if (isVietnamese) {
+        "Nhập từ $providerName"
+    } else {
+        "Imported from $providerName"
+    }
+
+    fun noMatchingTracksFound(title: String): String = if (isVietnamese) {
+        "Không tìm thấy bài hát khớp trên YT Music hoặc Monochrome cho \"$title\"."
+    } else {
+        "No matching tracks found on YT Music or Monochrome for \"$title\"."
+    }
+}
+
+internal fun resolveSearchStrings(languageCode: String): SearchStrings {
+    val isVi = languageCode.startsWith("vi", ignoreCase = true)
+    return if (isVi) {
+        SearchStrings(
+            isVietnamese = true,
+            screenTitle = "Tìm kiếm",
+            screenSubtitle = "YT Music, Monochrome FLAC & Nội bộ",
+            settingsDescription = "Cài đặt",
+            backDescription = "Quay lại",
+            searchPlaceholder = "Bài hát, album, nghệ sĩ hoặc lời bài hát",
+            clearSearchDescription = "Xóa tìm kiếm",
+            filterAll = "Tất cả",
+            filterYoutube = "YT Music",
+            filterMonochrome = "Monochrome FLAC",
+            filterLocal = "Nội bộ",
+            importLinkTitle = "Nhập liên kết playlist",
+            importLinkSubtitle = "Spotify, Apple Music, Deezer & YouTube Music",
+            openLinkImporterDescription = "Mở trình nhập liên kết",
+            recentSearchesTitle = "Tìm kiếm gần đây",
+            clearAction = "Xóa",
+            removePrefix = "Xóa",
+            moodsAndGenresTitle = "Tâm trạng & Thể loại",
+            moodsAndGenresSubtitle = "Khám phá các đài YouTube Music tuyển chọn",
+            loadingMoods = "Đang tải tâm trạng và thể loại",
+            noMoodsAvailable = "Hiện không có danh mục tâm trạng nào.",
+            retryMoodsDescription = "Thử tải lại tâm trạng",
+            trackFallbackLabel = "Bài hát",
+            likeDescription = "Thích",
+            unlikeDescription = "Bỏ thích",
+            badgeFlac = "FLAC",
+            badgeLocal = "NỘI BỘ",
+            badgeYt = "YT",
+            albumFallbackLabel = "Album",
+            ytMusicPlaylistSubtitle = "Playlist YouTube Music",
+            inspectPlaylistDescription = "Xem playlist",
+            pausedDescription = "Đã tạm dừng",
+            focusedEmptyHint = "Nhập tên bài hát, album, nghệ sĩ hoặc lời để tìm kiếm.",
+            searchingAcrossSources = "Đang tìm trên các nguồn",
+            retryAction = "Thử lại",
+            monochromeHeader = "Monochrome FLAC",
+            ytTracksHeader = "Bài hát YouTube Music",
+            albumsHeader = "Album",
+            playlistsHeader = "Playlist",
+            artistsHeader = "Nghệ sĩ",
+            localLibraryHeader = "Thư viện nội bộ",
+            playAction = "Phát",
+            playAllAction = "Phát tất cả",
+            shuffleAction = "Trộn bài",
+            closeCollectionDescription = "Đóng danh sách",
+            loadingTracks = "Đang tải danh sách bài hát",
+            emptyCollectionMessage = "Không tìm thấy bài hát nào phát được trong danh sách này.",
+            playlistLabel = "Playlist",
+            moodStationSubtitle = "Đài tuyển chọn YouTube Music",
+            moodCategoriesErrorFallback = "Không thể tải danh mục tâm trạng và thể loại.",
+            moodTracksErrorFallback = "Không thể tải bài hát cho tâm trạng này.",
+            searchFailedFallback = "Tìm kiếm thất bại.",
+            albumTracksErrorFallback = "Không thể tải danh sách bài hát của album.",
+            playlistTracksErrorFallback = "Không thể tải danh sách bài hát của playlist.",
+            importSheetSubtitle = "Khớp bài hát với YT Music & Monochrome FLAC",
+            closeDescription = "Đóng",
+            clearLinkDescription = "Xóa liên kết",
+            pasteLinkDescription = "Dán liên kết",
+            fetchAndSavePlaylist = "Lấy & Lưu Playlist",
+            importFailedFallback = "Nhập playlist thất bại.",
+            readingLink = "Đang đọc liên kết...",
+            fetchingMetadata = "Đang lấy thông tin playlist",
+            savingToLibrary = "Đang lưu playlist vào Thư viện",
+            importedPlaylistFallback = "Playlist đã nhập",
+            inspectAction = "Xem chi tiết",
+            importAnotherLink = "Nhập liên kết khác",
+            tryAgainAction = "Thử lại",
+            emptyLinkError = "Hãy dán liên kết Spotify, Apple Music, Deezer hoặc YouTube Music.",
+            importLinkFailedFallback = "Không thể nhập liên kết playlist."
+        )
+    } else {
+        SearchStrings(
+            isVietnamese = false,
+            screenTitle = "Search",
+            screenSubtitle = "YT Music, Monochrome FLAC & Local",
+            settingsDescription = "Settings",
+            backDescription = "Back",
+            searchPlaceholder = "Songs, albums, artists or lyrics",
+            clearSearchDescription = "Clear search",
+            filterAll = "All",
+            filterYoutube = "YT Music",
+            filterMonochrome = "Monochrome FLAC",
+            filterLocal = "Local",
+            importLinkTitle = "Import Playlist Link",
+            importLinkSubtitle = "Spotify, Apple Music, Deezer & YouTube Music",
+            openLinkImporterDescription = "Open link importer",
+            recentSearchesTitle = "Recent Searches",
+            clearAction = "Clear",
+            removePrefix = "Remove",
+            moodsAndGenresTitle = "Moods & Genres",
+            moodsAndGenresSubtitle = "Explore curated YouTube Music stations",
+            loadingMoods = "Loading moods and genres",
+            noMoodsAvailable = "No moods available right now.",
+            retryMoodsDescription = "Retry moods",
+            trackFallbackLabel = "Track",
+            likeDescription = "Like",
+            unlikeDescription = "Unlike",
+            badgeFlac = "FLAC",
+            badgeLocal = "LOCAL",
+            badgeYt = "YT",
+            albumFallbackLabel = "Album",
+            ytMusicPlaylistSubtitle = "YouTube Music Playlist",
+            inspectPlaylistDescription = "Inspect playlist",
+            pausedDescription = "Paused",
+            focusedEmptyHint = "Type a song, album, artist or lyric to search across sources.",
+            searchingAcrossSources = "Searching across sources",
+            retryAction = "Retry",
+            monochromeHeader = "Monochrome FLAC",
+            ytTracksHeader = "YouTube Music Songs",
+            albumsHeader = "Albums",
+            playlistsHeader = "Playlists",
+            artistsHeader = "Artists",
+            localLibraryHeader = "Local Library",
+            playAction = "Play",
+            playAllAction = "Play All",
+            shuffleAction = "Shuffle",
+            closeCollectionDescription = "Close collection",
+            loadingTracks = "Loading tracks",
+            emptyCollectionMessage = "No playable tracks found in this collection.",
+            playlistLabel = "Playlist",
+            moodStationSubtitle = "YouTube Music Station",
+            moodCategoriesErrorFallback = "Unable to load moods and genres.",
+            moodTracksErrorFallback = "Failed to load mood tracks.",
+            searchFailedFallback = "Search failed.",
+            albumTracksErrorFallback = "Failed to load album tracks.",
+            playlistTracksErrorFallback = "Failed to load playlist tracks.",
+            importSheetSubtitle = "Matches tracks to YT Music & Monochrome FLAC",
+            closeDescription = "Close",
+            clearLinkDescription = "Clear link",
+            pasteLinkDescription = "Paste link",
+            fetchAndSavePlaylist = "Fetch & Save Playlist",
+            importFailedFallback = "Import failed.",
+            readingLink = "Reading link...",
+            fetchingMetadata = "Fetching playlist metadata",
+            savingToLibrary = "Saving playlist to Library",
+            importedPlaylistFallback = "Imported Playlist",
+            inspectAction = "Inspect",
+            importAnotherLink = "Import Another Link",
+            tryAgainAction = "Try Again",
+            emptyLinkError = "Paste a Spotify, Apple Music, Deezer, or YouTube Music link.",
+            importLinkFailedFallback = "Failed to import playlist link."
+        )
+    }
+}
+
 object SearchLogic {
+    fun syncLikedFlags(tracks: List<Track>, likedTrackIds: Set<String>): List<Track> {
+        if (tracks.isEmpty()) return tracks
+        return tracks.map { track ->
+            val isLiked = track.id in likedTrackIds
+            if (track.liked == isLiked) track else track.copy(liked = isLiked)
+        }
+    }
+
+    fun syncBundleLikedFlags(bundle: SearchResultBundle, likedTrackIds: Set<String>): SearchResultBundle {
+        if (bundle.tracks.isEmpty()) return bundle
+        return bundle.copy(tracks = syncLikedFlags(bundle.tracks, likedTrackIds))
+    }
+
+    fun applyLikedIds(state: SearchUiState, likedTrackIds: Set<String>): SearchUiState {
+        return state.copy(
+            ytResults = syncBundleLikedFlags(state.ytResults, likedTrackIds),
+            monochromeTracks = syncLikedFlags(state.monochromeTracks, likedTrackIds),
+            localTracks = syncLikedFlags(state.localTracks, likedTrackIds),
+            drillDownState = state.drillDownState.copy(
+                tracks = syncLikedFlags(state.drillDownState.tracks, likedTrackIds)
+            ),
+            linkImportProgress = state.linkImportProgress.copy(
+                matchedTracks = syncLikedFlags(state.linkImportProgress.matchedTracks, likedTrackIds)
+            )
+        )
+    }
+
     fun filterResults(
         filter: SearchSourceFilter,
         ytResults: SearchResultBundle,

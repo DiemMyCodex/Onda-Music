@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.onda.music.core.database.ArtistPlayStatRow
+import com.onda.music.core.database.OndaPreferences
 import com.onda.music.core.database.PlayEventDao
 import com.onda.music.core.database.PlaylistDao
 import com.onda.music.core.database.PlaylistEntity
@@ -31,6 +32,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -46,7 +48,8 @@ class LibraryViewModel @Inject constructor(
     private val localMediaScanner: LocalMediaScanner,
     private val localAudioTagEditor: LocalAudioTagEditor,
     private val downloadManager: DownloadManager,
-    private val playbackController: PlaybackController
+    private val playbackController: PlaybackController,
+    private val ondaPreferences: OndaPreferences
 ) : ViewModel() {
 
     private val selectedTab = MutableStateFlow(LibraryTab.OVERVIEW)
@@ -54,10 +57,13 @@ class LibraryViewModel @Inject constructor(
     private val statsRange = MutableStateFlow(StatsRange.MONTH)
     private val selectedPlaylistId = MutableStateFlow<String?>(null)
     private val localFolders = MutableStateFlow<List<LocalMediaFolder>>(emptyList())
+    private val localTrackFolders = MutableStateFlow<Map<String, String>>(emptyMap())
     private val selectedLocalFolderPath = MutableStateFlow<String?>(null)
     private val hasLocalPermission = MutableStateFlow(localMediaScanner.hasPermission())
     private val isScanningLocal = MutableStateFlow(false)
     private val lastScanMessage = MutableStateFlow<String?>(null)
+    private val currentLanguageCode = MutableStateFlow("en")
+    private var hasCompletedLocalScan = false
 
     private val allSongsById: Flow<Map<String, Track>> = songDao.observeAll().map { entities ->
         entities.associate { entity -> entity.id to entity.toModel() }
@@ -130,7 +136,9 @@ class LibraryViewModel @Inject constructor(
 
     private data class HeaderSlice(
         val selectedTab: LibraryTab,
-        val searchQuery: String
+        val searchQuery: String,
+        val languageCode: String,
+        val glassBlurEnabled: Boolean
     )
 
     private data class SongsSlice(
@@ -150,6 +158,7 @@ class LibraryViewModel @Inject constructor(
 
     private data class LocalScanSlice(
         val folders: List<LocalMediaFolder>,
+        val trackFolders: Map<String, String>,
         val selectedFolderPath: String?,
         val hasPermission: Boolean,
         val isScanning: Boolean,
@@ -195,11 +204,21 @@ class LibraryViewModel @Inject constructor(
         val isPlaying: Boolean
     )
 
+    private val prefSliceFlow = ondaPreferences.settings
+        .map { it.languageCode to it.glassBlurEnabled }
+        .distinctUntilChanged()
+
     private val headerSliceFlow = combine(
         selectedTab,
-        searchQuery
-    ) { tab, query ->
-        HeaderSlice(selectedTab = tab, searchQuery = query)
+        searchQuery,
+        prefSliceFlow
+    ) { tab, query, (languageCode, glassBlurEnabled) ->
+        HeaderSlice(
+            selectedTab = tab,
+            searchQuery = query,
+            languageCode = languageCode,
+            glassBlurEnabled = glassBlurEnabled
+        )
     }
 
     private val songsSliceFlow = combine(
@@ -227,15 +246,23 @@ class LibraryViewModel @Inject constructor(
         )
     }
 
-    private val localScanSliceFlow = combine(
+    private val localIndexFlow = combine(
         localFolders,
+        localTrackFolders
+    ) { folders, trackFolders ->
+        folders to trackFolders
+    }
+
+    private val localScanSliceFlow = combine(
+        localIndexFlow,
         selectedLocalFolderPath,
         hasLocalPermission,
         isScanningLocal,
         lastScanMessage
-    ) { folders, folderPath, permission, scanning, message ->
+    ) { (folders, trackFolders), folderPath, permission, scanning, message ->
         LocalScanSlice(
             folders = folders,
+            trackFolders = trackFolders,
             selectedFolderPath = folderPath,
             hasPermission = permission,
             isScanning = scanning,
@@ -293,6 +320,7 @@ class LibraryViewModel @Inject constructor(
             localSongs = songs.local,
             songsNeedingRelink = songs.relink,
             localFolders = localScan.folders,
+            localTrackFolders = localScan.trackFolders,
             selectedLocalFolderPath = localScan.selectedFolderPath,
             hasLocalPermission = localScan.hasPermission,
             isScanningLocal = localScan.isScanning,
@@ -308,7 +336,9 @@ class LibraryViewModel @Inject constructor(
             totalPlayDurationMs = stats.totalPlayDurationMs,
             activeTrackId = stats.activeTrackId,
             hasMiniPlayer = stats.hasMiniPlayer,
-            isPlaying = stats.isPlaying
+            isPlaying = stats.isPlaying,
+            languageCode = header.languageCode,
+            glassBlurEnabled = header.glassBlurEnabled
         )
     }.stateIn(
         scope = viewModelScope,
@@ -316,12 +346,39 @@ class LibraryViewModel @Inject constructor(
         initialValue = LibraryUiState(hasLocalPermission = localMediaScanner.hasPermission())
     )
 
+    init {
+        viewModelScope.launch {
+            ondaPreferences.settings
+                .map { it.languageCode }
+                .distinctUntilChanged()
+                .collect { code ->
+                    currentLanguageCode.value = code
+                }
+        }
+        viewModelScope.launch {
+            localSongsFlow
+                .map { it.isNotEmpty() }
+                .distinctUntilChanged()
+                .collect { hasSongs ->
+                    if (hasSongs &&
+                        localMediaScanner.hasPermission() &&
+                        localTrackFolders.value.isEmpty() &&
+                        !hasCompletedLocalScan &&
+                        !isScanningLocal.value
+                    ) {
+                        scanLocalMedia()
+                    }
+                }
+        }
+    }
+
     fun requiredLocalPermission(): String = localMediaScanner.requiredPermission()
 
     fun refreshLocalPermission() {
         val granted = localMediaScanner.hasPermission()
         hasLocalPermission.value = granted
-        if (granted && uiState.value.localSongs.isEmpty() && !isScanningLocal.value) {
+        val needsFolderIndex = localTrackFolders.value.isEmpty() && !hasCompletedLocalScan
+        if (granted && !isScanningLocal.value && (uiState.value.localSongs.isEmpty() || needsFolderIndex)) {
             scanLocalMedia()
         }
     }
@@ -340,8 +397,9 @@ class LibraryViewModel @Inject constructor(
     }
 
     suspend fun saveLocalTrackTags(track: Track, metadata: AudioTagMetadata): Result<Unit> {
+        val strings = resolveLibraryStrings(currentLanguageCode.value)
         val rawUri = track.localUri?.takeIf { it.isNotBlank() }
-            ?: return Result.failure(IllegalStateException("Track has no local URI"))
+            ?: return Result.failure(IllegalStateException(strings.tagNoLocalUriError))
         val writeResult = localAudioTagEditor.writeToUriAtomic(Uri.parse(rawUri), metadata)
         return writeResult.map { savedArtworkUri ->
             songDao.updateTrackMetadata(
@@ -351,7 +409,7 @@ class LibraryViewModel @Inject constructor(
                 album = metadata.album.takeIf { it.isNotBlank() },
                 artworkUrl = savedArtworkUri
             )
-            lastScanMessage.value = "Updated tags for ${metadata.title}"
+            lastScanMessage.value = strings.updatedTagsMessage(metadata.title)
         }
     }
 
@@ -386,11 +444,12 @@ class LibraryViewModel @Inject constructor(
     }
 
     fun scanLocalMedia() {
+        val strings = resolveLibraryStrings(currentLanguageCode.value)
         val granted = localMediaScanner.hasPermission()
         hasLocalPermission.value = granted
         if (!granted || isScanningLocal.value) {
             if (!granted) {
-                lastScanMessage.value = "Audio storage permission is required to scan local files"
+                lastScanMessage.value = strings.audioPermissionRequiredMsg
             }
             return
         }
@@ -400,6 +459,12 @@ class LibraryViewModel @Inject constructor(
             runCatching {
                 val result = localMediaScanner.scan()
                 localFolders.value = result.folders
+                localTrackFolders.value = result.trackFolders
+                hasCompletedLocalScan = true
+                val activeFolder = selectedLocalFolderPath.value
+                if (activeFolder != null && result.folders.none { it.path == activeFolder }) {
+                    selectedLocalFolderPath.value = null
+                }
                 if (result.tracks.isNotEmpty()) {
                     songDao.upsertAndMergeAll(result.tracks.map { it.toEntity() })
                 }
@@ -410,14 +475,15 @@ class LibraryViewModel @Inject constructor(
                 relinkedMatches.forEach { (missingTrackId, matchedUri) ->
                     songDao.relinkLocalUri(missingTrackId, matchedUri)
                 }
-                val relinkSuffix = if (relinkedMatches.isNotEmpty()) {
-                    ", relinked ${relinkedMatches.size} tracks"
-                } else {
-                    ""
-                }
-                lastScanMessage.value = "Scanned ${result.tracks.size} tracks across ${result.folders.size} folders$relinkSuffix"
+                val currentStrings = resolveLibraryStrings(currentLanguageCode.value)
+                lastScanMessage.value = currentStrings.scanCompletedMessage(
+                    trackCount = result.tracks.size,
+                    folderCount = result.folders.size,
+                    relinkedCount = relinkedMatches.size
+                )
             }.onFailure { error ->
-                lastScanMessage.value = error.message ?: "Local media scan failed"
+                val currentStrings = resolveLibraryStrings(currentLanguageCode.value)
+                lastScanMessage.value = error.message ?: currentStrings.localScanFailedMsg
             }
             isScanningLocal.value = false
         }
@@ -517,8 +583,8 @@ class LibraryViewModel @Inject constructor(
 
     fun toggleLike(track: Track) {
         viewModelScope.launch {
-            songDao.upsertAndMerge(track.toEntity().copy(liked = !track.liked))
-            songDao.setLiked(track.id, !track.liked)
+            val targetLiked = !track.liked
+            songDao.toggleLikedOrInsert(track.toEntity(), targetLiked)
         }
     }
 

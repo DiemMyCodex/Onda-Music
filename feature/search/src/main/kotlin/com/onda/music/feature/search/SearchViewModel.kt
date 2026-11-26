@@ -59,12 +59,14 @@ class SearchViewModel @Inject constructor(
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
 
     private val queryInputFlow = MutableStateFlow("")
+    private val likedTrackIds = MutableStateFlow<Set<String>>(emptySet())
     private var activeSearchJob: Job? = null
     private var linkImportJob: Job? = null
     private var drillDownJob: Job? = null
 
     init {
         observeSearchHistory()
+        observeLikedSongs()
         observePreferences()
         observePlaybackState()
         observeDebouncedQuery()
@@ -81,10 +83,26 @@ class SearchViewModel @Inject constructor(
         }
     }
 
+    private fun observeLikedSongs() {
+        viewModelScope.launch {
+            songDao.observeLikedSongs().collectLatest { likedSongs ->
+                val ids = likedSongs.mapTo(HashSet(likedSongs.size)) { it.id }
+                likedTrackIds.value = ids
+                _uiState.update { state -> SearchLogic.applyLikedIds(state, ids) }
+            }
+        }
+    }
+
     private fun observePreferences() {
         viewModelScope.launch {
             ondaPreferences.settings.collectLatest { settings ->
-                _uiState.update { it.copy(monochromeEnabled = settings.monochromeEnabled) }
+                _uiState.update {
+                    it.copy(
+                        monochromeEnabled = settings.monochromeEnabled,
+                        languageCode = settings.languageCode,
+                        glassBlurEnabled = settings.glassBlurEnabled
+                    )
+                }
             }
         }
     }
@@ -144,10 +162,11 @@ class SearchViewModel @Inject constructor(
                     )
                 }
             }.onFailure { error ->
+                val strings = resolveSearchStrings(_uiState.value.languageCode)
                 _uiState.update {
                     it.copy(
                         isLoadingMoods = false,
-                        moodError = error.message ?: "Unable to load moods and genres."
+                        moodError = error.message ?: strings.moodCategoriesErrorFallback
                     )
                 }
             }
@@ -225,7 +244,66 @@ class SearchViewModel @Inject constructor(
     }
 
     fun selectMoodCategory(category: MoodCategory) {
-        submitSearch(category.title)
+        drillDownJob?.cancel()
+        val lang = _uiState.value.languageCode
+        val strings = resolveSearchStrings(lang)
+        val isVi = lang.startsWith("vi", ignoreCase = true)
+        _uiState.update {
+            it.copy(
+                drillDownState = DrillDownState(
+                    target = DrillDownTarget.MoodTarget(category),
+                    title = category.title,
+                    subtitle = strings.moodStationSubtitle,
+                    artworkUrl = null,
+                    isLoading = true
+                )
+            )
+        }
+        drillDownJob = viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                ytMusicClient.getMoodTracks(
+                    mood = category,
+                    vietnameseHint = isVi
+                )
+            }
+            result.onSuccess { tracks ->
+                val synced = SearchLogic.syncLikedFlags(tracks, likedTrackIds.value)
+                val activeStrings = resolveSearchStrings(_uiState.value.languageCode)
+                _uiState.update { state ->
+                    if (state.drillDownState.target !is DrillDownTarget.MoodTarget) {
+                        state
+                    } else {
+                        state.copy(
+                            drillDownState = state.drillDownState.copy(
+                                subtitle = if (synced.isNotEmpty()) {
+                                    activeStrings.trackCountLabel(synced.size)
+                                } else {
+                                    activeStrings.moodStationSubtitle
+                                },
+                                artworkUrl = synced.firstOrNull()?.artworkUrl,
+                                tracks = synced,
+                                isLoading = false,
+                                errorMessage = null
+                            )
+                        )
+                    }
+                }
+            }.onFailure { error ->
+                val activeStrings = resolveSearchStrings(_uiState.value.languageCode)
+                _uiState.update { state ->
+                    if (state.drillDownState.target !is DrillDownTarget.MoodTarget) {
+                        state
+                    } else {
+                        state.copy(
+                            drillDownState = state.drillDownState.copy(
+                                isLoading = false,
+                                errorMessage = error.message ?: activeStrings.moodTracksErrorFallback
+                            )
+                        )
+                    }
+                }
+            }
+        }
     }
 
     fun deleteHistoryItem(query: String) {
@@ -293,16 +371,25 @@ class SearchViewModel @Inject constructor(
                     val monoResult = monoDeferred?.await()
                     val suggestions = suggestionsDeferred?.await()
 
-                    val ytBundle = ytResult.getOrElse { SearchResultBundle() }
-                    val monoTracks = monoResult?.getOrElse { emptyList() }.orEmpty()
+                    val ids = likedTrackIds.value
+                    val ytBundle = SearchLogic.syncBundleLikedFlags(
+                        ytResult.getOrElse { SearchResultBundle() },
+                        ids
+                    )
+                    val monoTracks = SearchLogic.syncLikedFlags(
+                        monoResult?.getOrElse { emptyList() }.orEmpty(),
+                        ids
+                    )
+                    val syncedLocal = SearchLogic.syncLikedFlags(localResult, ids)
+                    val activeStrings = resolveSearchStrings(_uiState.value.languageCode)
                     val combinedError = if (
                         ytResult.isFailure &&
                         (monoResult == null || monoResult.isFailure) &&
-                        localResult.isEmpty()
+                        syncedLocal.isEmpty()
                     ) {
                         ytResult.exceptionOrNull()?.message
                             ?: monoResult?.exceptionOrNull()?.message
-                            ?: "Search failed."
+                            ?: activeStrings.searchFailedFallback
                     } else {
                         null
                     }
@@ -316,7 +403,7 @@ class SearchViewModel @Inject constructor(
                                 searchError = combinedError,
                                 ytResults = ytBundle,
                                 monochromeTracks = monoTracks,
-                                localTracks = localResult,
+                                localTracks = syncedLocal,
                                 suggestions = suggestions ?: if (state.isSubmitted) emptyList() else state.suggestions
                             )
                         }
@@ -325,10 +412,11 @@ class SearchViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
+                val activeStrings = resolveSearchStrings(_uiState.value.languageCode)
                 _uiState.update {
                     it.copy(
                         isSearching = false,
-                        searchError = e.message ?: "Search failed."
+                        searchError = e.message ?: activeStrings.searchFailedFallback
                     )
                 }
             }
@@ -343,27 +431,15 @@ class SearchViewModel @Inject constructor(
 
     fun toggleLike(track: Track) {
         val targetLiked = !track.liked
-        val updatedTrack = track.copy(liked = targetLiked)
+        val entity = track.toEntity().let { base ->
+            if (base.addedAtMs > 0L) base else base.copy(addedAtMs = System.currentTimeMillis())
+        }
         viewModelScope.launch(Dispatchers.IO) {
-            val existing = songDao.getById(track.id)
-            if (existing == null) {
-                songDao.upsertAndMerge(updatedTrack.toEntity().copy(addedAtMs = System.currentTimeMillis()))
-            } else {
-                songDao.setLiked(track.id, targetLiked)
-            }
+            songDao.toggleLikedOrInsert(entity, targetLiked)
         }
-        _uiState.update { state ->
-            state.copy(
-                ytResults = state.ytResults.copy(
-                    tracks = state.ytResults.tracks.map { if (it.id == track.id) updatedTrack else it }
-                ),
-                monochromeTracks = state.monochromeTracks.map { if (it.id == track.id) updatedTrack else it },
-                localTracks = state.localTracks.map { if (it.id == track.id) updatedTrack else it },
-                drillDownState = state.drillDownState.copy(
-                    tracks = state.drillDownState.tracks.map { if (it.id == track.id) updatedTrack else it }
-                )
-            )
-        }
+        val nextIds = if (targetLiked) likedTrackIds.value + track.id else likedTrackIds.value - track.id
+        likedTrackIds.value = nextIds
+        _uiState.update { state -> SearchLogic.applyLikedIds(state, nextIds) }
     }
 
     fun openAlbum(album: Album) {
@@ -384,24 +460,26 @@ class SearchViewModel @Inject constructor(
                 ytMusicClient.getAlbumTracks(album.id)
             }
             result.onSuccess { (resolvedAlbum, tracks) ->
+                val synced = SearchLogic.syncLikedFlags(tracks, likedTrackIds.value)
                 _uiState.update { state ->
                     state.copy(
                         drillDownState = state.drillDownState.copy(
                             title = resolvedAlbum.title.ifBlank { album.title },
                             subtitle = resolvedAlbum.artist.ifBlank { album.artist },
                             artworkUrl = resolvedAlbum.artworkUrl ?: album.artworkUrl,
-                            tracks = tracks,
+                            tracks = synced,
                             isLoading = false,
                             errorMessage = null
                         )
                     )
                 }
             }.onFailure { error ->
+                val activeStrings = resolveSearchStrings(_uiState.value.languageCode)
                 _uiState.update { state ->
                     state.copy(
                         drillDownState = state.drillDownState.copy(
                             isLoading = false,
-                            errorMessage = error.message ?: "Failed to load album tracks."
+                            errorMessage = error.message ?: activeStrings.albumTracksErrorFallback
                         )
                     )
                 }
@@ -411,12 +489,17 @@ class SearchViewModel @Inject constructor(
 
     fun openPlaylist(playlist: Playlist) {
         drillDownJob?.cancel()
+        val initialStrings = resolveSearchStrings(_uiState.value.languageCode)
         _uiState.update {
             it.copy(
                 drillDownState = DrillDownState(
                     target = DrillDownTarget.PlaylistTarget(playlist),
                     title = playlist.name,
-                    subtitle = if (playlist.trackCount > 0) "${playlist.trackCount} tracks" else "Playlist",
+                    subtitle = if (playlist.trackCount > 0) {
+                        initialStrings.trackCountLabel(playlist.trackCount)
+                    } else {
+                        initialStrings.playlistLabel
+                    },
                     artworkUrl = playlist.artworkUrl,
                     isLoading = true
                 )
@@ -427,11 +510,13 @@ class SearchViewModel @Inject constructor(
                 playlistDao.observeSongsInPlaylist(playlist.id).first().map { it.toModel() }
             }
             if (localTracks.isNotEmpty()) {
+                val syncedLocal = SearchLogic.syncLikedFlags(localTracks, likedTrackIds.value)
+                val activeStrings = resolveSearchStrings(_uiState.value.languageCode)
                 _uiState.update { state ->
                     state.copy(
                         drillDownState = state.drillDownState.copy(
-                            subtitle = "${localTracks.size} tracks",
-                            tracks = localTracks,
+                            subtitle = activeStrings.trackCountLabel(syncedLocal.size),
+                            tracks = syncedLocal,
                             isLoading = false,
                             errorMessage = null
                         )
@@ -444,24 +529,27 @@ class SearchViewModel @Inject constructor(
                 ytMusicClient.getPlaylistTracks(remoteId)
             }
             result.onSuccess { (resolvedPlaylist, tracks) ->
+                val synced = SearchLogic.syncLikedFlags(tracks, likedTrackIds.value)
+                val activeStrings = resolveSearchStrings(_uiState.value.languageCode)
                 _uiState.update { state ->
                     state.copy(
                         drillDownState = state.drillDownState.copy(
                             title = resolvedPlaylist.name.ifBlank { playlist.name },
-                            subtitle = "${tracks.size} tracks",
+                            subtitle = activeStrings.trackCountLabel(synced.size),
                             artworkUrl = resolvedPlaylist.artworkUrl ?: playlist.artworkUrl,
-                            tracks = tracks,
+                            tracks = synced,
                             isLoading = false,
                             errorMessage = null
                         )
                     )
                 }
             }.onFailure { error ->
+                val activeStrings = resolveSearchStrings(_uiState.value.languageCode)
                 _uiState.update { state ->
                     state.copy(
                         drillDownState = state.drillDownState.copy(
                             isLoading = false,
-                            errorMessage = error.message ?: "Failed to load playlist tracks."
+                            errorMessage = error.message ?: activeStrings.playlistTracksErrorFallback
                         )
                     )
                 }
@@ -473,6 +561,7 @@ class SearchViewModel @Inject constructor(
         when (val target = _uiState.value.drillDownState.target) {
             is DrillDownTarget.AlbumTarget -> openAlbum(target.album)
             is DrillDownTarget.PlaylistTarget -> openPlaylist(target.playlist)
+            is DrillDownTarget.MoodTarget -> selectMoodCategory(target.mood)
             null -> Unit
         }
     }
@@ -529,12 +618,13 @@ class SearchViewModel @Inject constructor(
 
     fun startLinkImport() {
         val rawUrl = _uiState.value.linkInput.trim()
+        val initialStrings = resolveSearchStrings(_uiState.value.languageCode)
         if (rawUrl.isEmpty()) {
             _uiState.update {
                 it.copy(
                     linkImportProgress = LinkImportProgress(
                         stage = LinkImportStage.ERROR,
-                        errorMessage = "Paste a Spotify, Apple Music, Deezer, or YouTube Music link."
+                        errorMessage = initialStrings.emptyLinkError
                     )
                 )
             }
@@ -565,7 +655,7 @@ class SearchViewModel @Inject constructor(
                 }
 
                 val preferMonochrome = _uiState.value.monochromeEnabled
-                val matchedTracks = withContext(Dispatchers.IO) {
+                val rawMatchedTracks = withContext(Dispatchers.IO) {
                     SearchLogic.matchImportedCollection(
                         collection = collection,
                         preferMonochrome = preferMonochrome,
@@ -584,6 +674,8 @@ class SearchViewModel @Inject constructor(
                         }
                     )
                 }
+                val matchedTracks = SearchLogic.syncLikedFlags(rawMatchedTracks, likedTrackIds.value)
+                val activeStrings = resolveSearchStrings(_uiState.value.languageCode)
 
                 if (matchedTracks.isEmpty()) {
                     _uiState.update {
@@ -592,7 +684,7 @@ class SearchViewModel @Inject constructor(
                                 stage = LinkImportStage.ERROR,
                                 collectionTitle = collection.title,
                                 artworkUrl = collection.artworkUrl,
-                                errorMessage = "No matching tracks found on YT Music or Monochrome for \"${collection.title}\"."
+                                errorMessage = activeStrings.noMatchingTracksFound(collection.title)
                             )
                         )
                     }
@@ -619,7 +711,8 @@ class SearchViewModel @Inject constructor(
                     val playlist = Playlist(
                         id = playlistId,
                         name = collection.title,
-                        description = collection.description ?: "Imported from ${SearchLogic.providerLabel(collection.provider)}",
+                        description = collection.description
+                            ?: activeStrings.importedFromProvider(SearchLogic.providerLabel(collection.provider)),
                         artworkUrl = collection.artworkUrl ?: matchedTracks.firstOrNull()?.artworkUrl,
                         trackCount = matchedTracks.size,
                         createdAtMs = now,
@@ -656,11 +749,12 @@ class SearchViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
+                val activeStrings = resolveSearchStrings(_uiState.value.languageCode)
                 _uiState.update {
                     it.copy(
                         linkImportProgress = LinkImportProgress(
                             stage = LinkImportStage.ERROR,
-                            errorMessage = e.message ?: "Failed to import playlist link."
+                            errorMessage = e.message ?: activeStrings.importLinkFailedFallback
                         )
                     )
                 }
@@ -678,14 +772,15 @@ class SearchViewModel @Inject constructor(
     fun inspectImportedPlaylist() {
         val progress = _uiState.value.linkImportProgress
         val playlist = progress.savedPlaylist ?: return
-        val tracks = progress.matchedTracks
+        val tracks = SearchLogic.syncLikedFlags(progress.matchedTracks, likedTrackIds.value)
+        val strings = resolveSearchStrings(_uiState.value.languageCode)
         dismissLinkSheet()
         _uiState.update {
             it.copy(
                 drillDownState = DrillDownState(
                     target = DrillDownTarget.PlaylistTarget(playlist),
                     title = playlist.name,
-                    subtitle = "${tracks.size} tracks",
+                    subtitle = strings.trackCountLabel(tracks.size),
                     artworkUrl = playlist.artworkUrl,
                     tracks = tracks,
                     isLoading = false

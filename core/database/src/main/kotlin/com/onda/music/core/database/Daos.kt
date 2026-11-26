@@ -36,6 +36,9 @@ interface SongDao {
     @Query("SELECT * FROM songs WHERE id = :id")
     suspend fun getById(id: String): SongEntity?
 
+    @Query("SELECT * FROM songs WHERE id IN (:ids)")
+    suspend fun getByIds(ids: List<String>): List<SongEntity>
+
     @Query("SELECT * FROM songs WHERE ytId = :ytId LIMIT 1")
     suspend fun getByYtId(ytId: String): SongEntity?
 
@@ -64,12 +67,19 @@ interface SongDao {
     @Transaction
     suspend fun upsertAndMergeAll(songs: List<SongEntity>) {
         if (songs.isEmpty()) return
-        val existingById = getAll().associateBy { it.id }
-        val merged = songs.map { incoming ->
-            val existing = existingById[incoming.id]
-            if (existing == null) incoming else mergeSong(existing, incoming)
+        val distinctIds = songs.map { it.id }.distinct()
+        val existingById = HashMap<String, SongEntity>(distinctIds.size)
+        distinctIds.chunked(900).forEach { idChunk ->
+            getByIds(idChunk).forEach { existing ->
+                existingById[existing.id] = existing
+            }
         }
-        upsertAll(merged)
+        val mergedById = LinkedHashMap<String, SongEntity>(distinctIds.size)
+        songs.forEach { incoming ->
+            val prior = mergedById[incoming.id] ?: existingById[incoming.id]
+            mergedById[incoming.id] = if (prior == null) incoming else mergeSong(prior, incoming)
+        }
+        upsertAll(mergedById.values.toList())
     }
 
     @Transaction
@@ -77,6 +87,16 @@ interface SongDao {
         deleteAll()
         if (songs.isNotEmpty()) {
             upsertAll(songs)
+        }
+    }
+
+    @Transaction
+    suspend fun toggleLikedOrInsert(song: SongEntity, targetLiked: Boolean) {
+        val existing = getById(song.id)
+        if (existing == null) {
+            upsert(song.copy(liked = targetLiked))
+        } else {
+            setLiked(song.id, targetLiked)
         }
     }
 
@@ -111,29 +131,34 @@ interface SongDao {
     suspend fun deleteAll()
 }
 
-private fun mergeSong(existing: SongEntity, incoming: SongEntity): SongEntity {
-    val mergedLocalUri = existing.localUri ?: incoming.localUri
+internal fun mergeSong(existing: SongEntity, incoming: SongEntity): SongEntity {
+    val incomingLocalUri = incoming.localUri?.takeIf { it.isNotBlank() }
+    val mergedLocalUri = incomingLocalUri ?: existing.localUri
     val mergedAddedAt = when {
         existing.addedAtMs > 0L && incoming.addedAtMs > 0L -> minOf(existing.addedAtMs, incoming.addedAtMs)
         existing.addedAtMs > 0L -> existing.addedAtMs
         else -> incoming.addedAtMs
     }
     return existing.copy(
-        title = existing.title.ifBlank { incoming.title },
-        artist = existing.artist.ifBlank { incoming.artist },
-        album = existing.album ?: incoming.album,
-        albumId = existing.albumId ?: incoming.albumId,
-        artistId = existing.artistId ?: incoming.artistId,
-        durationMs = if (existing.durationMs > 0L) existing.durationMs else incoming.durationMs,
-        artworkUrl = existing.artworkUrl ?: incoming.artworkUrl,
+        title = incoming.title.ifBlank { existing.title },
+        artist = incoming.artist.ifBlank { existing.artist },
+        album = incoming.album?.takeIf { it.isNotBlank() } ?: existing.album,
+        albumId = incoming.albumId?.takeIf { it.isNotBlank() } ?: existing.albumId,
+        artistId = incoming.artistId?.takeIf { it.isNotBlank() } ?: existing.artistId,
+        durationMs = if (incoming.durationMs > 0L) incoming.durationMs else existing.durationMs,
+        artworkUrl = incoming.artworkUrl?.takeIf { it.isNotBlank() } ?: existing.artworkUrl,
         localUri = mergedLocalUri,
-        ytId = existing.ytId ?: incoming.ytId,
-        monochromeId = existing.monochromeId ?: incoming.monochromeId,
+        ytId = incoming.ytId?.takeIf { it.isNotBlank() } ?: existing.ytId,
+        monochromeId = incoming.monochromeId?.takeIf { it.isNotBlank() } ?: existing.monochromeId,
         liked = existing.liked || incoming.liked,
         inLibrary = existing.inLibrary || incoming.inLibrary,
         totalPlayTimeMs = maxOf(existing.totalPlayTimeMs, incoming.totalPlayTimeMs),
         lyricsOffsetMs = if (existing.lyricsOffsetMs != 0L) existing.lyricsOffsetMs else incoming.lyricsOffsetMs,
-        needsRelink = existing.needsRelink && mergedLocalUri == null,
+        needsRelink = if (incomingLocalUri != null) {
+            incoming.needsRelink
+        } else {
+            existing.needsRelink || incoming.needsRelink
+        },
         addedAtMs = mergedAddedAt
     )
 }
@@ -356,9 +381,25 @@ interface PlaylistDao {
             upsertAll(merged)
         }
         if (entries.isNotEmpty()) {
-            upsertPlaylistSongs(entries)
+            val entriesToInsert = ArrayList<PlaylistSongEntity>(entries.size)
+            entries.groupBy { it.playlistId }.forEach { (playlistId, incomingForPlaylist) ->
+                val seenSongIds = getPlaylistSongs(playlistId)
+                    .mapTo(HashSet()) { it.songId }
+                var nextPosition = getMaxPosition(playlistId) + 1
+                incomingForPlaylist
+                    .sortedBy { it.position }
+                    .forEach { entry ->
+                        if (seenSongIds.add(entry.songId)) {
+                            entriesToInsert.add(entry.copy(position = nextPosition++))
+                        }
+                    }
+            }
+            if (entriesToInsert.isNotEmpty()) {
+                upsertPlaylistSongs(entriesToInsert)
+            }
         }
-        playlists.forEach { refreshTrackCount(it.id) }
+        val touchedPlaylistIds = (playlists.map { it.id } + entries.map { it.playlistId }).distinct()
+        touchedPlaylistIds.forEach { refreshTrackCount(it) }
     }
 
     @Transaction

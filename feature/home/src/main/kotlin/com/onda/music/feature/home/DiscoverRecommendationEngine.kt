@@ -204,36 +204,44 @@ class DiscoverRecommendationEngine @Inject constructor(
             )
         }
 
-        if (!computed.allRemoteFailed) {
-            cache[profile.tasteSignature] = CachedFeed(fetchedAtMs = now, result = computed)
+        val synced = syncLikedFlags(computed, likedTrackIds)
+        if (!synced.allRemoteFailed) {
+            cache[profile.tasteSignature] = CachedFeed(fetchedAtMs = now, result = synced)
         }
-        computed
+        synced
     }
 
     fun clearCache() {
         cache.clear()
     }
 
-    private fun syncLikedFlags(
-        result: DiscoverFeedResult,
-        likedTrackIds: Set<String>
-    ): DiscoverFeedResult {
-        val updatedQuick = result.quickPicks.map { track ->
-            track.copy(liked = track.id in likedTrackIds || track.liked)
-        }
-        val existingContextual = result.contextualShelf
-        val updatedContextual = existingContextual?.copy(
-            tracks = existingContextual.tracks.map { track ->
-                track.copy(liked = track.id in likedTrackIds || track.liked)
-            }
-        )
-        return result.copy(
-            quickPicks = updatedQuick,
-            contextualShelf = updatedContextual
-        )
-    }
+    internal companion object {
+        private const val CACHE_TTL_MS = 5L * 60_000L
 
-    private companion object {
-        const val CACHE_TTL_MS = 5L * 60_000L
+        internal fun syncLikedFlags(
+            result: DiscoverFeedResult,
+            likedTrackIds: Set<String>
+        ): DiscoverFeedResult {
+            fun syncTrack(track: Track): Track {
+                val isLiked = track.id in likedTrackIds
+                return if (track.liked == isLiked) track else track.copy(liked = isLiked)
+            }
+            val updatedQuick = result.quickPicks.map(::syncTrack)
+            val updatedContextual = result.contextualShelf?.let { shelf ->
+                shelf.copy(tracks = shelf.tracks.map(::syncTrack))
+            }
+            val updatedShelves = result.shelves.map { shelf ->
+                shelf.copy(tracks = shelf.tracks.map(::syncTrack))
+            }
+            val updatedChartShelves = result.chartShelves.map { shelf ->
+                shelf.copy(tracks = shelf.tracks.map(::syncTrack))
+            }
+            return result.copy(
+                quickPicks = updatedQuick,
+                contextualShelf = updatedContextual,
+                shelves = updatedShelves,
+                chartShelves = updatedChartShelves
+            )
+        }
     }
 }

@@ -209,7 +209,8 @@ fun PlayerStylePickerSheet(
                     subtitle = strings.glassBlurSubtitle,
                     checked = glassBlurEnabled,
                     onCheckedChange = onGlassBlurChange,
-                    iconBadgeColor = SettingsOledColors.MatteCard
+                    iconBadgeColor = SettingsOledColors.MatteCard,
+                    hapticsEnabled = hapticsEnabled
                 )
                 SettingsRowDivider(color = SettingsOledColors.MatteCard)
                 SettingsToggleRow(
@@ -218,7 +219,8 @@ fun PlayerStylePickerSheet(
                     subtitle = strings.dynamicMeshSubtitle,
                     checked = dynamicMeshEnabled,
                     onCheckedChange = onDynamicMeshChange,
-                    iconBadgeColor = SettingsOledColors.MatteCard
+                    iconBadgeColor = SettingsOledColors.MatteCard,
+                    hapticsEnabled = hapticsEnabled
                 )
                 SettingsRowDivider(color = SettingsOledColors.MatteCard)
                 SettingsToggleRow(
@@ -227,7 +229,8 @@ fun PlayerStylePickerSheet(
                     subtitle = strings.lyricsMotionSubtitle,
                     checked = lyricsMotionEnabled,
                     onCheckedChange = onLyricsMotionChange,
-                    iconBadgeColor = SettingsOledColors.MatteCard
+                    iconBadgeColor = SettingsOledColors.MatteCard,
+                    hapticsEnabled = hapticsEnabled
                 )
                 SettingsRowDivider(color = SettingsOledColors.MatteCard)
                 SettingsToggleRow(
@@ -236,7 +239,8 @@ fun PlayerStylePickerSheet(
                     subtitle = strings.hapticsSubtitle,
                     checked = hapticsEnabled,
                     onCheckedChange = onHapticsChange,
-                    iconBadgeColor = SettingsOledColors.MatteCard
+                    iconBadgeColor = SettingsOledColors.MatteCard,
+                    hapticsEnabled = hapticsEnabled
                 )
             }
         }

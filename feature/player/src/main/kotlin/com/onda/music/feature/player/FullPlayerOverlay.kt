@@ -49,6 +49,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -58,6 +59,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -90,13 +92,13 @@ import com.onda.music.core.design.GlassTokens
 import com.onda.music.core.design.LocalOndaColors
 import com.onda.music.core.design.LocalOndaPalette
 import com.onda.music.core.design.LocalOndaToastState
+import com.onda.music.core.design.OdometerText
 import com.onda.music.core.design.OndaArtworkPalette
 import com.onda.music.core.design.OndaMonogramMark
 import com.onda.music.core.design.OndaTheme
 import com.onda.music.core.design.SmoothCornerShape
 import com.onda.music.core.design.computeOledAdaptivePalette
 import com.onda.music.core.design.pressBounce
-import com.onda.music.core.model.AudioSignalInfo
 import com.onda.music.core.model.PlaybackState
 import com.onda.music.core.model.PlayerStyle
 import com.onda.music.core.model.StudioBackdropMode
@@ -126,7 +128,61 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import java.util.Locale
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.sin
+
+internal fun formatSleepTimerBadgeLabel(
+    remainingMs: Long?,
+    endOfTrack: Boolean
+): String? {
+    if (endOfTrack) return "EOT"
+    if (remainingMs != null && remainingMs > 0L) {
+        val roundedMs = if (remainingMs > Long.MAX_VALUE - 999L) {
+            remainingMs
+        } else {
+            ((remainingMs + 999L) / 1_000L) * 1_000L
+        }
+        return formatDurationMs(roundedMs)
+    }
+    return null
+}
+
+internal fun auroraWavePhaseAdvance(
+    currentPhase: Float,
+    dtSeconds: Float,
+    speed: Float = 0.42f
+): Float {
+    val twoPi = 2f * PI.toFloat()
+    val safePhase = if (currentPhase.isFinite()) currentPhase else 0f
+    val dt = if (dtSeconds.isFinite()) dtSeconds.coerceIn(0f, 0.05f) else 0f
+    val safeSpeed = if (speed.isFinite()) speed else 0f
+    val rawNext = safePhase + dt * safeSpeed
+    val finiteNext = if (rawNext.isFinite()) rawNext else safePhase % twoPi
+    val next = finiteNext % twoPi
+    return if (!next.isFinite()) 0f else if (next < 0f) next + twoPi else next
+}
+
+internal fun computeAuroraRibbonY(
+    t: Float,
+    ribbonIndex: Int,
+    phase: Float,
+    heightPx: Float
+): Float {
+    val clampedT = if (t.isFinite()) t.coerceIn(0f, 1f) else 0f
+    val safePhase = if (phase.isFinite()) phase else 0f
+    val safeHeight = if (heightPx.isFinite()) heightPx.coerceAtLeast(1f) else 1f
+    val baseFraction = when (ribbonIndex) {
+        0 -> 0.26f
+        1 -> 0.44f
+        else -> 0.62f
+    }
+    val phaseShift = ribbonIndex * 2.0943952f
+    val primaryWave = sin(clampedT * 4.2f + safePhase + phaseShift) * 0.095f
+    val secondaryWave = cos(clampedT * 2.3f - safePhase * 0.7f + phaseShift * 0.5f) * 0.055f
+    return safeHeight * (baseFraction + primaryWave + secondaryWave)
+}
 
 @Composable
 fun FullPlayerOverlay(
@@ -459,36 +515,6 @@ fun FullPlayerOverlay(
                                             )
                                         }
                                     }
-
-                                    val immersiveSignal = playbackState.audioSignal
-                                    if (immersiveSignal != null) {
-                                        Box(
-                                            modifier = Modifier
-                                                .weight(1f, fill = false)
-                                                .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
-                                                .clip(SmoothCornerShape(999.dp))
-                                                .clickable { showStreamInfoSheet = true },
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(
-                                                text = immersiveSignal.formatBadgeText(),
-                                                style = MaterialTheme.typography.labelSmall.copy(
-                                                    fontFamily = FontFamily.Monospace,
-                                                    fontWeight = FontWeight.Medium,
-                                                    fontFeatureSettings = "tnum",
-                                                    fontSize = 10.sp
-                                                ),
-                                                color = Color.White.copy(alpha = 0.88f),
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier
-                                                    .clip(SmoothCornerShape(999.dp))
-                                                    .background(Color(0x66000000))
-                                                    .border(0.75.dp, Color(0x26FFFFFF), SmoothCornerShape(999.dp))
-                                                    .padding(horizontal = 9.dp, vertical = 5.dp)
-                                            )
-                                        }
-                                    }
                                 }
 
                                 Row(
@@ -572,16 +598,16 @@ fun FullPlayerOverlay(
                     ) {
                         FullPlayerTopHeader(
                             activeStyle = settings.playerStyle,
-                            audioSignal = playbackState.audioSignal,
                             playbackSpeed = playbackState.playbackSpeed,
                             playbackPitch = playbackState.playbackPitch,
-                            sleepTimerActive = playbackState.sleepTimerRemainingMs != null || playbackState.sleepTimerEndOfTrack,
+                            sleepTimerRemainingMs = playbackState.sleepTimerRemainingMs,
+                            sleepTimerEndOfTrack = playbackState.sleepTimerEndOfTrack,
+                            sleepTimerFading = playbackState.sleepTimerFading,
                             onCollapse = {
                                 MorphGestureArbitrator.claim()
                                 onCollapse()
                             },
                             onOpenStudio = { showStudioOverlay = true },
-                            onOpenStreamInfo = { showStreamInfoSheet = true },
                             onOpenSpeedSheet = { showSpeedSheet = true },
                             onOpenQueue = { showQueueSheet = true },
                             onOpenSleepTimer = { showSleepTimerSheet = true },
@@ -720,11 +746,12 @@ fun FullPlayerOverlay(
                                 reducedMotion = reducedMotion,
                                 modifier = Modifier.fillMaxSize()
                             )
+                            val previewStageContext = remember(stageContext) { stageContext.copy(isPreview = true) }
                             OndaPlayerStyleStage(
                                 style = previewStyle,
                                 playbackState = playbackState,
                                 activePlayer = if (previewStyle == PlayerStyle.VIDEO) null else activePlayer,
-                                ctx = stageContext,
+                                ctx = previewStageContext,
                                 modifier = Modifier.fillMaxSize()
                             )
                         }
@@ -982,7 +1009,150 @@ private fun OndaPlayerBackdropLayer(
                 }
             )
         }
+
+        StudioBackdropMode.AURORA_RIBBONS -> {
+            OndaAuroraRibbonsBackdrop(
+                palette = palette,
+                animated = dynamicMeshEnabled && !reducedMotion,
+                modifier = modifier
+            )
+        }
     }
+}
+
+@Composable
+private fun OndaAuroraRibbonsBackdrop(
+    palette: OndaArtworkPalette,
+    animated: Boolean,
+    modifier: Modifier = Modifier
+) {
+    var phase by remember { mutableFloatStateOf(0.85f) }
+    val ribbonPaths = remember { Array(3) { Path() } }
+
+    LaunchedEffect(animated) {
+        if (!animated) return@LaunchedEffect
+        var lastNanos = 0L
+        while (true) {
+            withFrameNanos { frameNanos ->
+                if (lastNanos != 0L) {
+                    val dt = (frameNanos - lastNanos).coerceIn(0L, 50_000_000L) / 1_000_000_000f
+                    phase = auroraWavePhaseAdvance(phase, dt, speed = 0.42f)
+                }
+                lastNanos = frameNanos
+            }
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .background(Color(0xFF000000))
+            .drawWithCache {
+                val glowStroke = Stroke(
+                    width = 76.dp.toPx(),
+                    cap = StrokeCap.Round,
+                    join = StrokeJoin.Round
+                )
+                val coreStroke = Stroke(
+                    width = 24.dp.toPx(),
+                    cap = StrokeCap.Round,
+                    join = StrokeJoin.Round
+                )
+                val glowBrushes = arrayOf(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            palette.primary.copy(alpha = 0.04f),
+                            palette.primary.copy(alpha = 0.14f),
+                            palette.secondary.copy(alpha = 0.12f),
+                            palette.tertiary.copy(alpha = 0.03f)
+                        )
+                    ),
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            palette.secondary.copy(alpha = 0.03f),
+                            palette.secondary.copy(alpha = 0.12f),
+                            palette.tertiary.copy(alpha = 0.13f),
+                            palette.primary.copy(alpha = 0.04f)
+                        )
+                    ),
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            palette.tertiary.copy(alpha = 0.03f),
+                            palette.tertiary.copy(alpha = 0.12f),
+                            palette.primary.copy(alpha = 0.11f),
+                            palette.secondary.copy(alpha = 0.03f)
+                        )
+                    )
+                )
+                val coreBrushes = arrayOf(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            palette.primary.copy(alpha = 0.24f),
+                            palette.secondary.copy(alpha = 0.20f),
+                            Color.Transparent
+                        )
+                    ),
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            palette.secondary.copy(alpha = 0.18f),
+                            palette.tertiary.copy(alpha = 0.20f),
+                            Color.Transparent
+                        )
+                    ),
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            palette.tertiary.copy(alpha = 0.20f),
+                            palette.primary.copy(alpha = 0.18f),
+                            Color.Transparent
+                        )
+                    )
+                )
+                val oledVignette = Brush.verticalGradient(
+                    colorStops = arrayOf(
+                        0.00f to Color(0xFF000000).copy(alpha = 0.55f),
+                        0.38f to Color.Transparent,
+                        0.72f to Color.Transparent,
+                        1.00f to Color(0xFF000000).copy(alpha = 0.85f)
+                    )
+                )
+                onDrawBehind {
+                    val w = size.width
+                    val h = size.height
+                    if (w <= 0f || h <= 0f) return@onDrawBehind
+                    val currentPhase = phase
+                    val steps = 10
+                    for (ribbonIndex in 0 until 3) {
+                        val path = ribbonPaths[ribbonIndex]
+                        path.reset()
+                        var x0 = lerp(-w * 0.08f, w * 1.08f, 0f)
+                        var y0 = computeAuroraRibbonY(0f, ribbonIndex, currentPhase, h)
+                        path.moveTo(x0, y0)
+                        for (step in 1..steps) {
+                            val t1 = step.toFloat() / steps.toFloat()
+                            val x1 = lerp(-w * 0.08f, w * 1.08f, t1)
+                            val y1 = computeAuroraRibbonY(t1, ribbonIndex, currentPhase, h)
+                            val ctrlX = (x0 + x1) * 0.5f
+                            path.cubicTo(ctrlX, y0, ctrlX, y1, x1, y1)
+                            x0 = x1
+                            y0 = y1
+                        }
+                        drawPath(
+                            path = path,
+                            brush = glowBrushes[ribbonIndex],
+                            style = glowStroke
+                        )
+                        drawPath(
+                            path = path,
+                            brush = coreBrushes[ribbonIndex],
+                            style = coreStroke
+                        )
+                    }
+                    drawRect(brush = oledVignette)
+                }
+            }
+    )
 }
 
 @Composable
@@ -1137,13 +1307,13 @@ private fun Modifier.verticalCollapseDrag(
 @Composable
 private fun FullPlayerTopHeader(
     activeStyle: PlayerStyle,
-    audioSignal: AudioSignalInfo?,
     playbackSpeed: Float,
     playbackPitch: Float,
-    sleepTimerActive: Boolean,
+    sleepTimerRemainingMs: Long?,
+    sleepTimerEndOfTrack: Boolean,
+    sleepTimerFading: Boolean,
     onCollapse: () -> Unit,
     onOpenStudio: () -> Unit,
-    onOpenStreamInfo: () -> Unit,
     onOpenSpeedSheet: () -> Unit,
     onOpenQueue: () -> Unit,
     onOpenSleepTimer: () -> Unit,
@@ -1151,6 +1321,17 @@ private fun FullPlayerTopHeader(
 ) {
     val reducedMotion = OndaTheme.reducedMotion
     val speedModified = abs(playbackSpeed - 1f) > 0.01f || abs(playbackPitch - 1f) > 0.01f
+    val sleepBadgeLabel = remember(sleepTimerRemainingMs, sleepTimerEndOfTrack) {
+        formatSleepTimerBadgeLabel(sleepTimerRemainingMs, sleepTimerEndOfTrack)
+    }
+    var lastSleepLabel by remember { mutableStateOf("") }
+    val displaySleepLabel = sleepBadgeLabel ?: lastSleepLabel
+    if (sleepBadgeLabel != null && lastSleepLabel != sleepBadgeLabel) {
+        SideEffect {
+            lastSleepLabel = sleepBadgeLabel
+        }
+    }
+    val sleepTimerActive = sleepBadgeLabel != null
     val collapseInteraction = remember { MutableInteractionSource() }
     val studioInteraction = remember { MutableInteractionSource() }
     val sleepInteraction = remember { MutableInteractionSource() }
@@ -1161,6 +1342,30 @@ private fun FullPlayerTopHeader(
         animationSpec = if (reducedMotion) snap() else tween(180),
         label = "SleepTimerIconTint"
     )
+    var fadeBreathAlpha by remember { mutableFloatStateOf(1f) }
+    var fadeBreathScale by remember { mutableFloatStateOf(1f) }
+
+    LaunchedEffect(sleepTimerActive, sleepTimerFading, reducedMotion) {
+        if (!sleepTimerActive || !sleepTimerFading || reducedMotion) {
+            fadeBreathAlpha = if (sleepTimerActive && sleepTimerFading) 0.78f else 1f
+            fadeBreathScale = 1f
+            return@LaunchedEffect
+        }
+        var lastNanos = 0L
+        var breathPhase = 0f
+        while (true) {
+            withFrameNanos { frameNanos ->
+                if (lastNanos != 0L) {
+                    val dt = (frameNanos - lastNanos).coerceIn(0L, 50_000_000L) / 1_000_000_000f
+                    breathPhase = (breathPhase + dt * 3.6f) % (2f * PI.toFloat())
+                    val wave = 0.5f + 0.5f * sin(breathPhase)
+                    fadeBreathAlpha = lerp(0.60f, 1f, wave)
+                    fadeBreathScale = lerp(0.96f, 1.04f, wave)
+                }
+                lastNanos = frameNanos
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -1296,26 +1501,103 @@ private fun FullPlayerTopHeader(
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(
-                    onClick = onOpenSleepTimer,
-                    interactionSource = sleepInteraction,
-                    modifier = Modifier
-                        .defaultMinSize(
-                            minWidth = DockMetrics.MinTapTarget,
-                            minHeight = DockMetrics.MinTapTarget
-                        )
-                        .pressBounce(
+                AnimatedContent(
+                    targetState = sleepBadgeLabel != null,
+                    transitionSpec = {
+                        if (reducedMotion) {
+                            fadeIn(tween(100)) togetherWith fadeOut(tween(80))
+                        } else {
+                            (scaleIn(
+                                animationSpec = spring(dampingRatio = 0.78f, stiffness = 460f),
+                                initialScale = 0.82f
+                            ) + fadeIn(tween(160))) togetherWith (scaleOut(
+                                animationSpec = tween(120),
+                                targetScale = 0.82f
+                            ) + fadeOut(tween(110)))
+                        }
+                    },
+                    label = "SleepTimerHeaderMorph"
+                ) { hasActiveLabel ->
+                    if (hasActiveLabel) {
+                        Box(
+                            modifier = Modifier
+                                .defaultMinSize(
+                                    minWidth = DockMetrics.MinTapTarget,
+                                    minHeight = DockMetrics.MinTapTarget
+                                )
+                                .pressBounce(
+                                    interactionSource = sleepInteraction,
+                                    pressedScale = 0.90f,
+                                    enabled = !reducedMotion
+                                )
+                                .graphicsLayer {
+                                    alpha = fadeBreathAlpha
+                                    scaleX = fadeBreathScale
+                                    scaleY = fadeBreathScale
+                                }
+                                .clip(RoundedCornerShape(GlassTokens.RadiusPill))
+                                .clickable(
+                                    interactionSource = sleepInteraction,
+                                    indication = null,
+                                    onClick = onOpenSleepTimer
+                                )
+                                .padding(horizontal = 4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(GlassTokens.RadiusPill))
+                                    .background(Color(0xFF1C1C1E))
+                                    .border(
+                                        0.75.dp,
+                                        Color(0x2AFFFFFF),
+                                        RoundedCornerShape(GlassTokens.RadiusPill)
+                                    )
+                                    .padding(horizontal = 9.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Bedtime,
+                                    contentDescription = "Sleep timer",
+                                    tint = sleepIconTint,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                OdometerText(
+                                    text = displaySleepLabel,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontFeatureSettings = "tnum",
+                                        fontSize = 11.sp
+                                    ),
+                                    color = Color.White
+                                )
+                            }
+                        }
+                    } else {
+                        IconButton(
+                            onClick = onOpenSleepTimer,
                             interactionSource = sleepInteraction,
-                            pressedScale = 0.88f,
-                            enabled = !reducedMotion
-                        )
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Bedtime,
-                        contentDescription = "Sleep timer",
-                        tint = sleepIconTint,
-                        modifier = Modifier.size(21.dp)
-                    )
+                            modifier = Modifier
+                                .defaultMinSize(
+                                    minWidth = DockMetrics.MinTapTarget,
+                                    minHeight = DockMetrics.MinTapTarget
+                                )
+                                .pressBounce(
+                                    interactionSource = sleepInteraction,
+                                    pressedScale = 0.88f,
+                                    enabled = !reducedMotion
+                                )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Bedtime,
+                                contentDescription = "Sleep timer",
+                                tint = sleepIconTint,
+                                modifier = Modifier.size(21.dp)
+                            )
+                        }
+                    }
                 }
 
                 IconButton(
@@ -1359,48 +1641,6 @@ private fun FullPlayerTopHeader(
                         contentDescription = "Player actions",
                         tint = Color.White,
                         modifier = Modifier.size(21.dp)
-                    )
-                }
-            }
-        }
-
-        if (audioSignal != null) {
-            val badgeText = remember(audioSignal) { audioSignal.formatBadgeText() }
-            if (badgeText.isNotEmpty()) {
-                val signalInteraction = remember { MutableInteractionSource() }
-                Box(
-                    modifier = Modifier
-                        .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
-                        .pressBounce(
-                            interactionSource = signalInteraction,
-                            pressedScale = 0.95f,
-                            enabled = !reducedMotion
-                        )
-                        .clip(RoundedCornerShape(GlassTokens.RadiusPill))
-                        .clickable(
-                            interactionSource = signalInteraction,
-                            indication = null,
-                            onClick = onOpenStreamInfo
-                        )
-                        .padding(horizontal = 8.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = badgeText,
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Medium,
-                            fontFeatureSettings = "tnum",
-                            fontSize = 10.sp
-                        ),
-                        color = Color(0xFFBDBDBD),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(GlassTokens.RadiusPill))
-                            .background(Color(0xFF141414))
-                            .border(0.75.dp, Color(0x1EFFFFFF), RoundedCornerShape(GlassTokens.RadiusPill))
-                            .padding(horizontal = 10.dp, vertical = 4.dp)
                     )
                 }
             }

@@ -13,6 +13,7 @@ object ArtworkUrlResolver {
         "i.ytimg.com",
         "img.youtube.com"
     )
+    private val youtubeShardHostRegex = Regex("^i\\d*\\.ytimg\\.com$")
 
     private val googleSizeRegex = Regex("=(?:w\\d+-h\\d+[^/?#]*|s\\d+[^/?#]*)")
     private val youtubeThumbRegex = Regex(
@@ -41,9 +42,17 @@ object ArtworkUrlResolver {
                     trimmed
                 }
             }
-            host in youtubeThumbHosts || youtubeThumbHosts.any { host.endsWith(".$it") } -> {
-                youtubeThumbRegex.replace(trimmed) { match ->
-                    "/maxresdefault.${match.groupValues[1].lowercase()}"
+            host in youtubeThumbHosts ||
+                youtubeThumbHosts.any { host.endsWith(".$it") } ||
+                youtubeShardHostRegex.matches(host) -> {
+                val queryIndex = trimmed.indexOfAny(charArrayOf('?', '#'))
+                val pathPart = if (queryIndex >= 0) trimmed.substring(0, queryIndex) else trimmed
+                if (youtubeThumbRegex.containsMatchIn(pathPart)) {
+                    youtubeThumbRegex.replace(pathPart) { match ->
+                        "/maxresdefault.${match.groupValues[1].lowercase()}"
+                    }
+                } else {
+                    trimmed
                 }
             }
             else -> url

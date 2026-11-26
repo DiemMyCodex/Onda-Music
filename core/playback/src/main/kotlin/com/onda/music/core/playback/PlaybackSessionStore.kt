@@ -31,6 +31,23 @@ class PlaybackSessionStore @Inject constructor() {
 
     fun getTrack(trackId: String): Track? = tracksById[trackId]
 
+    fun findTrackByArtworkUrl(artworkUrl: String): Track? {
+        val target = artworkUrl.trim()
+        if (target.isEmpty()) return null
+        val state = _playbackState.value
+        val candidates = buildList {
+            state.currentTrack?.let { add(it) }
+            addAll(state.queue)
+            addAll(tracksById.values)
+        }
+        return candidates.firstOrNull { track ->
+            val trackArtwork = track.artworkUrl?.trim()
+            val upgradedArtwork = upgradeNotificationArtworkUrl(trackArtwork)?.trim()
+            val trackLocalUri = track.localUri?.trim()
+            trackArtwork == target || upgradedArtwork == target || trackLocalUri == target
+        }
+    }
+
     fun recordResolvedStream(trackId: String, option: StreamOption) {
         resolvedStreamsById[trackId] = option
         _playbackState.update { state ->

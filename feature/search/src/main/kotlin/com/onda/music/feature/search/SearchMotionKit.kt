@@ -34,7 +34,6 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -78,6 +77,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.RenderEffect
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.graphicsLayer
@@ -90,11 +90,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.lerp
 import coil3.compose.AsyncImage
+import com.onda.music.core.design.AppMotion
 import com.onda.music.core.design.DockMetrics
 import com.onda.music.core.design.GlassTokens
 import com.onda.music.core.design.OndaTheme
@@ -584,7 +583,7 @@ internal fun rememberSearchDetailCollapseProgress(
     )
     val morph by animateFloatAsState(
         targetValue = if (isCollapsed) 1f else 0f,
-        animationSpec = if (reducedMotion) snap() else spring(dampingRatio = 0.88f, stiffness = 360f),
+        animationSpec = if (reducedMotion) snap() else spring(dampingRatio = 0.86f, stiffness = 420f),
         label = "searchDetailMorph"
     )
     return SearchDetailCollapseState(
@@ -605,7 +604,11 @@ internal fun SearchDetailCollapsingTopBar(
     onClose: () -> Unit,
     onPlayAll: () -> Unit,
     onShufflePlay: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    glassBlurEnabled: Boolean = true,
+    playLabel: String = "Play",
+    shuffleDescription: String = "Shuffle",
+    closeDescription: String = "Close collection"
 ) {
     val reducedMotion = OndaTheme.reducedMotion
     val density = LocalDensity.current
@@ -667,7 +670,7 @@ internal fun SearchDetailCollapsingTopBar(
             ) {
                 Icon(
                     imageVector = Icons.Rounded.Close,
-                    contentDescription = "Close collection",
+                    contentDescription = closeDescription,
                     tint = Color.White,
                     modifier = Modifier.size(22.dp)
                 )
@@ -723,7 +726,7 @@ internal fun SearchDetailCollapsingTopBar(
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.Shuffle,
-                        contentDescription = "Shuffle",
+                        contentDescription = shuffleDescription,
                         tint = Color.White,
                         modifier = Modifier.size(19.dp)
                     )
@@ -755,7 +758,7 @@ internal fun SearchDetailCollapsingTopBar(
                             modifier = Modifier.size(18.dp)
                         )
                         Text(
-                            text = "Play",
+                            text = playLabel,
                             style = MaterialTheme.typography.labelLarge,
                             color = GlassTokens.AmoledBlack,
                             maxLines = 1
@@ -766,13 +769,13 @@ internal fun SearchDetailCollapsingTopBar(
         }
 
         val slot = slotBoundsInWindow
-        if (morphProgress > 0.005f && slot != null) {
+        if (morphProgress > 0.005f && slot != null && slot.width > 0f && slot.height > 0f) {
             val start = coverBoundsInWindow ?: slot
-            val currentRect = lerp(start, slot, morphProgress)
-            val localLeft = currentRect.left - barPositionInWindow.x
-            val localTop = currentRect.top - barPositionInWindow.y
-            val cornerRadius = lerp(GlassTokens.RadiusMd, 8.dp, morphProgress).coerceAtLeast(0.dp)
-            val motionBlurRadius = if (!reducedMotion) {
+            val baseWidth = start.width.coerceAtLeast(1f)
+            val baseHeight = start.height.coerceAtLeast(1f)
+            val endScaleX = (slot.width / baseWidth).coerceIn(0.1f, 2f)
+            val visualEndCornerRadius = 8.dp / endScaleX.coerceAtLeast(0.1f)
+            val motionBlurRadius = if (!reducedMotion && glassBlurEnabled) {
                 sin(morphProgress * PI.toFloat()).coerceAtLeast(0f) * 16f
             } else {
                 0f
@@ -780,20 +783,30 @@ internal fun SearchDetailCollapsingTopBar(
 
             Box(
                 modifier = Modifier
-                    .offset { IntOffset(localLeft.roundToInt(), localTop.roundToInt()) }
                     .size(
-                        with(density) { currentRect.width.toDp() },
-                        with(density) { currentRect.height.toDp() }
+                        with(density) { baseWidth.toDp() },
+                        with(density) { baseHeight.toDp() }
                     )
-                    .clip(RoundedCornerShape(cornerRadius))
-                    .background(GlassTokens.ObsidianSurface)
                     .graphicsLayer {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && motionBlurRadius > 1f) {
-                            renderEffect = SearchBlurCache.blur(motionBlurRadius)
+                        val currentRect = lerp(start, slot, morphProgress)
+                        translationX = currentRect.left - barPositionInWindow.x
+                        translationY = currentRect.top - barPositionInWindow.y
+                        scaleX = (currentRect.width / baseWidth).coerceAtLeast(0.01f)
+                        scaleY = (currentRect.height / baseHeight).coerceAtLeast(0.01f)
+                        transformOrigin = TransformOrigin(0f, 0f)
+                        shape = AppMotion.morphCornerShape(
+                            GlassTokens.RadiusMd,
+                            visualEndCornerRadius,
+                            morphProgress
+                        )
+                        clip = true
+                        renderEffect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && motionBlurRadius > 1f) {
+                            SearchBlurCache.blur(motionBlurRadius)
                         } else {
-                            renderEffect = null
+                            null
                         }
-                    },
+                    }
+                    .background(GlassTokens.ObsidianSurface),
                 contentAlignment = Alignment.Center
             ) {
                 if (!artworkUrl.isNullOrBlank()) {
@@ -808,7 +821,7 @@ internal fun SearchDetailCollapsingTopBar(
                         imageVector = if (isAlbum) Icons.Rounded.Album else Icons.Rounded.QueueMusic,
                         contentDescription = null,
                         tint = Color.White,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(40.dp)
                     )
                 }
             }

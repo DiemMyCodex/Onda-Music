@@ -384,6 +384,8 @@ class OndaPreferences @Inject constructor(
     suspend fun resetToDefaults() {
         dataStore.edit { prefs ->
             writeSettings(prefs, OndaUserSettings())
+            prefs.remove(Keys.audioOutputProfilesJson)
+            prefs.remove(Keys.playbackCheckpointJson)
         }
     }
 

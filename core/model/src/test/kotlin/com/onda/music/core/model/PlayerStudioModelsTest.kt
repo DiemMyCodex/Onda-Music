@@ -3,6 +3,7 @@ package com.onda.music.core.model
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PlayerStudioModelsTest {
@@ -135,5 +136,58 @@ class PlayerStudioModelsTest {
         val encoded = json.encodeToString(custom)
         val decoded = json.decodeFromString<PlayerStudioConfig>(encoded)
         assertEquals(custom, decoded)
+    }
+
+    @Test
+    fun studioBackdropModeIncludesAuroraRibbonsAndSeekbarStyleIncludesLiquidSpectrum() {
+        assertEquals(
+            listOf(
+                StudioBackdropMode.OLED_PURE,
+                StudioBackdropMode.ACOUSTIC_MIST,
+                StudioBackdropMode.AGSL_MESH,
+                StudioBackdropMode.VINYL_DARK,
+                StudioBackdropMode.AURORA_RIBBONS
+            ),
+            StudioBackdropMode.entries
+        )
+        assertEquals(5, StudioBackdropMode.entries.size)
+        assertEquals("Aurora Ribbons", StudioBackdropMode.AURORA_RIBBONS.label)
+
+        assertEquals(
+            listOf(
+                StudioSeekbarStyle.HARMONIC_WAVE,
+                StudioSeekbarStyle.PRECISION_BAR,
+                StudioSeekbarStyle.SEGMENTED_PULSE,
+                StudioSeekbarStyle.LIQUID_SPECTRUM
+            ),
+            StudioSeekbarStyle.entries
+        )
+        assertEquals(4, StudioSeekbarStyle.entries.size)
+        assertEquals("Liquid Spectrum", StudioSeekbarStyle.LIQUID_SPECTRUM.label)
+    }
+
+    @Test
+    fun auroraRibbonsAndLiquidSpectrumSurviveSanitizeAndJsonRoundTrip() {
+        val config = PlayerStudioConfig(
+            backdropMode = StudioBackdropMode.AURORA_RIBBONS,
+            seekbarStyle = StudioSeekbarStyle.LIQUID_SPECTRUM,
+            controlsShiftDp = 12,
+            quickActions = listOf(
+                StudioQuickAction.LIKE,
+                StudioQuickAction.LYRICS,
+                StudioQuickAction.QUEUE,
+                StudioQuickAction.SLEEP_TIMER
+            )
+        )
+        val sanitized = config.sanitized()
+        assertEquals(config, sanitized)
+        assertEquals(StudioBackdropMode.AURORA_RIBBONS, sanitized.backdropMode)
+        assertEquals(StudioSeekbarStyle.LIQUID_SPECTRUM, sanitized.seekbarStyle)
+
+        val encoded = json.encodeToString(config)
+        assertTrue(encoded.contains("AURORA_RIBBONS"))
+        assertTrue(encoded.contains("LIQUID_SPECTRUM"))
+        val decoded = json.decodeFromString<PlayerStudioConfig>(encoded)
+        assertEquals(config, decoded)
     }
 }

@@ -65,6 +65,7 @@ import com.onda.music.core.design.ondaLaunchRise
 import com.onda.music.core.design.rememberOndaBackdropState
 import com.onda.music.core.model.Album
 import com.onda.music.core.model.MoodCategory
+import com.onda.music.core.model.Playlist
 import com.onda.music.core.model.Track
 import java.util.Locale
 
@@ -89,6 +90,7 @@ fun HomeRoute(
         onPlayTrack = viewModel::playTrack,
         onToggleLike = viewModel::toggleLike,
         onOpenAlbum = viewModel::openAlbum,
+        onOpenPlaylist = viewModel::openPlaylist,
         onOpenMood = viewModel::openMood,
         onCloseDetail = viewModel::closeDetail,
         onPlayAllCollection = viewModel::playAllCollection,
@@ -111,6 +113,7 @@ fun DiscoverRoute(
         onPlayTrack = viewModel::playTrack,
         onToggleLike = viewModel::toggleLike,
         onOpenAlbum = viewModel::openAlbum,
+        onOpenPlaylist = viewModel::openPlaylist,
         onOpenMood = viewModel::openMood,
         onCloseDetail = viewModel::closeDetail,
         onPlayAllCollection = viewModel::playAllCollection,
@@ -131,6 +134,7 @@ internal fun HomeScreen(
     onPlayTrack: (Track, List<Track>) -> Unit,
     onToggleLike: (Track) -> Unit,
     onOpenAlbum: (Album) -> Unit,
+    onOpenPlaylist: (Playlist) -> Unit = {},
     onOpenMood: (MoodCategory) -> Unit,
     onCloseDetail: () -> Unit,
     onPlayAllCollection: () -> Unit,
@@ -625,6 +629,7 @@ internal fun DiscoverScreen(
     onPlayTrack: (Track, List<Track>) -> Unit,
     onToggleLike: (Track) -> Unit,
     onOpenAlbum: (Album) -> Unit,
+    onOpenPlaylist: (Playlist) -> Unit = {},
     onOpenMood: (MoodCategory) -> Unit,
     onCloseDetail: () -> Unit,
     onPlayAllCollection: () -> Unit,

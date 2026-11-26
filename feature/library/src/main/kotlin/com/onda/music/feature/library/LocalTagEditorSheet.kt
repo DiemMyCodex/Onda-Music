@@ -75,7 +75,8 @@ fun LocalTagEditorSheet(
     track: Track,
     onLoadMetadata: suspend (Track) -> AudioTagMetadata?,
     onSaveMetadata: suspend (Track, AudioTagMetadata) -> Result<Unit>,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    strings: LibraryStrings = resolveLibraryStrings("en")
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -108,12 +109,12 @@ fun LocalTagEditorSheet(
         val cleanTitle = title.trim()
         val cleanArtist = artist.trim()
         if (cleanTitle.isEmpty()) {
-            errorText = "Title cannot be empty"
+            errorText = strings.tagTitleEmptyError
             return
         }
         val metadata = AudioTagMetadata(
             title = cleanTitle,
-            artist = cleanArtist.ifEmpty { "Unknown Artist" },
+            artist = cleanArtist.ifEmpty { strings.unknownArtistLabel },
             album = album.trim(),
             trackNumber = trackNumberText.trim().toIntOrNull()?.takeIf { it > 0 },
             artworkBytes = pickedArtBytes,
@@ -127,7 +128,7 @@ fun LocalTagEditorSheet(
             if (result.isSuccess) {
                 onDismiss()
             } else {
-                errorText = result.exceptionOrNull()?.message ?: "Failed to update tags"
+                errorText = result.exceptionOrNull()?.message ?: strings.tagUpdateFailedError
             }
         }
     }
@@ -138,7 +139,7 @@ fun LocalTagEditorSheet(
         if (activityResult.resultCode == Activity.RESULT_OK) {
             executeWrite()
         } else {
-            errorText = "Write permission required to edit local audio file"
+            errorText = strings.tagWritePermissionError
         }
     }
 
@@ -203,14 +204,14 @@ fun LocalTagEditorSheet(
                 Spacer(modifier = Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Edit Audio Tags",
+                        text = strings.editAudioTagsTitle,
                         style = MaterialTheme.typography.titleLarge,
                         color = Color.White,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "MP3 ID3v2 · FLAC Vorbis · M4A Atoms",
+                        text = strings.editAudioTagsSubtitle,
                         style = MaterialTheme.typography.bodySmall,
                         color = Color(0xFF9A9AA0)
                     )
@@ -224,7 +225,7 @@ fun LocalTagEditorSheet(
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.Close,
-                        contentDescription = "Close",
+                        contentDescription = strings.closeLabel,
                         tint = Color(0xFF9A9AA0)
                     )
                 }
@@ -247,7 +248,7 @@ fun LocalTagEditorSheet(
                     if (coverModel != null) {
                         AsyncImage(
                             model = coverModel,
-                            contentDescription = "Cover art",
+                            contentDescription = strings.coverArtDesc,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.matchParentSize()
                         )
@@ -273,7 +274,7 @@ fun LocalTagEditorSheet(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (pickedArtBytes != null) "Cover Selected" else "Embed Cover Art",
+                        text = if (pickedArtBytes != null) strings.coverSelectedLabel else strings.embedCoverArtLabel,
                         maxLines = 1
                     )
                 }
@@ -282,7 +283,7 @@ fun LocalTagEditorSheet(
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it },
-                label = { Text("Title") },
+                label = { Text(strings.titleFieldLabel) },
                 singleLine = true,
                 colors = fieldColors,
                 shape = RoundedCornerShape(14.dp),
@@ -291,7 +292,7 @@ fun LocalTagEditorSheet(
             OutlinedTextField(
                 value = artist,
                 onValueChange = { artist = it },
-                label = { Text("Artist") },
+                label = { Text(strings.artistFieldLabel) },
                 singleLine = true,
                 colors = fieldColors,
                 shape = RoundedCornerShape(14.dp),
@@ -300,7 +301,7 @@ fun LocalTagEditorSheet(
             OutlinedTextField(
                 value = album,
                 onValueChange = { album = it },
-                label = { Text("Album") },
+                label = { Text(strings.albumFieldLabel) },
                 singleLine = true,
                 colors = fieldColors,
                 shape = RoundedCornerShape(14.dp),
@@ -309,7 +310,7 @@ fun LocalTagEditorSheet(
             OutlinedTextField(
                 value = trackNumberText,
                 onValueChange = { input -> trackNumberText = input.filter { it.isDigit() }.take(4) },
-                label = { Text("Track Number") },
+                label = { Text(strings.trackNumberFieldLabel) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 colors = fieldColors,
@@ -332,7 +333,7 @@ fun LocalTagEditorSheet(
                 onClick = {
                     val localUriString = track.localUri
                     if (localUriString.isNullOrBlank()) {
-                        errorText = "Track does not have a writable local URI"
+                        errorText = strings.tagNoWritableUriError
                         return@Button
                     }
                     val targetUri = Uri.parse(localUriString)
@@ -363,7 +364,7 @@ fun LocalTagEditorSheet(
                 )
             ) {
                 Text(
-                    text = if (isSaving) "Writing Tags..." else "Save Tags Atomically",
+                    text = if (isSaving) strings.writingTagsLabel else strings.saveTagsAtomicallyLabel,
                     fontWeight = FontWeight.SemiBold
                 )
             }

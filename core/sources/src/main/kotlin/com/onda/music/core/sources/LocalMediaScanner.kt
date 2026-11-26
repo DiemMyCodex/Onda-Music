@@ -23,8 +23,12 @@ data class LocalMediaFolder(
 
 data class LocalMediaScanResult(
     val tracks: List<Track> = emptyList(),
-    val folders: List<LocalMediaFolder> = emptyList()
+    val folders: List<LocalMediaFolder> = emptyList(),
+    val trackFolders: Map<String, String> = emptyMap()
 )
+
+internal fun resolveLocalFolderPath(relativePath: String?): String =
+    relativePath?.trimEnd('/')?.ifBlank { "Internal Storage" } ?: "Internal Storage"
 
 @Singleton
 class LocalMediaScanner @Inject constructor(
@@ -56,6 +60,7 @@ class LocalMediaScanner @Inject constructor(
             )
             val tracks = mutableListOf<Track>()
             val folderCounts = LinkedHashMap<String, Int>()
+            val trackFolders = LinkedHashMap<String, String>()
 
             runCatching {
                 context.contentResolver.query(
@@ -89,17 +94,16 @@ class LocalMediaScanner @Inject constructor(
                         val albumId = cursor.getLong(albumIdCol)
                         val artworkUri = ContentUris.withAppendedId(ALBUM_ART_URI, albumId).toString()
                         val durationMs = cursor.getLong(durationCol).coerceAtLeast(0L)
-                        val relativePath = if (pathCol >= 0) {
-                            cursor.getString(pathCol)?.trimEnd('/').orEmpty()
-                        } else {
-                            ""
-                        }
-                        val folderPath = relativePath.ifBlank { "Internal Storage" }
+                        val folderPath = resolveLocalFolderPath(
+                            if (pathCol >= 0) cursor.getString(pathCol) else null
+                        )
+                        val trackId = "local_$mediaId"
                         folderCounts[folderPath] = (folderCounts[folderPath] ?: 0) + 1
+                        trackFolders[trackId] = folderPath
                         val addedAtMs = if (dateCol >= 0) cursor.getLong(dateCol) * 1000L else 0L
 
                         tracks += Track(
-                            id = "local_$mediaId",
+                            id = trackId,
                             title = title,
                             artist = artist,
                             album = album,
@@ -122,7 +126,7 @@ class LocalMediaScanner @Inject constructor(
                     trackCount = count
                 )
             }
-            LocalMediaScanResult(tracks = tracks, folders = folders)
+            LocalMediaScanResult(tracks = tracks, folders = folders, trackFolders = trackFolders)
         }
 
     companion object {

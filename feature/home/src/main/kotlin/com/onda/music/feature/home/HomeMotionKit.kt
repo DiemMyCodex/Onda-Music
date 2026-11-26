@@ -39,7 +39,6 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -102,10 +101,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.lerp
 import androidx.palette.graphics.Palette
 import coil3.SingletonImageLoader
 import coil3.compose.AsyncImage
@@ -113,6 +110,7 @@ import coil3.request.ImageRequest
 import coil3.request.SuccessResult
 import coil3.request.allowHardware
 import coil3.toBitmap
+import com.onda.music.core.design.AppMotion
 import com.onda.music.core.design.DockMetrics
 import com.onda.music.core.design.GlassTokens
 import com.onda.music.core.design.OndaArtworkPalette
@@ -856,7 +854,6 @@ internal fun HomeDetailCollapsingTopBar(
     modifier: Modifier = Modifier
 ) {
     val reducedMotion = OndaTheme.reducedMotion
-    val density = LocalDensity.current
     var barPositionInWindow by remember { mutableStateOf(Offset.Zero) }
     var slotBoundsInWindow by remember { mutableStateOf<Rect?>(null) }
 
@@ -995,12 +992,8 @@ internal fun HomeDetailCollapsingTopBar(
         }
 
         val slot = slotBoundsInWindow
-        if (morphProgress > 0.005f && slot != null) {
+        if (morphProgress > 0.005f && slot != null && slot.width > 0f && slot.height > 0f) {
             val start = coverBoundsInWindow ?: slot
-            val currentRect = lerp(start, slot, morphProgress)
-            val localLeft = currentRect.left - barPositionInWindow.x
-            val localTop = currentRect.top - barPositionInWindow.y
-            val cornerRadius = lerp(GlassTokens.RadiusMd, 8.dp, morphProgress).coerceAtLeast(0.dp)
             val motionBlurRadius = if (!reducedMotion && glassBlurEnabled) {
                 sin(morphProgress * PI.toFloat()).coerceAtLeast(0f) * 18f
             } else {
@@ -1009,20 +1002,37 @@ internal fun HomeDetailCollapsingTopBar(
 
             Box(
                 modifier = Modifier
-                    .offset { IntOffset(localLeft.roundToInt(), localTop.roundToInt()) }
-                    .size(
-                        with(density) { currentRect.width.toDp() },
-                        with(density) { currentRect.height.toDp() }
-                    )
-                    .clip(RoundedCornerShape(cornerRadius))
-                    .background(GlassTokens.ObsidianSurface)
+                    .size(96.dp)
                     .graphicsLayer {
+                        if (size.width > 0f && size.height > 0f) {
+                            val currentRect = lerp(start, slot, morphProgress)
+                            val localLeft = currentRect.left - barPositionInWindow.x
+                            val localTop = currentRect.top - barPositionInWindow.y
+                            val sx = (currentRect.width / size.width).coerceAtLeast(0.01f)
+                            val sy = (currentRect.height / size.height).coerceAtLeast(0.01f)
+                            transformOrigin = TransformOrigin(0f, 0f)
+                            translationX = localLeft
+                            translationY = localTop
+                            scaleX = sx
+                            scaleY = sy
+                            val startScale = minOf(start.width / size.width, start.height / size.height).coerceIn(0.1f, 2f)
+                            val endScale = minOf(slot.width / size.width, slot.height / size.height).coerceIn(0.1f, 2f)
+                            val startRadius = (GlassTokens.RadiusMd / startScale).coerceIn(0.dp, 48.dp)
+                            val visualEndCornerRadius = (8.dp / endScale).coerceIn(0.dp, 48.dp)
+                            shape = AppMotion.morphCornerShape(
+                                startRadius,
+                                visualEndCornerRadius,
+                                morphProgress
+                            )
+                            clip = true
+                        }
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && motionBlurRadius > 1f) {
                             renderEffect = HomeBlurCache.blur(motionBlurRadius)
                         } else {
                             renderEffect = null
                         }
-                    },
+                    }
+                    .background(GlassTokens.ObsidianSurface),
                 contentAlignment = Alignment.Center
             ) {
                 if (!artworkUrl.isNullOrBlank()) {
@@ -1037,7 +1047,7 @@ internal fun HomeDetailCollapsingTopBar(
                         imageVector = if (isAlbum) Icons.Rounded.Album else Icons.Rounded.QueueMusic,
                         contentDescription = null,
                         tint = palette.primary,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(44.dp)
                     )
                 }
             }

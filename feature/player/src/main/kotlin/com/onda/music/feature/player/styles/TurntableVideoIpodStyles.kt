@@ -1272,7 +1272,10 @@ fun VideoPlayerStyle(
                     PlayerSeekSection(
                         playbackState = state,
                         onSeekToFraction = ctx.onSeekToFraction,
-                        accentColor = Color.White
+                        accentColor = Color.White,
+                        seekbarStyle = ctx.settings.studioConfig.seekbarStyle,
+                        lyrics = ctx.lyrics,
+                        lyricsOffsetMs = ctx.lyricsOffsetMs
                     )
                     PlayerTransportControls(
                         playbackState = state,

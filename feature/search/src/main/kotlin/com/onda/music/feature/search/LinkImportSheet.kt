@@ -2,6 +2,9 @@ package com.onda.music.feature.search
 
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -42,6 +45,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -69,7 +73,8 @@ fun LinkImportSheet(
     onReset: () -> Unit,
     onPlayImported: () -> Unit,
     onInspectImported: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    strings: SearchStrings = resolveSearchStrings("en")
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val context = LocalContext.current
@@ -103,12 +108,12 @@ fun LinkImportSheet(
                     Spacer(modifier = Modifier.width(10.dp))
                     Column {
                         Text(
-                            text = "Import Playlist Link",
+                            text = strings.importLinkTitle,
                             style = MaterialTheme.typography.headlineMedium,
                             color = OndaTheme.colors.textPrimary
                         )
                         Text(
-                            text = "Matches tracks to YT Music & Monochrome FLAC",
+                            text = strings.importSheetSubtitle,
                             style = MaterialTheme.typography.bodySmall,
                             color = OndaTheme.colors.textSecondary
                         )
@@ -123,7 +128,7 @@ fun LinkImportSheet(
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.Close,
-                        contentDescription = "Close",
+                        contentDescription = strings.closeDescription,
                         tint = OndaTheme.colors.textSecondary
                     )
                 }
@@ -213,7 +218,7 @@ fun LinkImportSheet(
                         ) {
                             Icon(
                                 imageVector = Icons.Rounded.Close,
-                                contentDescription = "Clear link",
+                                contentDescription = strings.clearLinkDescription,
                                 tint = OndaTheme.colors.textSecondary
                             )
                         }
@@ -233,7 +238,7 @@ fun LinkImportSheet(
                         ) {
                             Icon(
                                 imageVector = Icons.Rounded.ContentPaste,
-                                contentDescription = "Paste link",
+                                contentDescription = strings.pasteLinkDescription,
                                 tint = OndaTheme.colors.accent
                             )
                         }
@@ -258,7 +263,7 @@ fun LinkImportSheet(
                             .defaultMinSize(minHeight = 50.dp)
                     ) {
                         Text(
-                            text = "Fetch & Save Playlist",
+                            text = strings.fetchAndSavePlaylist,
                             style = MaterialTheme.typography.labelLarge
                         )
                     }
@@ -266,11 +271,15 @@ fun LinkImportSheet(
                 LinkImportStage.FETCHING,
                 LinkImportStage.MATCHING,
                 LinkImportStage.SAVING -> {
-                    LinkImportProgressCard(progress = progress)
+                    LinkImportProgressCard(
+                        progress = progress,
+                        strings = strings
+                    )
                 }
                 LinkImportStage.SUCCESS -> {
                     LinkImportSuccessCard(
                         progress = progress,
+                        strings = strings,
                         onPlay = onPlayImported,
                         onInspect = onInspectImported,
                         onImportAnother = onReset
@@ -278,7 +287,8 @@ fun LinkImportSheet(
                 }
                 LinkImportStage.ERROR -> {
                     LinkImportErrorCard(
-                        message = progress.errorMessage ?: "Import failed.",
+                        message = progress.errorMessage ?: strings.importFailedFallback,
+                        strings = strings,
                         onRetry = onStartImport
                     )
                 }
@@ -288,8 +298,17 @@ fun LinkImportSheet(
 }
 
 @Composable
-private fun LinkImportProgressCard(progress: LinkImportProgress) {
+private fun LinkImportProgressCard(
+    progress: LinkImportProgress,
+    strings: SearchStrings
+) {
     val shape = RoundedCornerShape(GlassTokens.RadiusMd)
+    val reducedMotion = OndaTheme.reducedMotion
+    val animatedFraction by animateFloatAsState(
+        targetValue = progress.fraction.coerceIn(0f, 1f),
+        animationSpec = if (reducedMotion) snap() else spring(dampingRatio = 0.86f, stiffness = 420f),
+        label = "linkImportProgressFraction"
+    )
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -302,21 +321,26 @@ private fun LinkImportProgressCard(progress: LinkImportProgress) {
                 artworkUrl = progress.artworkUrl,
                 placeholderIcon = Icons.Rounded.QueueMusic,
                 size = 48.dp,
-                cornerRadius = GlassTokens.RadiusSm
+                cornerRadius = GlassTokens.RadiusSm,
+                strings = strings
             )
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = progress.collectionTitle ?: "Reading link...",
+                    text = progress.collectionTitle ?: strings.readingLink,
                     style = MaterialTheme.typography.titleSmall,
                     color = OndaTheme.colors.textPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 val statusLabel = when (progress.stage) {
-                    LinkImportStage.FETCHING -> "Fetching playlist metadata"
-                    LinkImportStage.MATCHING -> "Matching ${progress.processedCount} / ${progress.totalCount} (${progress.matchedCount} matched)"
-                    LinkImportStage.SAVING -> "Saving playlist to Library"
+                    LinkImportStage.FETCHING -> strings.fetchingMetadata
+                    LinkImportStage.MATCHING -> strings.matchingProgressLabel(
+                        processed = progress.processedCount,
+                        total = progress.totalCount,
+                        matched = progress.matchedCount
+                    )
+                    LinkImportStage.SAVING -> strings.savingToLibrary
                     else -> ""
                 }
                 Text(
@@ -329,7 +353,7 @@ private fun LinkImportProgressCard(progress: LinkImportProgress) {
             }
         }
         LinearProgressIndicator(
-            progress = { progress.fraction },
+            progress = { animatedFraction },
             color = GlassTokens.TextPrimary,
             trackColor = GlassTokens.InactiveSurface,
             modifier = Modifier
@@ -343,6 +367,7 @@ private fun LinkImportProgressCard(progress: LinkImportProgress) {
 @Composable
 private fun LinkImportSuccessCard(
     progress: LinkImportProgress,
+    strings: SearchStrings,
     onPlay: () -> Unit,
     onInspect: () -> Unit,
     onImportAnother: () -> Unit
@@ -364,19 +389,20 @@ private fun LinkImportSuccessCard(
                 artworkUrl = progress.artworkUrl,
                 placeholderIcon = Icons.Rounded.CheckCircle,
                 size = 52.dp,
-                cornerRadius = GlassTokens.RadiusSm
+                cornerRadius = GlassTokens.RadiusSm,
+                strings = strings
             )
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = progress.collectionTitle ?: "Imported Playlist",
+                    text = progress.collectionTitle ?: strings.importedPlaylistFallback,
                     style = MaterialTheme.typography.titleMedium,
                     color = OndaTheme.colors.textPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "Saved ${progress.matchedCount} of ${progress.totalCount} tracks",
+                    text = strings.savedTracksSummary(progress.matchedCount, progress.totalCount),
                     style = MaterialTheme.typography.bodySmall,
                     color = GlassTokens.SuccessMint
                 )
@@ -404,7 +430,7 @@ private fun LinkImportSuccessCard(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "Play",
+                    text = strings.playAction,
                     style = MaterialTheme.typography.labelLarge
                 )
             }
@@ -416,7 +442,7 @@ private fun LinkImportSuccessCard(
                     .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
             ) {
                 Text(
-                    text = "Inspect",
+                    text = strings.inspectAction,
                     style = MaterialTheme.typography.labelLarge,
                     color = OndaTheme.colors.textPrimary
                 )
@@ -431,7 +457,7 @@ private fun LinkImportSuccessCard(
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = "Import Another Link",
+                text = strings.importAnotherLink,
                 style = MaterialTheme.typography.labelLarge,
                 color = OndaTheme.colors.textSecondary
             )
@@ -442,6 +468,7 @@ private fun LinkImportSuccessCard(
 @Composable
 private fun LinkImportErrorCard(
     message: String,
+    strings: SearchStrings,
     onRetry: () -> Unit
 ) {
     val shape = RoundedCornerShape(GlassTokens.RadiusMd)
@@ -481,7 +508,7 @@ private fun LinkImportErrorCard(
                 .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
         ) {
             Text(
-                text = "Try Again",
+                text = strings.tryAgainAction,
                 style = MaterialTheme.typography.labelLarge
             )
         }

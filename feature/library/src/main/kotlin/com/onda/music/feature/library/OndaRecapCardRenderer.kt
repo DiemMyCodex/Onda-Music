@@ -25,15 +25,18 @@ object OndaRecapCardRenderer {
         totalPlayCount: Int,
         totalDurationMs: Long,
         topTracks: List<TrackPlayStatRow>,
-        topArtists: List<ArtistPlayStatRow>
+        topArtists: List<ArtistPlayStatRow>,
+        languageCode: String = "en"
     ): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
+            val isVi = languageCode.startsWith("vi", ignoreCase = true)
             val bitmap = renderBitmap(
                 rangeLabel = rangeLabel,
                 totalPlayCount = totalPlayCount,
                 totalDurationMs = totalDurationMs,
                 topTracks = topTracks,
-                topArtists = topArtists
+                topArtists = topArtists,
+                languageCode = languageCode
             )
             val dir = File(context.cacheDir, "shared_cards").apply { mkdirs() }
             val outFile = File(dir, "onda-recap-${System.currentTimeMillis()}.png")
@@ -47,13 +50,15 @@ object OndaRecapCardRenderer {
                 "${context.packageName}.fileprovider",
                 outFile
             )
+            val shareSubject = if (isVi) "Báo cáo nghe nhạc Onda Music OLED" else "Onda Music OLED Listening Recap"
+            val chooserTitle = if (isVi) "Chia sẻ Onda Recap" else "Share Onda Recap"
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                 type = "image/png"
                 putExtra(Intent.EXTRA_STREAM, uri)
-                putExtra(Intent.EXTRA_SUBJECT, "Onda Music OLED Listening Recap")
+                putExtra(Intent.EXTRA_SUBJECT, shareSubject)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            val chooser = Intent.createChooser(shareIntent, "Share Onda Recap").apply {
+            val chooser = Intent.createChooser(shareIntent, chooserTitle).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(chooser)
@@ -65,8 +70,11 @@ object OndaRecapCardRenderer {
         totalPlayCount: Int,
         totalDurationMs: Long,
         topTracks: List<TrackPlayStatRow>,
-        topArtists: List<ArtistPlayStatRow>
+        topArtists: List<ArtistPlayStatRow>,
+        languageCode: String = "en"
     ): Bitmap {
+        val isVi = languageCode.startsWith("vi", ignoreCase = true)
+        val locale = if (isVi) Locale.forLanguageTag("vi") else Locale.US
         val width = 1080
         val height = 1350
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
@@ -128,21 +136,36 @@ object OndaRecapCardRenderer {
         canvas.drawRoundRect(RectF(36f, 36f, width - 36f, height - 36f), 44f, 44f, borderPaint)
 
         canvas.drawText("ONDA", 84f, 128f, brandPaint)
-        canvas.drawText("OFFLINE OLED RECAP · ${rangeLabel.uppercase(Locale.US)}", 84f, 174f, labelPaint)
+        val headerSub = if (isVi) {
+            "BÁO CÁO OLED NGOẠI TUYẾN · ${rangeLabel.uppercase(locale)}"
+        } else {
+            "OFFLINE OLED RECAP · ${rangeLabel.uppercase(locale)}"
+        }
+        canvas.drawText(headerSub, 84f, 174f, labelPaint)
 
         val hoursText = formatRecapDuration(totalDurationMs)
         canvas.drawText(hoursText, 84f, 304f, heroMetricPaint)
-        canvas.drawText("$totalPlayCount PLAYS · LOCAL-FIRST · ZERO TELEMETRY", 84f, 356f, labelPaint)
+        val heroSub = if (isVi) {
+            "$totalPlayCount LƯỢT PHÁT · LOCAL-FIRST · KHÔNG TELEMETRY"
+        } else {
+            "$totalPlayCount PLAYS · LOCAL-FIRST · ZERO TELEMETRY"
+        }
+        canvas.drawText(heroSub, 84f, 356f, labelPaint)
 
         var y = 412f
         val tracksCardRect = RectF(72f, y, width - 72f, y + 430f)
         canvas.drawRoundRect(tracksCardRect, 32f, 32f, cardFillPaint)
         canvas.drawRoundRect(tracksCardRect, 32f, 32f, borderPaint)
-        canvas.drawText("TOP TRACKS", 108f, y + 54f, labelPaint)
+        canvas.drawText(if (isVi) "BÀI HÁT HÀNG ĐẦU" else "TOP TRACKS", 108f, y + 54f, labelPaint)
 
         val shownTracks = topTracks.take(5)
         if (shownTracks.isEmpty()) {
-            canvas.drawText("No listening history yet", 108f, y + 128f, rowSubPaint)
+            canvas.drawText(
+                if (isVi) "Chưa có lịch sử nghe nhạc" else "No listening history yet",
+                108f,
+                y + 128f,
+                rowSubPaint
+            )
         } else {
             shownTracks.forEachIndexed { idx, item ->
                 val rowY = y + 114f + idx * 66f
@@ -158,12 +181,17 @@ object OndaRecapCardRenderer {
         val artistsCardRect = RectF(72f, y, width - 72f, y + 340f)
         canvas.drawRoundRect(artistsCardRect, 32f, 32f, cardFillPaint)
         canvas.drawRoundRect(artistsCardRect, 32f, 32f, borderPaint)
-        canvas.drawText("TOP ARTISTS", 108f, y + 54f, labelPaint)
+        canvas.drawText(if (isVi) "NGHỆ SĨ HÀNG ĐẦU" else "TOP ARTISTS", 108f, y + 54f, labelPaint)
 
         val shownArtists = topArtists.take(4)
         val maxArtistDuration = shownArtists.maxOfOrNull { it.totalDurationMs }?.coerceAtLeast(1L) ?: 1L
         if (shownArtists.isEmpty()) {
-            canvas.drawText("Play tracks to build your local artist breakdown", 108f, y + 128f, rowSubPaint)
+            canvas.drawText(
+                if (isVi) "Hãy phát nhạc để tạo thống kê nghệ sĩ" else "Play tracks to build your local artist breakdown",
+                108f,
+                y + 128f,
+                rowSubPaint
+            )
         } else {
             shownArtists.forEachIndexed { idx, item ->
                 val rowY = y + 112f + idx * 58f
@@ -185,7 +213,7 @@ object OndaRecapCardRenderer {
             }
         }
 
-        canvas.drawText("ONDA MUSIC v1.2.9 · PURE #000000 OLED", 84f, height - 74f, labelPaint)
+        canvas.drawText("ONDA MUSIC v1.3.0 · PURE #000000 OLED", 84f, height - 74f, labelPaint)
         return bitmap
     }
 

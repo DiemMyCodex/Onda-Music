@@ -218,8 +218,7 @@ class HomeViewModel @Inject constructor(
 
     fun toggleLike(track: Track) {
         viewModelScope.launch(Dispatchers.IO) {
-            val updated = track.copy(liked = !track.liked)
-            songDao.upsertAndMerge(updated.toEntity())
+            songDao.toggleLikedOrInsert(track.toEntity(), !track.liked)
         }
     }
 
@@ -488,26 +487,22 @@ class HomeViewModel @Inject constructor(
                 .distinctBy { it.id }
                 .take(16)
         }
-        val effectiveQuickPicks = rawQuickPicks.map { track ->
-            val localTrack = songMap[track.id]
-            if (localTrack != null) track.copy(liked = localTrack.liked) else track
-        }
+        val effectiveQuickPicks = syncTracksWithSongMap(rawQuickPicks, songMap)
 
         val syncedContextualShelf = remote.contextualShelf?.let { shelf ->
-            shelf.copy(
-                tracks = shelf.tracks.map { track ->
-                    val localTrack = songMap[track.id]
-                    if (localTrack != null) track.copy(liked = localTrack.liked) else track
-                }
-            )
+            shelf.copy(tracks = syncTracksWithSongMap(shelf.tracks, songMap))
         }
 
+        val syncedShelves = syncShelvesWithSongMap(remote.shelves, songMap)
+        val syncedChartShelves = syncShelvesWithSongMap(remote.chartShelves, songMap)
+
         val currentTrack = local.playbackState.currentTrack
-        val heroTrack = currentTrack
+        val rawHeroTrack = currentTrack
             ?: recentlyPlayed.firstOrNull()
             ?: effectiveQuickPicks.firstOrNull()
             ?: mostPlayed.firstOrNull()
             ?: localTracks.firstOrNull()
+        val heroTrack = rawHeroTrack?.let { syncTrackWithSongMap(it, songMap) }
 
         val strings = resolveHomeStrings(local.settings.languageCode)
         val heroSubtitle = when {
@@ -520,12 +515,7 @@ class HomeViewModel @Inject constructor(
             if (currentDetail.tracks.isEmpty()) {
                 currentDetail
             } else {
-                currentDetail.copy(
-                    tracks = currentDetail.tracks.map { track ->
-                        val localTrack = songMap[track.id]
-                        if (localTrack != null) track.copy(liked = localTrack.liked) else track
-                    }
-                )
+                currentDetail.copy(tracks = syncTracksWithSongMap(currentDetail.tracks, songMap))
             }
         }
 
@@ -547,8 +537,8 @@ class HomeViewModel @Inject constructor(
             mostPlayed = mostPlayed,
             quickPicks = effectiveQuickPicks,
             contextualShelf = syncedContextualShelf,
-            shelves = remote.shelves,
-            chartShelves = remote.chartShelves,
+            shelves = syncedShelves,
+            chartShelves = syncedChartShelves,
             newReleases = remote.newReleases,
             moodCategories = remote.moodCategories,
             localTracks = localTracks,
@@ -563,5 +553,20 @@ class HomeViewModel @Inject constructor(
         val candidates = (listOf(hero) + state.quickPicks + state.recentlyPlayed + state.mostPlayed + state.localTracks)
             .distinctBy { it.id }
         return if (candidates.isEmpty()) listOf(hero) else candidates
+    }
+}
+
+internal fun syncTrackWithSongMap(track: Track, songMap: Map<String, Track>): Track {
+    val targetLiked = songMap[track.id]?.liked ?: false
+    return if (track.liked == targetLiked) track else track.copy(liked = targetLiked)
+}
+
+internal fun syncTracksWithSongMap(tracks: List<Track>, songMap: Map<String, Track>): List<Track> {
+    return tracks.map { track -> syncTrackWithSongMap(track, songMap) }
+}
+
+internal fun syncShelvesWithSongMap(shelves: List<HomeShelf>, songMap: Map<String, Track>): List<HomeShelf> {
+    return shelves.map { shelf ->
+        shelf.copy(tracks = syncTracksWithSongMap(shelf.tracks, songMap))
     }
 }

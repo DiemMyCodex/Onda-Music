@@ -272,12 +272,7 @@ class PlayerViewModel @Inject constructor(
             _likeBurstTrigger.value += 1L
         }
         viewModelScope.launch {
-            val existing = songDao.getById(track.id)
-            if (existing == null) {
-                songDao.upsertAndMerge(track.copy(liked = nextLiked).toEntity())
-            } else {
-                songDao.setLiked(track.id, nextLiked)
-            }
+            songDao.toggleLikedOrInsert(track.toEntity(), nextLiked)
         }
     }
 
@@ -421,11 +416,7 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch {
             val existing = songDao.getById(track.id)
             val nextLiked = !(existing?.liked ?: track.liked)
-            if (existing == null) {
-                songDao.upsertAndMerge(track.copy(liked = nextLiked).toEntity())
-            } else {
-                songDao.setLiked(track.id, nextLiked)
-            }
+            songDao.toggleLikedOrInsert(track.toEntity(), nextLiked)
         }
     }
 

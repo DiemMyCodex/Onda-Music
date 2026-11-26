@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -98,12 +99,14 @@ import com.onda.music.core.design.OndaSwitch
 import com.onda.music.core.design.RoundedHighlight
 import com.onda.music.core.design.SmoothCornerShape
 import com.onda.music.core.design.pressBounce
+import com.onda.music.core.model.AudioSignalInfo
 import com.onda.music.core.model.AutoEqProfile
 import com.onda.music.core.model.DownloadItem
 import com.onda.music.core.model.DownloadStatus
 import com.onda.music.core.model.EqConfig
 import com.onda.music.core.model.LyricsDocument
 import com.onda.music.core.model.PlaybackState
+import com.onda.music.core.model.StreamOption
 import com.onda.music.core.model.Track
 import com.onda.music.feature.player.TrackArtworkImage
 import com.onda.music.feature.player.findActiveLyricsLineIndex
@@ -128,6 +131,19 @@ private fun monoTelemetryStyle(
         fontWeight = fontWeight,
         fontFeatureSettings = "tnum"
     )
+}
+
+internal fun resolveActionSheetSignalBadge(
+    audioSignal: AudioSignalInfo?,
+    activeStream: StreamOption?,
+    trackSourceName: String?
+): String {
+    val signalBadge = audioSignal?.formatBadgeText()?.takeIf { it.isNotBlank() }
+    if (signalBadge != null) return signalBadge
+    if (activeStream != null && activeStream.bitrateKbps > 0) {
+        return "${activeStream.codec.uppercase(Locale.US)} ${activeStream.bitrateKbps} kbps"
+    }
+    return trackSourceName ?: "IDLE"
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -196,10 +212,13 @@ fun OndaPlayerActionSheet(
         playbackState.playbackSpeed,
         playbackState.playbackPitch
     )
-    val signalSubtitle = if (stream != null && stream.bitrateKbps > 0) {
-        "${stream.codec.uppercase(Locale.US)} ${stream.bitrateKbps} kbps"
-    } else {
-        track?.source?.name ?: "IDLE"
+    val signal = playbackState.audioSignal
+    val signalSubtitle = remember(signal, stream, track) {
+        resolveActionSheetSignalBadge(
+            audioSignal = signal,
+            activeStream = stream,
+            trackSourceName = track?.source?.name
+        )
     }
 
     ModalBottomSheet(
@@ -2053,6 +2072,7 @@ private fun SheetActionRow(
         if (!trailingBadge.isNullOrBlank()) {
             Box(
                 modifier = Modifier
+                    .widthIn(max = 184.dp)
                     .clip(SmoothCornerShape(8.dp))
                     .background(SheetElevatedSurface)
                     .padding(horizontal = 8.dp, vertical = 4.dp)
@@ -2061,7 +2081,8 @@ private fun SheetActionRow(
                     text = trailingBadge,
                     style = monoTelemetryStyle(11f, FontWeight.SemiBold),
                     color = SheetMutedText,
-                    maxLines = 1
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
             Spacer(modifier = Modifier.width(6.dp))

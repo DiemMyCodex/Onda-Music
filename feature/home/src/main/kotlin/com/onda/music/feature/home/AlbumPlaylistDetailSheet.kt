@@ -211,7 +211,11 @@ internal fun AlbumPlaylistDetailSheet(
                                 }
 
                             Box(
-                                modifier = artModifier.background(GlassTokens.ObsidianSurface),
+                                modifier = artModifier
+                                    .graphicsLayer {
+                                        alpha = if (collapseState.morphProgress > 0.005f) 0f else 1f
+                                    }
+                                    .background(GlassTokens.ObsidianSurface),
                                 contentAlignment = Alignment.Center
                             ) {
                                 if (!detail.artworkUrl.isNullOrBlank()) {

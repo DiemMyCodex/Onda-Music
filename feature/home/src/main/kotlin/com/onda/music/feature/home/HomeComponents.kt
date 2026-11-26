@@ -338,6 +338,7 @@ internal fun FullBleedHeroSection(
 ) {
     val context = LocalContext.current
     val heroHeight = rememberHomeHeroHeight()
+    val interactionSource = remember { MutableInteractionSource() }
 
     Box(
         modifier = modifier
@@ -424,29 +425,40 @@ internal fun FullBleedHeroSection(
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            Row(
+            Box(
                 modifier = Modifier
-                    .height(36.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(Color.White)
-                    .clickable(onClick = onPlayClick)
-                    .padding(horizontal = 18.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    .defaultMinSize(minWidth = 88.dp, minHeight = 44.dp)
+                    .clickable(
+                        interactionSource = interactionSource,
+                        indication = null,
+                        onClick = onPlayClick
+                    ),
+                contentAlignment = Alignment.CenterStart
             ) {
-                Icon(
-                    imageVector = if (isActiveTrack && isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                    contentDescription = null,
-                    tint = Color.Black,
-                    modifier = Modifier.size(18.dp)
-                )
-                Text(
-                    text = if (isActiveTrack && isPlaying) strings.pauseAction else strings.playAction,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color.Black,
-                    maxLines = 1
-                )
+                Row(
+                    modifier = Modifier
+                        .height(36.dp)
+                        .homePressBounce(interactionSource, pressedScale = 0.92f)
+                        .clip(RoundedCornerShape(50))
+                        .background(Color.White)
+                        .padding(horizontal = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isActiveTrack && isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        contentDescription = null,
+                        tint = Color.Black,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = if (isActiveTrack && isPlaying) strings.pauseAction else strings.playAction,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.Black,
+                        maxLines = 1
+                    )
+                }
             }
         }
     }

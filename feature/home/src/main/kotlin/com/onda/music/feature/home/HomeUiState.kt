@@ -85,7 +85,7 @@ data class HomeStrings(
 )
 
 internal fun resolveHomeStrings(languageCode: String): HomeStrings {
-    return if (languageCode == "vi") {
+    return if (languageCode.startsWith("vi", ignoreCase = true)) {
         HomeStrings(
             greetingMorning = "Chào buổi sáng",
             greetingAfternoon = "Chào buổi chiều",

@@ -1,6 +1,7 @@
 package com.onda.music.core.playback
 
 import android.content.Context
+import android.net.Uri
 import com.onda.music.core.database.DownloadDao
 import com.onda.music.core.database.DownloadEntity
 import com.onda.music.core.database.SongDao
@@ -12,6 +13,7 @@ import com.onda.music.core.model.Track
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.io.FileOutputStream
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
@@ -140,37 +142,78 @@ class DownloadManager @Inject constructor(
             )
 
             val resolved = streamResolver.resolve(track, bypassCache = true).getOrThrow()
+            val resolvedUrl = resolved.url
+            val streamUserAgent = resolved.userAgent
             val extension = extensionFor(resolved.mimeType, resolved.codec)
             val targetFile = File(downloadsDir, "${sanitizeId(track.id)}.$extension")
 
-            if (resolved.url.startsWith("file://")) {
-                val sourceFile = File(resolved.url.removePrefix("file://"))
+            if (resolvedUrl.startsWith("file://") || resolvedUrl.startsWith("/")) {
+                val localPath = if (resolvedUrl.startsWith("file://")) {
+                    Uri.parse(resolvedUrl).path ?: resolvedUrl.removePrefix("file://")
+                } else {
+                    resolvedUrl
+                }
+                val sourceFile = File(localPath)
                 if (!sourceFile.exists()) {
-                    throw IllegalStateException("Local file missing: ${resolved.url}")
+                    throw IllegalStateException("Local file missing: $resolvedUrl")
                 }
-                sourceFile.copyTo(tempFile, overwrite = true)
-                val size = tempFile.length()
-                if (targetFile.exists()) targetFile.delete()
-                if (!tempFile.renameTo(targetFile)) {
-                    tempFile.copyTo(targetFile, overwrite = true)
+                val totalBytes = sourceFile.length().coerceAtLeast(0L)
+                val completed = sourceFile.inputStream().use { input ->
+                    copyStreamToTempFile(input, tempFile, track.id, totalBytes)
+                }
+                if (!completed) {
                     tempFile.delete()
+                    return@withContext
                 }
+                finalizeDownloadFile(tempFile, targetFile)
+                val finalSize = targetFile.length()
                 downloadDao.updateProgress(
                     trackId = track.id,
                     status = DownloadStatus.COMPLETED,
                     progress = 1f,
-                    bytesDownloaded = size,
-                    totalBytes = size,
+                    bytesDownloaded = finalSize,
+                    totalBytes = if (totalBytes > 0L) totalBytes else finalSize,
                     localFilePath = targetFile.absolutePath,
                     updatedAtMs = System.currentTimeMillis()
                 )
                 return@withContext
             }
 
-            val connection = (URL(resolved.url).openConnection() as HttpURLConnection).apply {
+            if (resolvedUrl.startsWith("content://")) {
+                val contentUri = Uri.parse(resolvedUrl)
+                val totalBytes = runCatching {
+                    context.contentResolver.openAssetFileDescriptor(contentUri, "r")?.use { it.length }
+                }.getOrNull()?.takeIf { it > 0L } ?: 0L
+                val inputStream = context.contentResolver.openInputStream(contentUri)
+                    ?: throw IllegalStateException("Unable to open content URI: $resolvedUrl")
+                val completed = inputStream.use { input ->
+                    copyStreamToTempFile(input, tempFile, track.id, totalBytes)
+                }
+                if (!completed) {
+                    tempFile.delete()
+                    return@withContext
+                }
+                finalizeDownloadFile(tempFile, targetFile)
+                val finalSize = targetFile.length()
+                downloadDao.updateProgress(
+                    trackId = track.id,
+                    status = DownloadStatus.COMPLETED,
+                    progress = 1f,
+                    bytesDownloaded = finalSize,
+                    totalBytes = if (totalBytes > 0L) totalBytes else finalSize,
+                    localFilePath = targetFile.absolutePath,
+                    updatedAtMs = System.currentTimeMillis()
+                )
+                return@withContext
+            }
+
+            val userAgent = streamUserAgent?.takeIf { it.isNotBlank() }
+                ?: DEFAULT_NOTIFICATION_ARTWORK_USER_AGENT
+            val connection = (URL(resolvedUrl).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 15_000
                 readTimeout = 30_000
                 instanceFollowRedirects = true
+                setRequestProperty("User-Agent", userAgent)
             }
             try {
                 val code = connection.responseCode
@@ -178,48 +221,15 @@ class DownloadManager @Inject constructor(
                     throw StreamHttpException(code, "Download failed with HTTP $code")
                 }
                 val totalBytes = connection.contentLengthLong.coerceAtLeast(0L)
-                var downloadedBytes = 0L
-                var lastPersistBytes = 0L
-
-                connection.inputStream.use { input ->
-                    FileOutputStream(tempFile).use { output ->
-                        val buffer = ByteArray(16 * 1024)
-                        while (isActive) {
-                            val read = input.read(buffer)
-                            if (read < 0) break
-                            output.write(buffer, 0, read)
-                            downloadedBytes += read
-                            if (downloadedBytes - lastPersistBytes >= 65_536L) {
-                                lastPersistBytes = downloadedBytes
-                                val progress = if (totalBytes > 0L) {
-                                    (downloadedBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 0.99f)
-                                } else {
-                                    0f
-                                }
-                                downloadDao.updateProgress(
-                                    trackId = track.id,
-                                    status = DownloadStatus.DOWNLOADING,
-                                    progress = progress,
-                                    bytesDownloaded = downloadedBytes,
-                                    totalBytes = totalBytes,
-                                    localFilePath = null,
-                                    updatedAtMs = System.currentTimeMillis()
-                                )
-                            }
-                        }
-                    }
+                val completed = connection.inputStream.use { input ->
+                    copyStreamToTempFile(input, tempFile, track.id, totalBytes)
                 }
-
-                if (!isActive) {
+                if (!completed) {
                     tempFile.delete()
                     return@withContext
                 }
 
-                if (targetFile.exists()) targetFile.delete()
-                if (!tempFile.renameTo(targetFile)) {
-                    tempFile.copyTo(targetFile, overwrite = true)
-                    tempFile.delete()
-                }
+                finalizeDownloadFile(tempFile, targetFile)
 
                 val finalSize = targetFile.length()
                 downloadDao.updateProgress(
@@ -248,6 +258,51 @@ class DownloadManager @Inject constructor(
                 localFilePath = null,
                 updatedAtMs = System.currentTimeMillis()
             )
+        }
+    }
+
+    private suspend fun CoroutineScope.copyStreamToTempFile(
+        input: InputStream,
+        tempFile: File,
+        trackId: String,
+        totalBytes: Long
+    ): Boolean {
+        var downloadedBytes = 0L
+        var lastPersistBytes = 0L
+        FileOutputStream(tempFile).use { output ->
+            val buffer = ByteArray(16 * 1024)
+            while (isActive) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                output.write(buffer, 0, read)
+                downloadedBytes += read
+                if (downloadedBytes - lastPersistBytes >= 65_536L) {
+                    lastPersistBytes = downloadedBytes
+                    val progress = if (totalBytes > 0L) {
+                        (downloadedBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 0.99f)
+                    } else {
+                        0f
+                    }
+                    downloadDao.updateProgress(
+                        trackId = trackId,
+                        status = DownloadStatus.DOWNLOADING,
+                        progress = progress,
+                        bytesDownloaded = downloadedBytes,
+                        totalBytes = totalBytes,
+                        localFilePath = null,
+                        updatedAtMs = System.currentTimeMillis()
+                    )
+                }
+            }
+        }
+        return isActive
+    }
+
+    private fun finalizeDownloadFile(tempFile: File, targetFile: File) {
+        if (targetFile.exists()) targetFile.delete()
+        if (!tempFile.renameTo(targetFile)) {
+            tempFile.copyTo(targetFile, overwrite = true)
+            tempFile.delete()
         }
     }
 

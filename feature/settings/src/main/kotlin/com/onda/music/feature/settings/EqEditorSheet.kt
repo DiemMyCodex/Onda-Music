@@ -57,6 +57,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -110,13 +111,15 @@ fun EqEditorSheet(
     autoEqResults: List<AutoEqProfile> = emptyList(),
     autoEqTotalCount: Int = 0,
     onAutoEqQueryChange: (String) -> Unit = {},
-    onApplyAutoEqProfile: (AutoEqProfile) -> Unit = {}
+    onApplyAutoEqProfile: (AutoEqProfile) -> Unit = {},
+    hapticsEnabled: Boolean = true
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val bands = remember(eqConfig.bands) {
         if (eqConfig.bands.size == 10) eqConfig.bands else EqConfig.defaultBands()
     }
     val reducedMotion = OndaTheme.reducedMotion
+    val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     var activeDragBand by remember { mutableIntStateOf(-1) }
 
@@ -186,7 +189,12 @@ fun EqEditorSheet(
                 }
                 OndaSwitch(
                     checked = eqConfig.enabled,
-                    onCheckedChange = { onEqConfigChange(eqConfig.copy(enabled = it)) }
+                    onCheckedChange = { enabled ->
+                        if (hapticsEnabled) {
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
+                        onEqConfigChange(eqConfig.copy(enabled = enabled))
+                    }
                 )
                 val closeInteraction = remember { MutableInteractionSource() }
                 Box(
@@ -247,6 +255,7 @@ fun EqEditorSheet(
                         animatedGainProvider = { animatedGains[idx].value },
                         enabled = eqConfig.enabled,
                         isDragging = activeDragBand == band.index,
+                        hapticsEnabled = hapticsEnabled,
                         onDragStateChange = { dragging ->
                             activeDragBand = if (dragging) band.index else if (activeDragBand == band.index) -1 else activeDragBand
                         },
@@ -285,12 +294,30 @@ fun EqEditorSheet(
                             color = SettingsOledColors.TextPrimary
                         )
                     }
+                    var isDraggingPreamp by remember { mutableStateOf(false) }
+                    var lastPreampStep by remember {
+                        mutableIntStateOf(round(eqConfig.preampDb.coerceIn(-12f, 12f) * 2f).toInt())
+                    }
+                    LaunchedEffect(eqConfig.preampDb, isDraggingPreamp) {
+                        if (!isDraggingPreamp) {
+                            lastPreampStep = round(eqConfig.preampDb.coerceIn(-12f, 12f) * 2f).toInt()
+                        }
+                    }
                     Slider(
                         value = eqConfig.preampDb,
                         onValueChange = { raw ->
-                            val snapped = round(raw * 2f) / 2f
-                            onEqConfigChange(eqConfig.copy(preampDb = snapped.coerceIn(-12f, 12f)))
+                            isDraggingPreamp = true
+                            val snapped = (round(raw * 2f) / 2f).coerceIn(-12f, 12f)
+                            val newStep = round(snapped * 2f).toInt()
+                            if (newStep != lastPreampStep) {
+                                lastPreampStep = newStep
+                                if (hapticsEnabled) {
+                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                }
+                            }
+                            onEqConfigChange(eqConfig.copy(preampDb = snapped))
                         },
+                        onValueChangeFinished = { isDraggingPreamp = false },
                         valueRange = -12f..12f,
                         colors = SliderDefaults.colors(
                             thumbColor = SettingsOledColors.TextPrimary,
@@ -316,11 +343,29 @@ fun EqEditorSheet(
                             color = SettingsOledColors.TextPrimary
                         )
                     }
+                    var isDraggingCrossfade by remember { mutableStateOf(false) }
+                    var lastCrossfadeSeconds by remember {
+                        mutableIntStateOf(eqConfig.crossfadeSeconds.coerceIn(0, 12))
+                    }
+                    LaunchedEffect(eqConfig.crossfadeSeconds, isDraggingCrossfade) {
+                        if (!isDraggingCrossfade) {
+                            lastCrossfadeSeconds = eqConfig.crossfadeSeconds.coerceIn(0, 12)
+                        }
+                    }
                     Slider(
                         value = eqConfig.crossfadeSeconds.toFloat(),
                         onValueChange = { raw ->
-                            onEqConfigChange(eqConfig.copy(crossfadeSeconds = round(raw).toInt().coerceIn(0, 12)))
+                            isDraggingCrossfade = true
+                            val snapped = round(raw).toInt().coerceIn(0, 12)
+                            if (snapped != lastCrossfadeSeconds) {
+                                lastCrossfadeSeconds = snapped
+                                if (hapticsEnabled) {
+                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                }
+                            }
+                            onEqConfigChange(eqConfig.copy(crossfadeSeconds = snapped))
                         },
+                        onValueChangeFinished = { isDraggingCrossfade = false },
                         valueRange = 0f..12f,
                         steps = 11,
                         colors = SliderDefaults.colors(
@@ -561,7 +606,8 @@ fun EqEditorSheet(
                     subtitle = strings.normalizeSubtitle,
                     checked = eqConfig.normalizeLoudness,
                     onCheckedChange = { onEqConfigChange(eqConfig.copy(normalizeLoudness = it)) },
-                    iconBadgeColor = SettingsOledColors.MatteCard
+                    iconBadgeColor = SettingsOledColors.MatteCard,
+                    hapticsEnabled = hapticsEnabled
                 )
                 SettingsRowDivider(color = SettingsOledColors.MatteCard)
                 SettingsToggleRow(
@@ -570,7 +616,8 @@ fun EqEditorSheet(
                     subtitle = strings.gaplessSubtitle,
                     checked = eqConfig.gaplessEnabled,
                     onCheckedChange = { onEqConfigChange(eqConfig.copy(gaplessEnabled = it)) },
-                    iconBadgeColor = SettingsOledColors.MatteCard
+                    iconBadgeColor = SettingsOledColors.MatteCard,
+                    hapticsEnabled = hapticsEnabled
                 )
             }
         }
@@ -705,10 +752,12 @@ private fun EqBandFader(
     enabled: Boolean,
     isDragging: Boolean,
     onDragStateChange: (Boolean) -> Unit,
-    onGainChange: (Float) -> Unit
+    onGainChange: (Float) -> Unit,
+    hapticsEnabled: Boolean = true
 ) {
     val latestOnGainChange by rememberUpdatedState(onGainChange)
     val latestOnDragStateChange by rememberUpdatedState(onDragStateChange)
+    val latestHapticsEnabled by rememberUpdatedState(hapticsEnabled)
     val haptic = LocalHapticFeedback.current
     val reducedMotion = OndaTheme.reducedMotion
     var trackHeightPx by remember { mutableFloatStateOf(1f) }
@@ -747,7 +796,9 @@ private fun EqBandFader(
                 .pointerInput(band.index) {
                     detectTapGestures(
                         onDoubleTap = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            if (latestHapticsEnabled) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            }
                             latestOnGainChange(0f)
                         },
                         onTap = { offset ->
@@ -772,7 +823,9 @@ private fun EqBandFader(
                             val gain = (round(((fraction * 24f) - 12f) * 2f) / 2f).coerceIn(-12f, 12f)
                             val newSign = if (gain > 0.05f) 1 else if (gain < -0.05f) -1 else 0
                             if (newSign == 0 && lastSign != 0 || (lastSign != 0 && newSign != lastSign)) {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                if (latestHapticsEnabled) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                }
                             }
                             lastSign = newSign
                             latestOnGainChange(gain)

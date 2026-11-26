@@ -173,7 +173,7 @@ internal fun buildHeroCarouselCards(
         usedTrackIds.add(hero.id)
         val isActive = uiState.activeTrackId == hero.id
         val eyebrow = when {
-            isActive && uiState.isPlaying -> if (uiState.languageCode == "vi") "Đang phát" else "Now Playing"
+            isActive && uiState.isPlaying -> if (uiState.languageCode.startsWith("vi", ignoreCase = true)) "Đang phát" else "Now Playing"
             else -> strings.continueListening
         }
         val queue = (listOf(hero) + uiState.quickPicks + uiState.recentlyPlayed + uiState.mostPlayed + uiState.localTracks)
@@ -193,7 +193,7 @@ internal fun buildHeroCarouselCards(
             usedTrackIds.add(pick.id)
             val useSeed = idx == 0 && seedTrack != null && seedTrack.id != pick.id
             val eyebrow = if (useSeed) {
-                if (uiState.languageCode == "vi") "Từ lần nghe" else "Inspired by"
+                if (uiState.languageCode.startsWith("vi", ignoreCase = true)) "Từ lần nghe" else "Inspired by"
             } else {
                 strings.quickPicks
             }

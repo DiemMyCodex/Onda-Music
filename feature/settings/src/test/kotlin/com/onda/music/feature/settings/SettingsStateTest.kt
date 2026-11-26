@@ -1,7 +1,11 @@
 package com.onda.music.feature.settings
 
+import com.onda.music.core.model.LinkEntityKind
+import com.onda.music.core.model.LinkProvider
+import com.onda.music.core.model.ParsedLink
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -67,7 +71,7 @@ class SettingsStateTest {
         assertEquals(1, discordMatches.size)
         assertEquals(SettingsEntryId.DISCORD_RPC, discordMatches.first().id)
 
-        assertTrue(strings.appVersionFooter.contains("1.2.9"))
+        assertTrue(strings.appVersionFooter.contains("1.3.0"))
     }
 
     @Test
@@ -100,5 +104,63 @@ class SettingsStateTest {
         assertTrue(computeCollapseLatch(true, 0, 20f, enterPx = 48f, exitPx = 12f))
         assertFalse(computeCollapseLatch(true, 0, 11f, enterPx = 48f, exitPx = 12f))
         assertTrue(computeCollapseLatch(false, 1, 0f, enterPx = 48f, exitPx = 12f))
+    }
+
+    @Test
+    fun `settingsUiState defaults hasMiniPlayer to false`() {
+        val defaultState = SettingsUiState()
+        assertFalse(defaultState.hasMiniPlayer)
+        assertTrue(defaultState.copy(hasMiniPlayer = true).hasMiniPlayer)
+    }
+
+    @Test
+    fun `settingsStringsFor reports v1_3_0 footer in both en and vi`() {
+        val en = settingsStringsFor("en")
+        val vi = settingsStringsFor("vi")
+        assertTrue(en.appVersionFooter.contains("v1.3.0"))
+        assertTrue(vi.appVersionFooter.contains("v1.3.0"))
+        assertFalse(en.appVersionFooter.contains("1.2.9"))
+        assertFalse(vi.appVersionFooter.contains("1.2.9"))
+    }
+
+    @Test
+    fun `buildSettingsImportedPlaylistId is deterministic for parsed and short links`() {
+        val spotifyParsed = ParsedLink(
+            provider = LinkProvider.SPOTIFY,
+            kind = LinkEntityKind.PLAYLIST,
+            externalId = "37i9dQZF1DXcBWIGoYBM5M",
+            originalUrl = "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M"
+        )
+        assertEquals(
+            "import_spotify_37i9dQZF1DXcBWIGoYBM5M",
+            buildSettingsImportedPlaylistId(
+                provider = LinkProvider.SPOTIFY,
+                parsed = spotifyParsed,
+                collectionTitle = "Today's Top Hits",
+                rawUrl = spotifyParsed.originalUrl
+            )
+        )
+
+        val shortIdA = buildSettingsImportedPlaylistId(
+            provider = LinkProvider.SPOTIFY,
+            parsed = null,
+            collectionTitle = "Night Drive",
+            rawUrl = "https://spotify.link/AbCdEf123"
+        )
+        val shortIdB = buildSettingsImportedPlaylistId(
+            provider = LinkProvider.SPOTIFY,
+            parsed = null,
+            collectionTitle = "Night Drive",
+            rawUrl = "  HTTPS://SPOTIFY.LINK/abcdef123  "
+        )
+        val shortIdOther = buildSettingsImportedPlaylistId(
+            provider = LinkProvider.SPOTIFY,
+            parsed = null,
+            collectionTitle = "Night Drive",
+            rawUrl = "https://spotify.link/Other999"
+        )
+        assertTrue(shortIdA.startsWith("import_spotify_night_drive_"))
+        assertEquals(shortIdA, shortIdB)
+        assertNotEquals(shortIdA, shortIdOther)
     }
 }

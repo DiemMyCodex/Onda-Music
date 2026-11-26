@@ -2,6 +2,7 @@ package com.onda.music.feature.settings
 
 import android.os.Build
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -452,9 +453,10 @@ fun SettingsSearchPill(
     onFocusChanged: ((Boolean) -> Unit)? = null
 ) {
     val focusManager = LocalFocusManager.current
+    val reducedMotion = OndaTheme.reducedMotion
     val pillBackground by animateColorAsState(
         targetValue = if (focused) SettingsOledColors.SearchFocused else SettingsOledColors.MatteCard,
-        animationSpec = tween(durationMillis = 150),
+        animationSpec = if (reducedMotion) snap() else tween(durationMillis = 150),
         label = "SearchPillBackground"
     )
 

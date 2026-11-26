@@ -3,6 +3,8 @@ package com.onda.music.feature.library
 import com.onda.music.core.model.SourceKind
 import com.onda.music.core.model.Track
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LibraryHelpersTest {
@@ -71,5 +73,53 @@ class LibraryHelpersTest {
         assertEquals("12h", formatHoursListened(43_200_000L))
         assertEquals("0 MB", formatBytes(0L))
         assertEquals("2.0 MB", formatBytes(2L * 1024L * 1024L))
+    }
+
+    @Test
+    fun filterLocalTracksByFolderMatchesExactFolderWithoutFallback() {
+        val tracks = listOf(
+            Track(id = "local_1", title = "A", artist = "X", source = SourceKind.LOCAL, localUri = "content://media/external/audio/media/1"),
+            Track(id = "local_2", title = "B", artist = "Y", source = SourceKind.LOCAL, localUri = "content://media/external/audio/media/2"),
+            Track(id = "local_3", title = "C", artist = "Z", source = SourceKind.LOCAL, localUri = "content://media/external/audio/media/3")
+        )
+        val trackFolders = mapOf(
+            "local_1" to "Music/Lossless",
+            "local_2" to "Downloads"
+        )
+
+        assertEquals(tracks, filterLocalTracksByFolder(tracks, trackFolders, null))
+        assertEquals(tracks, filterLocalTracksByFolder(tracks, trackFolders, "   "))
+        assertEquals(listOf("local_1"), filterLocalTracksByFolder(tracks, trackFolders, "Music/Lossless").map { it.id })
+        assertEquals(listOf("local_2"), filterLocalTracksByFolder(tracks, trackFolders, "Downloads").map { it.id })
+        assertTrue(filterLocalTracksByFolder(tracks, trackFolders, "Music/Other").isEmpty())
+        assertTrue(filterLocalTracksByFolder(tracks, emptyMap(), "Music/Lossless").isEmpty())
+    }
+
+    @Test
+    fun resolveLibraryStringsLocalizesAllTabsAndRanges() {
+        val en = resolveLibraryStrings("en")
+        val vi = resolveLibraryStrings("vi")
+        val viRegion = resolveLibraryStrings("vi-VN")
+
+        assertEquals(vi, viRegion)
+        LibraryTab.entries.forEach { tab ->
+            assertTrue(en.tabLabel(tab).isNotBlank())
+            assertTrue(vi.tabLabel(tab).isNotBlank())
+        }
+        StatsRange.entries.forEach { range ->
+            assertTrue(en.statsRangeLabel(range).isNotBlank())
+            assertTrue(vi.statsRangeLabel(range).isNotBlank())
+        }
+        assertNotEquals(en.libraryTitle, vi.libraryTitle)
+        assertNotEquals(en.tabLabel(LibraryTab.OVERVIEW), vi.tabLabel(LibraryTab.OVERVIEW))
+        assertNotEquals(en.statsRangeLabel(StatsRange.WEEK), vi.statsRangeLabel(StatsRange.WEEK))
+    }
+
+    @Test
+    fun libraryUiStateHasExpectedDefaults() {
+        val state = LibraryUiState()
+        assertEquals("en", state.languageCode)
+        assertTrue(state.glassBlurEnabled)
+        assertTrue(state.localTrackFolders.isEmpty())
     }
 }

@@ -310,7 +310,9 @@ fun FlagshipPlayerStyle(
                 playbackState = state,
                 onSeekToFraction = ctx.onSeekToFraction,
                 accentColor = Color.White,
-                seekbarStyle = studio.seekbarStyle
+                seekbarStyle = studio.seekbarStyle,
+                lyrics = ctx.lyrics,
+                lyricsOffsetMs = ctx.lyricsOffsetMs
             )
 
             PlayerTransportControls(
@@ -483,7 +485,9 @@ fun ClassicPlayerStyle(
                 playbackState = state,
                 onSeekToFraction = ctx.onSeekToFraction,
                 accentColor = Color.White,
-                seekbarStyle = studio.seekbarStyle
+                seekbarStyle = studio.seekbarStyle,
+                lyrics = ctx.lyrics,
+                lyricsOffsetMs = ctx.lyricsOffsetMs
             )
 
             Box(

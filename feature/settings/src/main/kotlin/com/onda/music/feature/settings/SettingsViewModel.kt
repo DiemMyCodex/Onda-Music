@@ -42,7 +42,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
-import java.util.UUID
 import java.util.zip.ZipInputStream
 import javax.inject.Inject
 
@@ -78,6 +77,7 @@ class SettingsViewModel @Inject constructor(
     private data class PlaybackRuntimeSnapshot(
         val activeOutputDevice: AudioOutputDevice,
         val savedOutputProfileCount: Int,
+        val hasMiniPlayer: Boolean,
         val sleepTimerRemainingMs: Long?,
         val sleepTimerEndOfTrack: Boolean,
         val sleepTimerFading: Boolean
@@ -103,6 +103,7 @@ class SettingsViewModel @Inject constructor(
                 PlaybackRuntimeSnapshot(
                     activeOutputDevice = device,
                     savedOutputProfileCount = profiles.size,
+                    hasMiniPlayer = playback.currentTrack != null,
                     sleepTimerRemainingMs = playback.sleepTimerRemainingMs,
                     sleepTimerEndOfTrack = playback.sleepTimerEndOfTrack,
                     sleepTimerFading = playback.sleepTimerFading
@@ -112,6 +113,7 @@ class SettingsViewModel @Inject constructor(
                 base.copy(
                     activeOutputDevice = runtime.activeOutputDevice,
                     savedOutputProfileCount = runtime.savedOutputProfileCount,
+                    hasMiniPlayer = runtime.hasMiniPlayer,
                     sleepTimerRemainingMs = runtime.sleepTimerRemainingMs,
                     sleepTimerEndOfTrack = runtime.sleepTimerEndOfTrack,
                     sleepTimerFading = runtime.sleepTimerFading
@@ -473,15 +475,22 @@ class SettingsViewModel @Inject constructor(
                     if (tracks.isNotEmpty()) {
                         songDao.upsertAndMergeAll(tracks.map { it.copy(inLibrary = true).toEntity() })
                         if (tracks.size > 1) {
-                            val playlistId = "link_${UUID.randomUUID()}"
+                            val parsed = linkImporter.detect(trimmed)
+                            val playlistId = buildSettingsImportedPlaylistId(
+                                provider = collection.provider,
+                                parsed = parsed,
+                                collectionTitle = collection.title,
+                                rawUrl = trimmed
+                            )
                             val now = System.currentTimeMillis()
                             val playlist = Playlist(
                                 id = playlistId,
                                 name = collection.title,
                                 description = collection.description,
-                                artworkUrl = collection.artworkUrl,
+                                artworkUrl = collection.artworkUrl ?: tracks.firstOrNull()?.artworkUrl,
                                 trackCount = tracks.size,
-                                createdAtMs = now
+                                createdAtMs = now,
+                                remoteId = parsed?.externalId
                             )
                             val entries = tracks.mapIndexed { idx, track ->
                                 PlaylistSongEntity(

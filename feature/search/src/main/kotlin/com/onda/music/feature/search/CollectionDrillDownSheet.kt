@@ -75,6 +75,8 @@ fun CollectionDrillDownSheet(
     onRetry: () -> Unit,
     onDismiss: () -> Unit,
     hasMiniPlayer: Boolean = false,
+    glassBlurEnabled: Boolean = true,
+    strings: SearchStrings = resolveSearchStrings("en"),
     openFractionProvider: () -> Float = { 1f },
     launchOrigin: SearchLaunchOrigin = SearchLaunchOrigin()
 ) {
@@ -166,9 +168,14 @@ fun CollectionDrillDownSheet(
                                     placeholderIcon = placeholderIcon,
                                     size = 84.dp,
                                     cornerRadius = GlassTokens.RadiusMd,
-                                    modifier = Modifier.onGloballyPositioned {
-                                        coverBoundsInWindow = Rect(it.positionInWindow(), it.size.toDrillSize())
-                                    }
+                                    modifier = Modifier
+                                        .onGloballyPositioned {
+                                            coverBoundsInWindow = Rect(it.positionInWindow(), it.size.toDrillSize())
+                                        }
+                                        .graphicsLayer {
+                                            alpha = if (collapseState.morphProgress > 0.005f) 0f else 1f
+                                        },
+                                    strings = strings
                                 )
                                 Spacer(modifier = Modifier.width(14.dp))
                                 Column(modifier = Modifier.weight(1f)) {
@@ -216,7 +223,7 @@ fun CollectionDrillDownSheet(
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
-                                            text = "Play All",
+                                            text = strings.playAllAction,
                                             style = MaterialTheme.typography.labelLarge
                                         )
                                     }
@@ -235,7 +242,7 @@ fun CollectionDrillDownSheet(
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
-                                            text = "Shuffle",
+                                            text = strings.shuffleAction,
                                             style = MaterialTheme.typography.labelLarge,
                                             color = OndaTheme.colors.textPrimary
                                         )
@@ -260,7 +267,7 @@ fun CollectionDrillDownSheet(
                                 ) {
                                     SearchLoadingDots(dotColor = OndaTheme.colors.accent)
                                     Text(
-                                        text = "Loading tracks",
+                                        text = strings.loadingTracks,
                                         style = MaterialTheme.typography.bodySmall,
                                         color = OndaTheme.colors.textSecondary
                                     )
@@ -322,7 +329,7 @@ fun CollectionDrillDownSheet(
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text(text = "Retry")
+                                    Text(text = strings.retryAction)
                                 }
                             }
                         }
@@ -336,7 +343,7 @@ fun CollectionDrillDownSheet(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    text = "No playable tracks found in this collection.",
+                                    text = strings.emptyCollectionMessage,
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = OndaTheme.colors.textTertiary
                                 )
@@ -353,7 +360,8 @@ fun CollectionDrillDownSheet(
                                 isCurrent = track.id == currentTrackId,
                                 isPlaying = isPlaying,
                                 onClick = { onPlayTrack(index) },
-                                onToggleLike = { onToggleLike(track) }
+                                onToggleLike = { onToggleLike(track) },
+                                strings = strings
                             )
                         }
                     }
@@ -371,6 +379,10 @@ fun CollectionDrillDownSheet(
                 onClose = onDismiss,
                 onPlayAll = onPlayAll,
                 onShufflePlay = onShufflePlay,
+                glassBlurEnabled = glassBlurEnabled,
+                playLabel = strings.playAction,
+                shuffleDescription = strings.shuffleAction,
+                closeDescription = strings.closeCollectionDescription,
                 modifier = Modifier.align(Alignment.TopCenter)
             )
         }

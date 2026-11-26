@@ -100,9 +100,66 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlin.math.sin
 import kotlin.math.sqrt
+
+internal data class MiniCardTransform(
+    val translationX: Float,
+    val alpha: Float,
+    val rotationY: Float,
+    val scale: Float
+)
+
+internal fun computeMiniCardTransform(
+    offsetPx: Float,
+    widthPx: Float,
+    role: Int,
+    reducedMotion: Boolean
+): MiniCardTransform {
+    val safeOffset = if (offsetPx.isFinite()) offsetPx else 0f
+    val w = if (widthPx.isFinite()) widthPx.coerceAtLeast(1f) else 1f
+    val absRatio = (abs(safeOffset) / w).coerceIn(0f, 1f)
+    return when (role) {
+        -1 -> {
+            if (safeOffset <= 0.5f) {
+                MiniCardTransform(translationX = 0f, alpha = 0f, rotationY = 0f, scale = 1f)
+            } else {
+                val remaining = 1f - (safeOffset / w).coerceIn(0f, 1f)
+                MiniCardTransform(
+                    translationX = -w + safeOffset,
+                    alpha = (abs(safeOffset) / (w * 0.72f)).coerceIn(0f, 1f),
+                    rotationY = if (reducedMotion) 0f else remaining * 18f,
+                    scale = if (reducedMotion) 1f else 1f - 0.08f * remaining
+                )
+            }
+        }
+        1 -> {
+            if (safeOffset >= -0.5f) {
+                MiniCardTransform(translationX = 0f, alpha = 0f, rotationY = 0f, scale = 1f)
+            } else {
+                val remaining = 1f - absRatio
+                MiniCardTransform(
+                    translationX = w + safeOffset,
+                    alpha = (abs(safeOffset) / (w * 0.72f)).coerceIn(0f, 1f),
+                    rotationY = if (reducedMotion) 0f else -remaining * 18f,
+                    scale = if (reducedMotion) 1f else 1f - 0.08f * remaining
+                )
+            }
+        }
+        else -> {
+            val signedRatio = (safeOffset / w).coerceIn(-1f, 1f)
+            MiniCardTransform(
+                translationX = safeOffset,
+                alpha = (1f - absRatio * 0.85f).coerceIn(0f, 1f),
+                rotationY = if (reducedMotion) 0f else -signedRatio * 18f,
+                scale = if (reducedMotion) 1f else 1f - 0.08f * absRatio
+            )
+        }
+    }
+}
 
 private enum class MiniDragAxis {
     NONE,
@@ -667,16 +724,26 @@ private fun MiniPlayerBar(
                 if (previousTrack != null) {
                     MiniTrackPeekContent(
                         track = previousTrack,
+                        isPlaying = false,
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer {
-                                val offset = horizontalOffset.value
-                                if (offset <= 0.5f) {
-                                    alpha = 0f
+                                val w = contentAreaWidthPx.coerceAtLeast(1f)
+                                val t = computeMiniCardTransform(
+                                    offsetPx = horizontalOffset.value,
+                                    widthPx = w,
+                                    role = -1,
+                                    reducedMotion = reducedMotion
+                                )
+                                translationX = t.translationX
+                                alpha = t.alpha
+                                rotationY = t.rotationY
+                                scaleX = t.scale
+                                scaleY = t.scale
+                                cameraDistance = if (reducedMotion) {
+                                    8f * density
                                 } else {
-                                    val w = contentAreaWidthPx.coerceAtLeast(1f)
-                                    translationX = -w + offset
-                                    alpha = (abs(offset) / (w * 0.72f)).coerceIn(0f, 1f)
+                                    (w * 3f).coerceAtLeast(12f * density)
                                 }
                             }
                     )
@@ -684,29 +751,53 @@ private fun MiniPlayerBar(
 
                 MiniTrackPeekContent(
                     track = track,
+                    isPlaying = isPlaying,
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer {
-                            val offset = horizontalOffset.value
                             val w = contentAreaWidthPx.coerceAtLeast(1f)
-                            translationX = offset
-                            alpha = (1f - (abs(offset) / w) * 0.85f).coerceIn(0f, 1f)
+                            val t = computeMiniCardTransform(
+                                offsetPx = horizontalOffset.value,
+                                widthPx = w,
+                                role = 0,
+                                reducedMotion = reducedMotion
+                            )
+                            translationX = t.translationX
+                            alpha = t.alpha
+                            rotationY = t.rotationY
+                            scaleX = t.scale
+                            scaleY = t.scale
+                            cameraDistance = if (reducedMotion) {
+                                8f * density
+                            } else {
+                                (w * 3f).coerceAtLeast(12f * density)
+                            }
                         }
                 )
 
                 if (nextTrack != null) {
                     MiniTrackPeekContent(
                         track = nextTrack,
+                        isPlaying = false,
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer {
-                                val offset = horizontalOffset.value
-                                if (offset >= -0.5f) {
-                                    alpha = 0f
+                                val w = contentAreaWidthPx.coerceAtLeast(1f)
+                                val t = computeMiniCardTransform(
+                                    offsetPx = horizontalOffset.value,
+                                    widthPx = w,
+                                    role = 1,
+                                    reducedMotion = reducedMotion
+                                )
+                                translationX = t.translationX
+                                alpha = t.alpha
+                                rotationY = t.rotationY
+                                scaleX = t.scale
+                                scaleY = t.scale
+                                cameraDistance = if (reducedMotion) {
+                                    8f * density
                                 } else {
-                                    val w = contentAreaWidthPx.coerceAtLeast(1f)
-                                    translationX = w + offset
-                                    alpha = (abs(offset) / (w * 0.72f)).coerceIn(0f, 1f)
+                                    (w * 3f).coerceAtLeast(12f * density)
                                 }
                             }
                     )
@@ -777,8 +868,30 @@ private fun MiniPlayerBar(
 @Composable
 private fun MiniTrackPeekContent(
     track: Track,
+    isPlaying: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    val reducedMotion = OndaTheme.reducedMotion
+    val accentPrimary = LocalOndaPalette.current.primary
+    var rimPulsePhase by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(isPlaying, reducedMotion) {
+        if (!isPlaying || reducedMotion) {
+            rimPulsePhase = 0f
+            return@LaunchedEffect
+        }
+        var lastNanos = 0L
+        while (true) {
+            withFrameNanos { frameNanos ->
+                if (lastNanos != 0L) {
+                    val dt = (frameNanos - lastNanos).coerceIn(0L, 50_000_000L) / 1_000_000_000f
+                    rimPulsePhase = (rimPulsePhase + dt * 3.4f) % (2f * PI.toFloat())
+                }
+                lastNanos = frameNanos
+            }
+        }
+    }
+
     val textFadeMask = remember {
         Brush.horizontalGradient(
             0.00f to Color.Black,
@@ -791,12 +904,32 @@ private fun MiniTrackPeekContent(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        TrackArtworkImage(
-            artworkUrl = track.artworkUrl,
-            contentDescription = track.title,
-            shape = SmoothCornerShape(12.dp),
-            modifier = Modifier.size(48.dp)
-        )
+        Box(modifier = Modifier.size(48.dp)) {
+            TrackArtworkImage(
+                artworkUrl = track.artworkUrl,
+                contentDescription = track.title,
+                shape = SmoothCornerShape(12.dp),
+                modifier = Modifier.matchParentSize()
+            )
+            if (isPlaying) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .graphicsLayer {
+                            alpha = if (reducedMotion) {
+                                0.70f
+                            } else {
+                                0.42f + 0.38f * (0.5f + 0.5f * sin(rimPulsePhase))
+                            }
+                        }
+                        .border(
+                            width = 1.25.dp,
+                            color = accentPrimary,
+                            shape = SmoothCornerShape(12.dp)
+                        )
+                )
+            }
+        }
 
         Spacer(modifier = Modifier.width(12.dp))
 

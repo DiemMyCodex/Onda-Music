@@ -8,10 +8,12 @@ import com.onda.music.core.model.AutoEqProfile
 import com.onda.music.core.model.LinkEntityKind
 import com.onda.music.core.model.LinkProvider
 import com.onda.music.core.model.MergePolicy
+import com.onda.music.core.model.ParsedLink
 import com.onda.music.core.model.TransferManifest
 import com.onda.music.core.model.TransferProgress
 import com.onda.music.core.model.TransferSummary
 import com.onda.music.core.transfer.MomiArchivePeek
+import java.security.MessageDigest
 import java.util.Locale
 import kotlin.math.abs
 
@@ -116,7 +118,8 @@ data class SettingsUiState(
     val autoEqTotalCount: Int = 0,
     val sleepTimerRemainingMs: Long? = null,
     val sleepTimerEndOfTrack: Boolean = false,
-    val sleepTimerFading: Boolean = false
+    val sleepTimerFading: Boolean = false,
+    val hasMiniPlayer: Boolean = false
 )
 
 fun buildSettingsSearchEntries(strings: SettingsStrings): List<SettingsSearchEntry> = listOf(
@@ -431,4 +434,37 @@ fun computeCollapseLatch(
         firstVisibleOffsetPx < exitPx -> false
         else -> currentCollapsed
     }
+}
+
+fun buildSettingsImportedPlaylistId(
+    provider: LinkProvider,
+    parsed: ParsedLink?,
+    collectionTitle: String,
+    rawUrl: String
+): String {
+    if (parsed != null) {
+        val prefix = parsed.provider.name.lowercase(Locale.US)
+        val cleanExternal = parsed.externalId.replace(Regex("""[^A-Za-z0-9_-]"""), "")
+        if (cleanExternal.isNotEmpty()) {
+            return "import_${prefix}_$cleanExternal"
+        }
+    }
+    val slug = collectionTitle
+        .trim()
+        .lowercase(Locale.US)
+        .replace(Regex("""[^a-z0-9]+"""), "_")
+        .trim('_')
+        .take(24)
+        .ifEmpty { "playlist" }
+    val normalizedUrl = rawUrl.trim().lowercase(Locale.ROOT)
+    val normalizedTitle = collectionTitle.trim().lowercase(Locale.ROOT)
+    val digestInput = "${provider.name.lowercase(Locale.US)}|$normalizedUrl|$normalizedTitle"
+    val hashBytes = MessageDigest.getInstance("SHA-256")
+        .digest(digestInput.toByteArray(Charsets.UTF_8))
+    val shortHash = buildString(12) {
+        for (i in 0 until 6) {
+            append(String.format(Locale.US, "%02x", hashBytes[i].toInt() and 0xFF))
+        }
+    }
+    return "import_${provider.name.lowercase(Locale.US)}_${slug}_$shortHash"
 }

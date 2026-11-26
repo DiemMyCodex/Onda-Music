@@ -23,6 +23,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -39,6 +40,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
@@ -69,6 +71,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -80,11 +83,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
@@ -98,6 +104,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInWindow
@@ -106,11 +113,19 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.lerp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
@@ -124,6 +139,7 @@ import com.onda.music.core.design.SmoothCornerShape
 import com.onda.music.core.design.press3D
 import com.onda.music.core.model.DownloadItem
 import com.onda.music.core.model.DownloadStatus
+import com.onda.music.core.model.LyricsDocument
 import com.onda.music.core.model.PlaybackState
 import com.onda.music.core.model.PlaybackStatus
 import com.onda.music.core.model.RepeatMode
@@ -138,8 +154,80 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.exp
+import kotlin.math.roundToInt
 import kotlin.math.sin
+
+internal fun clampCarouselIndex(index: Int, count: Int): Int {
+    return if (count <= 0) 0 else index.coerceIn(0, count - 1)
+}
+
+internal fun clampScrubCapsuleOffsetX(
+    thumbCenterX: Float,
+    capsuleWidthPx: Float,
+    containerWidthPx: Float
+): Float {
+    val safeContainer = if (containerWidthPx.isFinite()) containerWidthPx.coerceAtLeast(0f) else 0f
+    val safeCapsule = if (capsuleWidthPx.isFinite()) capsuleWidthPx.coerceAtLeast(0f) else 0f
+    val safeThumb = if (thumbCenterX.isFinite()) thumbCenterX else 0f
+    val maxOffset = (safeContainer - safeCapsule).coerceAtLeast(0f)
+    return (safeThumb - safeCapsule * 0.5f).coerceIn(0f, maxOffset)
+}
+
+internal fun computeScrubTiltDegrees(
+    dragDeltaPx: Float,
+    dtMs: Long,
+    reducedMotion: Boolean
+): Float {
+    if (reducedMotion || !dragDeltaPx.isFinite()) return 0f
+    val safeDt = dtMs.coerceAtLeast(1L)
+    val vx = (dragDeltaPx / safeDt) * 1000f
+    return if (vx.isFinite()) {
+        (vx / 280f).coerceIn(-7.5f, 7.5f)
+    } else if (vx > 0f) {
+        7.5f
+    } else {
+        -7.5f
+    }
+}
+
+internal fun resolveScrubPreviewLyric(
+    lyrics: LyricsDocument?,
+    positionMs: Long,
+    lyricsOffsetMs: Long
+): String? {
+    val doc = lyrics ?: return null
+    if (!doc.isSynced || doc.lines.isEmpty()) return null
+    val adjustedMs = (positionMs + lyricsOffsetMs).coerceAtLeast(0L)
+    val idx = findActiveLyricsLineIndex(doc.lines, adjustedMs, isSynced = true)
+    if (idx !in doc.lines.indices) return null
+    val line = doc.lines[idx]
+    if (line.isInterlude) return null
+    return line.text.trim().takeIf { it.isNotEmpty() }
+}
+
+internal fun computeLiquidSpectrumBarHeightFraction(
+    barIndex: Int,
+    barCount: Int,
+    phase: Float,
+    activeMotion: Boolean,
+    collapse: Float
+): Float {
+    val count = barCount.coerceAtLeast(2)
+    val t = (barIndex.toFloat() / (count - 1).toFloat()).coerceIn(0f, 1f)
+    val safePhase = if (phase.isFinite()) phase else 0f
+    val baseProfile = 0.22f + 0.38f * (0.5f + 0.5f * sin(t * 9.5f))
+    val dynamicWave = if (activeMotion) {
+        val h1 = 0.5f + 0.5f * sin(t * 14f - safePhase * 1.4f)
+        val h2 = 0.5f + 0.5f * cos(t * 23f + safePhase * 0.9f)
+        (baseProfile * 0.55f + (h1 * 0.65f + h2 * 0.35f) * 0.45f).coerceIn(0.14f, 1f)
+    } else {
+        baseProfile.coerceIn(0.14f, 1f)
+    }
+    val c = if (collapse.isFinite()) collapse.coerceIn(0f, 1f) else 0f
+    return (dynamicWave * (1f - c) + 0.14f * c).coerceIn(0.08f, 1f)
+}
 
 fun formatDurationMs(durationMs: Long): String {
     val totalSeconds = (durationMs.coerceAtLeast(0L) / 1_000L)
@@ -372,15 +460,27 @@ fun SongCarousel(
         return
     }
 
-    val safeIndex = currentIndex.coerceIn(0, displayTracks.lastIndex)
+    val safeIndex = clampCarouselIndex(currentIndex, displayTracks.size)
     val resolvedPagerState = pagerState ?: rememberPagerState(
         initialPage = safeIndex,
         pageCount = { displayTracks.size }
     )
+    val currentSafeIndex by rememberUpdatedState(safeIndex)
+    val currentOnSelectIndex by rememberUpdatedState(onSelectIndex)
+    var isProgrammaticScroll by remember { mutableStateOf(false) }
 
-    LaunchedEffect(safeIndex, displayTracks.size, resolvedPagerState) {
+    LaunchedEffect(safeIndex, displayTracks.size, resolvedPagerState, reducedMotion) {
         if (resolvedPagerState.currentPage != safeIndex && !resolvedPagerState.isScrollInProgress) {
-            resolvedPagerState.animateScrollToPage(safeIndex)
+            isProgrammaticScroll = true
+            try {
+                if (reducedMotion) {
+                    resolvedPagerState.scrollToPage(safeIndex)
+                } else {
+                    resolvedPagerState.animateScrollToPage(safeIndex)
+                }
+            } finally {
+                isProgrammaticScroll = false
+            }
         }
     }
 
@@ -389,8 +489,8 @@ fun SongCarousel(
             .filter { (_, scrolling) -> !scrolling }
             .distinctUntilChanged()
             .collect { (settled, _) ->
-                if (settled != safeIndex && settled in displayTracks.indices) {
-                    onSelectIndex(settled)
+                if (!isProgrammaticScroll && settled != currentSafeIndex && settled in displayTracks.indices) {
+                    currentOnSelectIndex(settled)
                 }
             }
     }
@@ -514,7 +614,9 @@ fun PlayerSeekSection(
     onSeekToFraction: (Float) -> Unit,
     modifier: Modifier = Modifier,
     accentColor: Color = Color.White,
-    seekbarStyle: StudioSeekbarStyle = StudioSeekbarStyle.HARMONIC_WAVE
+    seekbarStyle: StudioSeekbarStyle = StudioSeekbarStyle.HARMONIC_WAVE,
+    lyrics: LyricsDocument? = null,
+    lyricsOffsetMs: Long = 0L
 ) {
     val reducedMotion = OndaTheme.reducedMotion
     val density = LocalDensity.current
@@ -553,6 +655,7 @@ fun PlayerSeekSection(
     val currentTarget by rememberUpdatedState(targetFraction)
     val currentMoving by rememberUpdatedState(isPlaying || scrubbingFraction != null)
     val currentReducedMotion by rememberUpdatedState(reducedMotion)
+    val currentOnSeekToFraction by rememberUpdatedState(onSeekToFraction)
 
     LaunchedEffect(fillFollower) {
         fillFollower.follow(
@@ -602,6 +705,32 @@ fun PlayerSeekSection(
     val wavePath = remember { Path() }
     val waveLengthPx = with(density) { 22.dp.toPx() }.coerceAtLeast(8f)
     val maxWaveAmpPx = with(density) { 3.dp.toPx() }
+    var seekBarWidthPx by remember { mutableFloatStateOf(0f) }
+    var targetTiltDeg by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(targetTiltDeg, held) {
+        if (!held) {
+            targetTiltDeg = 0f
+        } else if (targetTiltDeg != 0f) {
+            delay(75L)
+            targetTiltDeg = 0f
+        }
+    }
+
+    val capsuleTiltDeg by animateFloatAsState(
+        targetValue = if (held && !reducedMotion) targetTiltDeg else 0f,
+        animationSpec = if (reducedMotion) snap() else spring(dampingRatio = 0.72f, stiffness = 460f),
+        label = "ScrubCapsuleTilt"
+    )
+
+    val doc = lyrics
+    val activeScrubLyric = remember(doc, shownPositionMs, lyricsOffsetMs) {
+        resolveScrubPreviewLyric(doc, shownPositionMs, lyricsOffsetMs)
+    }
+    var capsuleWidthPx by remember { mutableFloatStateOf(0f) }
+    var capsuleHeightPx by remember { mutableFloatStateOf(0f) }
+    val capsuleGapPx = with(density) { 10.dp.toPx() }
+    val padPxFloat = with(density) { 8.dp.toPx() }
 
     Column(modifier = modifier.fillMaxWidth()) {
         Box(
@@ -609,7 +738,10 @@ fun PlayerSeekSection(
                 .fillMaxWidth()
                 .defaultMinSize(minHeight = DockMetrics.MinTapTarget)
                 .height(DockMetrics.MinTapTarget)
-                .onSizeChanged { fillFollower.widthPx = it.width.toFloat() }
+                .onSizeChanged {
+                    seekBarWidthPx = it.width.toFloat()
+                    fillFollower.widthPx = it.width.toFloat()
+                }
                 .pointerInput(durationMs) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
@@ -628,25 +760,29 @@ fun PlayerSeekSection(
                         val usable = (size.width - pad * 2f).coerceAtLeast(1f)
                         val fraction = ((offset.x - pad) / usable).coerceIn(0f, 1f)
                         pendingSeekFraction = fraction
-                        onSeekToFraction(fraction)
+                        currentOnSeekToFraction(fraction)
                     }
                 }
                 .pointerInput(Unit) {
                     detectHorizontalDragGestures(
                         onDragStart = { offset ->
                             isGestureHeld = true
+                            targetTiltDeg = 0f
                             val pad = with(density) { 8.dp.toPx() }
                             val usable = (size.width - pad * 2f).coerceAtLeast(1f)
                             scrubbingFraction = ((offset.x - pad) / usable).coerceIn(0f, 1f)
                         },
-                        onHorizontalDrag = { change, _ ->
+                        onHorizontalDrag = { change, dragAmount ->
                             change.consume()
                             val pad = with(density) { 8.dp.toPx() }
                             val usable = (size.width - pad * 2f).coerceAtLeast(1f)
                             val raw = (change.position.x - pad) / usable
                             scrubbingFraction = raw.coerceIn(0f, 1f)
 
-                            if (!reducedMotion) {
+                            val dtMs = (change.uptimeMillis - change.previousUptimeMillis).coerceAtLeast(1L)
+                            targetTiltDeg = computeScrubTiltDegrees(dragAmount, dtMs, currentReducedMotion)
+
+                            if (!currentReducedMotion) {
                                 val over = when {
                                     raw < 0f -> raw * usable
                                     raw > 1f -> (raw - 1f) * usable
@@ -658,14 +794,15 @@ fun PlayerSeekSection(
                         },
                         onDragEnd = {
                             isGestureHeld = false
+                            targetTiltDeg = 0f
                             val commit = scrubbingFraction
                             scrubbingFraction = null
                             if (commit != null) {
                                 pendingSeekFraction = commit
-                                onSeekToFraction(commit)
+                                currentOnSeekToFraction(commit)
                             }
                             scope.launch {
-                                if (reducedMotion) {
+                                if (currentReducedMotion) {
                                     stretchPx.snapTo(0f)
                                 } else {
                                     stretchPx.animateTo(
@@ -677,9 +814,10 @@ fun PlayerSeekSection(
                         },
                         onDragCancel = {
                             isGestureHeld = false
+                            targetTiltDeg = 0f
                             scrubbingFraction = null
                             scope.launch {
-                                if (reducedMotion) {
+                                if (currentReducedMotion) {
                                     stretchPx.snapTo(0f)
                                 } else {
                                     stretchPx.animateTo(
@@ -693,6 +831,93 @@ fun PlayerSeekSection(
                 },
             contentAlignment = Alignment.Center
         ) {
+            if ((held || expandProgress > 0.01f) && durationMs > 0L && seekBarWidthPx > 0f) {
+                val horizontalPad = 12.dp
+                val horizontalPadPx = with(density) { horizontalPad.toPx() }
+                val verticalPad = 18.dp
+                val verticalPadPx = with(density) { verticalPad.toPx() }
+                Popup(
+                    alignment = Alignment.TopStart,
+                    offset = IntOffset(
+                        -horizontalPadPx.roundToInt(),
+                        -(capsuleHeightPx + capsuleGapPx + verticalPadPx).roundToInt()
+                    ),
+                    properties = PopupProperties(
+                        focusable = false,
+                        clippingEnabled = false
+                    )
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(with(density) { seekBarWidthPx.toDp() } + horizontalPad * 2)
+                            .padding(horizontal = horizontalPad, vertical = verticalPad)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .onSizeChanged {
+                                    capsuleWidthPx = it.width.toFloat()
+                                    capsuleHeightPx = it.height.toFloat()
+                                }
+                                .graphicsLayer {
+                                    val endX = (seekBarWidthPx - padPxFloat).coerceAtLeast(padPxFloat + 1f)
+                                    val usable = endX - padPxFloat
+                                    val thumbCenterX = padPxFloat + usable * fillFollower.fraction.coerceIn(0f, 1f)
+                                    translationX = clampScrubCapsuleOffsetX(thumbCenterX, capsuleWidthPx, seekBarWidthPx)
+                                    translationY = if (reducedMotion) 0f else (1f - expandProgress) * 10.dp.toPx()
+                                    val s = if (reducedMotion) 1f else lerp(0.84f, 1f, expandProgress)
+                                    scaleX = s
+                                    scaleY = s
+                                    alpha = if (capsuleWidthPx > 0f) expandProgress.coerceIn(0f, 1f) else 0f
+                                    rotationZ = if (reducedMotion) 0f else capsuleTiltDeg
+                                    transformOrigin = TransformOrigin(0.5f, 1f)
+                                }
+                                .widthIn(max = 260.dp)
+                                .clip(RoundedCornerShape(GlassTokens.RadiusMd))
+                                .background(Color(0xEB141418))
+                                .border(
+                                    width = 1.dp,
+                                    color = Color.White.copy(alpha = 0.14f),
+                                    shape = RoundedCornerShape(GlassTokens.RadiusMd)
+                                )
+                                .padding(horizontal = 12.dp, vertical = 7.dp)
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    OdometerText(
+                                        text = formatDurationMs(shownPositionMs),
+                                        style = MaterialTheme.typography.labelMedium.copy(
+                                            fontWeight = FontWeight.SemiBold
+                                        ),
+                                        color = Color.White
+                                    )
+                                    Text(
+                                        text = " / ${formatDurationMs(durationMs)}",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = Color(0xFF9E9E9E),
+                                        maxLines = 1
+                                    )
+                                }
+                                if (activeScrubLyric != null) {
+                                    Text(
+                                        text = activeScrubLyric,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = accentColor.copy(alpha = 0.92f),
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
@@ -858,6 +1083,67 @@ fun PlayerSeekSection(
                         drawCircle(
                             color = accentColor.copy(alpha = 0.28f + 0.14f * expandProgress),
                             radius = thumbRadius * 1.6f,
+                            center = Offset(activeEndX, centerY)
+                        )
+                        drawCircle(
+                            color = GlassTokens.TextPrimary,
+                            radius = thumbRadius,
+                            center = Offset(activeEndX, centerY)
+                        )
+                    }
+
+                    StudioSeekbarStyle.LIQUID_SPECTRUM -> {
+                        val collapse = expandProgress.coerceIn(0f, 1f)
+                        val railAlpha = collapse * 0.24f
+                        if (railAlpha > 0.01f) {
+                            val railStroke = lerp(2.5.dp.toPx(), 4.5.dp.toPx(), collapse)
+                            drawLine(
+                                color = GlassTokens.GlassHighlight.copy(alpha = railAlpha),
+                                start = Offset(startX, centerY),
+                                end = Offset(endX, centerY),
+                                strokeWidth = railStroke,
+                                cap = StrokeCap.Round
+                            )
+                            drawLine(
+                                color = accentColor.copy(alpha = collapse),
+                                start = Offset(startX, centerY),
+                                end = Offset(activeEndX, centerY),
+                                strokeWidth = railStroke,
+                                cap = StrokeCap.Round
+                            )
+                        }
+                        val barCount = 36
+                        val barStroke = lerp(2.6.dp.toPx(), 1.8.dp.toPx(), collapse)
+                        val maxBarHeight = lerp(18.dp.toPx(), 4.5.dp.toPx(), collapse)
+                        val activeMotion = isPlaying && !held && !reducedMotion
+                        for (i in 0 until barCount) {
+                            val tPos = i.toFloat() / (barCount - 1).toFloat()
+                            val bx = startX + usableWidth * tPos
+                            val heightFraction = computeLiquidSpectrumBarHeightFraction(
+                                barIndex = i,
+                                barCount = barCount,
+                                phase = wavePhase,
+                                activeMotion = activeMotion,
+                                collapse = collapse
+                            )
+                            val barHalfHeight = maxBarHeight * heightFraction * 0.5f
+                            val barColor = when {
+                                tPos <= displayed -> accentColor.copy(alpha = lerp(0.95f, 0.25f, collapse))
+                                tPos <= clampedBuffered -> GlassTokens.GlassHighlight.copy(alpha = lerp(0.34f, 0.12f, collapse))
+                                else -> GlassTokens.GlassHighlight.copy(alpha = lerp(0.18f, 0.08f, collapse))
+                            }
+                            drawLine(
+                                color = barColor,
+                                start = Offset(bx, centerY - barHalfHeight),
+                                end = Offset(bx, centerY + barHalfHeight),
+                                strokeWidth = barStroke,
+                                cap = StrokeCap.Round
+                            )
+                        }
+                        val thumbRadius = lerp(4.5.dp.toPx(), 6.8.dp.toPx(), collapse)
+                        drawCircle(
+                            color = accentColor.copy(alpha = 0.26f + 0.16f * collapse),
+                            radius = thumbRadius * 1.55f,
                             center = Offset(activeEndX, centerY)
                         )
                         drawCircle(
@@ -1327,12 +1613,35 @@ fun DownloadActionButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val icon = when (downloadItem?.status) {
+    val reducedMotion = OndaTheme.reducedMotion
+    val interactionSource = remember { MutableInteractionSource() }
+    val status = downloadItem?.status
+    val isActiveDownload = status == DownloadStatus.DOWNLOADING || status == DownloadStatus.QUEUED
+    var pulsePhase by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(isActiveDownload, reducedMotion) {
+        if (!isActiveDownload || reducedMotion) {
+            pulsePhase = 0f
+            return@LaunchedEffect
+        }
+        var lastNanos = 0L
+        while (true) {
+            withFrameNanos { frameNanos ->
+                if (lastNanos != 0L) {
+                    val dt = (frameNanos - lastNanos).coerceIn(0L, 50_000_000L) / 1_000_000_000f
+                    pulsePhase = (pulsePhase + dt * 4.2f) % (2f * PI.toFloat())
+                }
+                lastNanos = frameNanos
+            }
+        }
+    }
+
+    val icon = when (status) {
         DownloadStatus.COMPLETED -> Icons.Rounded.CheckCircle
         DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED -> Icons.Rounded.Downloading
         else -> Icons.Rounded.Download
     }
-    val tint = when (downloadItem?.status) {
+    val tint = when (status) {
         DownloadStatus.COMPLETED -> Color.White
         DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED -> Color.White
         DownloadStatus.FAILED -> GlassTokens.ErrorCoral
@@ -1341,14 +1650,151 @@ fun DownloadActionButton(
 
     IconButton(
         onClick = onClick,
-        modifier = modifier.defaultMinSize(minWidth = DockMetrics.MinTapTarget, minHeight = DockMetrics.MinTapTarget)
+        interactionSource = interactionSource,
+        modifier = modifier
+            .defaultMinSize(minWidth = DockMetrics.MinTapTarget, minHeight = DockMetrics.MinTapTarget)
+            .playerPressBounce(
+                interactionSource = interactionSource,
+                pressedScale = 0.85f,
+                reducedMotion = reducedMotion
+            )
     ) {
         Icon(
             imageVector = icon,
             contentDescription = "Download track",
             tint = tint,
-            modifier = Modifier.size(22.dp)
+            modifier = Modifier
+                .size(22.dp)
+                .graphicsLayer {
+                    if (isActiveDownload && !reducedMotion) {
+                        val wave = 0.5f + 0.5f * sin(pulsePhase)
+                        val s = lerp(0.94f, 1.08f, wave)
+                        scaleX = s
+                        scaleY = s
+                        alpha = lerp(0.72f, 1f, wave)
+                        rotationZ = sin(pulsePhase * 0.5f) * 6f
+                    }
+                }
         )
+    }
+}
+
+@Composable
+private fun MarqueeFadeText(
+    text: String,
+    style: TextStyle,
+    color: Color,
+    active: Boolean,
+    reducedMotion: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val textMeasurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    var containerWidthPx by remember { mutableFloatStateOf(0f) }
+    val textWidthPx = remember(text, style, textMeasurer) {
+        textMeasurer.measure(AnnotatedString(text), style = style, maxLines = 1).size.width.toFloat()
+    }
+    val gapPx = with(density) { 40.dp.toPx() }
+    val overflowPx = (textWidthPx - containerWidthPx).coerceAtLeast(0f)
+    val shouldMarquee = active && !reducedMotion && containerWidthPx > 0f && overflowPx > 2f
+    var scrollOffsetPx by remember(text, shouldMarquee) { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(text, shouldMarquee, textWidthPx, gapPx) {
+        scrollOffsetPx = 0f
+        if (!shouldMarquee) return@LaunchedEffect
+        val cyclePx = textWidthPx + gapPx
+        val speedPxPerSec = with(density) { 36.dp.toPx() }.coerceAtLeast(24f)
+        while (true) {
+            scrollOffsetPx = 0f
+            delay(1_800L)
+            var lastNanos = 0L
+            while (scrollOffsetPx < cyclePx) {
+                withFrameNanos { frameNanos ->
+                    if (lastNanos != 0L) {
+                        val dt = (frameNanos - lastNanos).coerceIn(0L, 50_000_000L) / 1_000_000_000f
+                        scrollOffsetPx = (scrollOffsetPx + speedPxPerSec * dt).coerceAtMost(cyclePx)
+                    }
+                    lastNanos = frameNanos
+                }
+            }
+        }
+    }
+
+    if (reducedMotion || containerWidthPx <= 0f || overflowPx <= 2f) {
+        Text(
+            text = text,
+            style = style,
+            color = color,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = modifier
+                .fillMaxWidth()
+                .onSizeChanged { containerWidthPx = it.width.toFloat() }
+        )
+    } else {
+        val idleFadeBrush = remember {
+            Brush.horizontalGradient(
+                0.00f to Color.Black,
+                0.88f to Color.Black,
+                1.00f to Color.Transparent
+            )
+        }
+        val scrollingFadeBrush = remember {
+            Brush.horizontalGradient(
+                0.00f to Color.Transparent,
+                0.06f to Color.Black,
+                0.90f to Color.Black,
+                1.00f to Color.Transparent
+            )
+        }
+        Box(
+            modifier = modifier
+                .fillMaxWidth()
+                .onSizeChanged { containerWidthPx = it.width.toFloat() }
+                .clipToBounds()
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                .drawWithContent {
+                    drawContent()
+                    drawRect(
+                        brush = if (scrollOffsetPx > 1f) scrollingFadeBrush else idleFadeBrush,
+                        blendMode = BlendMode.DstIn
+                    )
+                }
+        ) {
+            val cyclePx = textWidthPx + gapPx
+            Row(
+                modifier = Modifier
+                    .layout { measurable, constraints ->
+                        val placeable = measurable.measure(
+                            constraints.copy(minWidth = 0, maxWidth = Constraints.Infinity)
+                        )
+                        val layoutWidth = if (constraints.hasBoundedWidth) constraints.maxWidth else placeable.width
+                        layout(layoutWidth.coerceAtLeast(0), placeable.height) {
+                            placeable.place(0, 0)
+                        }
+                    }
+                    .graphicsLayer {
+                        translationX = -(scrollOffsetPx % cyclePx)
+                    },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = text,
+                    style = style,
+                    color = color,
+                    maxLines = 1,
+                    softWrap = false
+                )
+                Spacer(modifier = Modifier.width(40.dp))
+                Text(
+                    text = text,
+                    style = style,
+                    color = color,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
+        }
     }
 }
 
@@ -1368,6 +1814,58 @@ fun TrackMetaHeader(
     likeSlot: OndaLikeSlot = OndaLikeSlot.PLAYER
 ) {
     val reducedMotion = OndaTheme.reducedMotion
+    val titleCascade = remember { Animatable(1f) }
+    val artistCascade = remember { Animatable(1f) }
+    var isPagerUserDragging by remember(pagerState) { mutableStateOf(false) }
+    var lastUserDragEndMs by remember(pagerState) { mutableLongStateOf(0L) }
+    val currentTrack = track
+    var initializedTrackId by remember { mutableStateOf(currentTrack?.id) }
+
+    if (pagerState != null) {
+        LaunchedEffect(pagerState) {
+            pagerState.interactionSource.interactions.collect { interaction ->
+                when (interaction) {
+                    is DragInteraction.Start -> {
+                        isPagerUserDragging = true
+                        lastUserDragEndMs = System.currentTimeMillis()
+                    }
+                    is DragInteraction.Stop, is DragInteraction.Cancel -> {
+                        isPagerUserDragging = false
+                        lastUserDragEndMs = System.currentTimeMillis()
+                    }
+                }
+            }
+        }
+    }
+
+    val trackId = currentTrack?.id
+    LaunchedEffect(trackId, reducedMotion) {
+        if (trackId == initializedTrackId) return@LaunchedEffect
+        initializedTrackId = trackId
+        val draggedRecently = pagerState != null && (
+            isPagerUserDragging || (System.currentTimeMillis() - lastUserDragEndMs) < 850L
+            )
+        if (reducedMotion || draggedRecently) {
+            titleCascade.snapTo(1f)
+            artistCascade.snapTo(1f)
+            return@LaunchedEffect
+        }
+        titleCascade.snapTo(0f)
+        artistCascade.snapTo(0f)
+        launch {
+            titleCascade.animateTo(
+                targetValue = 1f,
+                animationSpec = spring(dampingRatio = 0.80f, stiffness = 460f)
+            )
+        }
+        launch {
+            delay(45L)
+            artistCascade.animateTo(
+                targetValue = 1f,
+                animationSpec = spring(dampingRatio = 0.80f, stiffness = 460f)
+            )
+        }
+    }
 
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -1395,6 +1893,7 @@ fun TrackMetaHeader(
             ) {
                 for (slotPage in visibleSlotPages) {
                     val slotTrack = queue.getOrNull(slotPage) ?: continue
+                    val isCurrentSlot = slotPage == pagerState.currentPage
                     key("${slotTrack.id}_$slotPage") {
                         Column(
                             modifier = Modifier
@@ -1408,19 +1907,39 @@ fun TrackMetaHeader(
                                 },
                             verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
-                            Text(
+                            MarqueeFadeText(
                                 text = slotTrack.title,
                                 style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
                                 color = Color.White,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                active = isCurrentSlot && !pagerState.isScrollInProgress,
+                                reducedMotion = reducedMotion,
+                                modifier = Modifier.graphicsLayer {
+                                    if (isCurrentSlot && !reducedMotion) {
+                                        val p = titleCascade.value
+                                        translationY = (1f - p) * 14.dp.toPx()
+                                        val s = lerp(0.96f, 1f, p)
+                                        scaleX = s
+                                        scaleY = s
+                                        alpha = p
+                                    }
+                                }
                             )
-                            Text(
+                            MarqueeFadeText(
                                 text = slotTrack.artist,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = Color(0xFF9E9E9E),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                active = isCurrentSlot && !pagerState.isScrollInProgress,
+                                reducedMotion = reducedMotion,
+                                modifier = Modifier.graphicsLayer {
+                                    if (isCurrentSlot && !reducedMotion) {
+                                        val p = artistCascade.value
+                                        translationY = (1f - p) * 14.dp.toPx()
+                                        val s = lerp(0.96f, 1f, p)
+                                        scaleX = s
+                                        scaleY = s
+                                        alpha = p
+                                    }
+                                }
                             )
                         }
                     }
@@ -1431,19 +1950,39 @@ fun TrackMetaHeader(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                Text(
-                    text = track?.title ?: "Nothing playing",
+                MarqueeFadeText(
+                    text = currentTrack?.title ?: "Nothing playing",
                     style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
                     color = Color.White,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    active = currentTrack != null,
+                    reducedMotion = reducedMotion,
+                    modifier = Modifier.graphicsLayer {
+                        if (!reducedMotion) {
+                            val p = titleCascade.value
+                            translationY = (1f - p) * 14.dp.toPx()
+                            val s = lerp(0.96f, 1f, p)
+                            scaleX = s
+                            scaleY = s
+                            alpha = p
+                        }
+                    }
                 )
-                Text(
-                    text = track?.artist ?: "Select a song to start listening",
+                MarqueeFadeText(
+                    text = currentTrack?.artist ?: "Select a song to start listening",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color(0xFF9E9E9E),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    active = currentTrack != null,
+                    reducedMotion = reducedMotion,
+                    modifier = Modifier.graphicsLayer {
+                        if (!reducedMotion) {
+                            val p = artistCascade.value
+                            translationY = (1f - p) * 14.dp.toPx()
+                            val s = lerp(0.96f, 1f, p)
+                            scaleX = s
+                            scaleY = s
+                            alpha = p
+                        }
+                    }
                 )
             }
         }

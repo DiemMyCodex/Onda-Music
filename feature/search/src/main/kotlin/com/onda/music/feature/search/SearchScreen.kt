@@ -150,6 +150,7 @@ fun SearchScreen(
     val focusRequester = remember { FocusRequester() }
     val reducedMotion = OndaTheme.reducedMotion
     val revealSeen = rememberSearchRevealSeenState()
+    val strings = remember(uiState.languageCode) { resolveSearchStrings(uiState.languageCode) }
 
     var isSearchFocused by remember { mutableStateOf(false) }
     val browseListState = rememberLazyListState()
@@ -184,10 +185,8 @@ fun SearchScreen(
         targetValue = if (drillDownVisible) 1f else 0f,
         animationSpec = if (reducedMotion) {
             snap()
-        } else if (drillDownVisible) {
-            spring(dampingRatio = 0.88f, stiffness = 260f)
         } else {
-            spring(dampingRatio = 0.92f, stiffness = 340f)
+            spring(dampingRatio = 0.86f, stiffness = 420f)
         },
         label = "searchDrillDownFraction"
     )
@@ -229,6 +228,7 @@ fun SearchScreen(
                 ) {
                     SearchBrowseBody(
                         uiState = uiState,
+                        strings = strings,
                         listState = browseListState,
                         topPadding = topBarExpandedPadding,
                         revealSeen = revealSeen,
@@ -243,6 +243,7 @@ fun SearchScreen(
                         onSelectMoodCategory = {
                             focusManager.clearFocus()
                             isSearchFocused = false
+                            launchOrigin = SearchLaunchOrigin()
                             onSelectMoodCategory(it)
                         },
                         onRetryMoods = onRetryMoods
@@ -259,6 +260,7 @@ fun SearchScreen(
                     if (uiState.query.isBlank()) {
                         SearchFocusedIdleBody(
                             uiState = uiState,
+                            strings = strings,
                             listState = focusedHistoryListState,
                             topPadding = topBarExpandedPadding,
                             onOpenLinkSheet = {
@@ -276,6 +278,7 @@ fun SearchScreen(
                     } else {
                         SearchResultsBody(
                             uiState = uiState,
+                            strings = strings,
                             listState = resultsListState,
                             topPadding = topBarExpandedPadding,
                             revealSeen = revealSeen,
@@ -310,13 +313,16 @@ fun SearchScreen(
                     {
                         SourceFilterRow(
                             activeFilter = uiState.activeFilter,
-                            onSelectFilter = onSelectFilter
+                            onSelectFilter = onSelectFilter,
+                            strings = strings
                         )
                     }
                 } else {
                     null
                 },
-                modifier = Modifier.align(Alignment.TopCenter)
+                modifier = Modifier.align(Alignment.TopCenter),
+                glassBlurEnabled = uiState.glassBlurEnabled,
+                strings = strings
             ) {
                 SmokedSearchBar(
                     query = uiState.query,
@@ -337,7 +343,8 @@ fun SearchScreen(
                         isSearchFocused = false
                         focusManager.clearFocus()
                         keyboardController?.hide()
-                    }
+                    },
+                    strings = strings
                 )
             }
         }
@@ -352,7 +359,8 @@ fun SearchScreen(
                 onReset = onResetLinkImport,
                 onPlayImported = onPlayImportedPlaylist,
                 onInspectImported = onInspectImportedPlaylist,
-                onDismiss = onDismissLinkSheet
+                onDismiss = onDismissLinkSheet,
+                strings = strings
             )
         }
 
@@ -363,6 +371,8 @@ fun SearchScreen(
                 currentTrackId = uiState.currentTrackId,
                 isPlaying = uiState.isPlaying,
                 hasMiniPlayer = uiState.hasMiniPlayer,
+                glassBlurEnabled = uiState.glassBlurEnabled,
+                strings = strings,
                 openFractionProvider = { drillDownFractionState.value },
                 launchOrigin = launchOrigin,
                 onPlayAll = onPlayDrillDownAll,
@@ -379,6 +389,7 @@ fun SearchScreen(
 @Composable
 private fun SearchBrowseBody(
     uiState: SearchUiState,
+    strings: SearchStrings,
     listState: LazyListState,
     topPadding: Dp,
     revealSeen: SearchRevealSeenState,
@@ -409,7 +420,8 @@ private fun SearchBrowseBody(
             Box(modifier = Modifier.searchRevealOnAppear("search_link_card", revealSeen, cascade = true)) {
                 LinkImportPromoCard(
                     onClick = onOpenLinkSheet,
-                    modifier = Modifier.padding(horizontal = 16.dp)
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    strings = strings
                 )
             }
         }
@@ -421,7 +433,8 @@ private fun SearchBrowseBody(
                         history = uiState.history,
                         onSelect = onSelectHistoryItem,
                         onDelete = onDeleteHistoryItem,
-                        onClearAll = onClearAllHistory
+                        onClearAll = onClearAllHistory,
+                        strings = strings
                     )
                 }
             }
@@ -430,8 +443,8 @@ private fun SearchBrowseBody(
         item(key = "moods_header") {
             Box(modifier = Modifier.searchRevealOnAppear("search_moods_header", revealSeen, cascade = true)) {
                 SectionHeader(
-                    title = "Moods & Genres",
-                    subtitle = "Explore curated YouTube Music stations"
+                    title = strings.moodsAndGenresTitle,
+                    subtitle = strings.moodsAndGenresSubtitle
                 )
             }
         }
@@ -441,7 +454,8 @@ private fun SearchBrowseBody(
                 MoodLoadFallbackCard(
                     isLoading = uiState.isLoadingMoods,
                     errorMessage = uiState.moodError,
-                    onRetry = onRetryMoods
+                    onRetry = onRetryMoods,
+                    strings = strings
                 )
             }
         } else {
@@ -465,6 +479,7 @@ private fun SearchBrowseBody(
 @Composable
 private fun SearchFocusedIdleBody(
     uiState: SearchUiState,
+    strings: SearchStrings,
     listState: LazyListState,
     topPadding: Dp,
     onOpenLinkSheet: () -> Unit,
@@ -483,14 +498,15 @@ private fun SearchFocusedIdleBody(
         item(key = "focused_link_import") {
             LinkImportPromoCard(
                 onClick = onOpenLinkSheet,
-                modifier = Modifier.padding(horizontal = 16.dp)
+                modifier = Modifier.padding(horizontal = 16.dp),
+                strings = strings
             )
         }
         if (uiState.history.isNotEmpty()) {
             item(key = "focused_history_header") {
                 SectionHeader(
-                    title = "Recent Searches",
-                    actionLabel = "Clear",
+                    title = strings.recentSearchesTitle,
+                    actionLabel = strings.clearAction,
                     onActionClick = onClearAllHistory
                 )
             }
@@ -538,7 +554,7 @@ private fun SearchFocusedIdleBody(
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.Close,
-                            contentDescription = "Remove $query",
+                            contentDescription = strings.removeHistoryDescription(query),
                             tint = OndaTheme.colors.textTertiary,
                             modifier = Modifier.size(18.dp)
                         )
@@ -554,7 +570,7 @@ private fun SearchFocusedIdleBody(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "Type a song, album, artist or lyric to search across sources.",
+                        text = strings.focusedEmptyHint,
                         style = MaterialTheme.typography.bodyMedium,
                         color = OndaTheme.colors.textTertiary
                     )
@@ -567,6 +583,7 @@ private fun SearchFocusedIdleBody(
 @Composable
 private fun SearchResultsBody(
     uiState: SearchUiState,
+    strings: SearchStrings,
     listState: LazyListState,
     topPadding: Dp,
     revealSeen: SearchRevealSeenState,
@@ -611,7 +628,7 @@ private fun SearchResultsBody(
                     SearchLoadingDots(dotColor = OndaTheme.colors.accent)
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(
-                        text = "Searching across sources",
+                        text = strings.searchingAcrossSources,
                         style = MaterialTheme.typography.bodySmall,
                         color = OndaTheme.colors.textSecondary
                     )
@@ -653,7 +670,7 @@ private fun SearchResultsBody(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(text = "Retry")
+                        Text(text = strings.retryAction)
                     }
                 }
             }
@@ -662,8 +679,8 @@ private fun SearchResultsBody(
         if (visible.monochromeTracks.isNotEmpty()) {
             item(key = "mono_header") {
                 SectionHeader(
-                    title = "Monochrome FLAC",
-                    subtitle = "${visible.monochromeTracks.size} lossless matches"
+                    title = strings.monochromeHeader,
+                    subtitle = strings.losslessMatchCountLabel(visible.monochromeTracks.size)
                 )
             }
             items(
@@ -676,7 +693,8 @@ private fun SearchResultsBody(
                         isCurrent = track.id == uiState.currentTrackId,
                         isPlaying = uiState.isPlaying,
                         onClick = { onPlayTrack(track, visible.monochromeTracks) },
-                        onToggleLike = { onToggleLike(track) }
+                        onToggleLike = { onToggleLike(track) },
+                        strings = strings
                     )
                 }
             }
@@ -685,8 +703,8 @@ private fun SearchResultsBody(
         if (visible.ytTracks.isNotEmpty()) {
             item(key = "yt_tracks_header") {
                 SectionHeader(
-                    title = "YouTube Music Songs",
-                    subtitle = "${visible.ytTracks.size} tracks"
+                    title = strings.ytTracksHeader,
+                    subtitle = strings.trackCountLabel(visible.ytTracks.size)
                 )
             }
             items(
@@ -699,7 +717,8 @@ private fun SearchResultsBody(
                         isCurrent = track.id == uiState.currentTrackId,
                         isPlaying = uiState.isPlaying,
                         onClick = { onPlayTrack(track, visible.ytTracks) },
-                        onToggleLike = { onToggleLike(track) }
+                        onToggleLike = { onToggleLike(track) },
+                        strings = strings
                     )
                 }
             }
@@ -707,23 +726,26 @@ private fun SearchResultsBody(
 
         if (visible.albums.isNotEmpty()) {
             item(key = "albums_header") {
-                SectionHeader(title = "Albums")
+                SectionHeader(title = strings.albumsHeader)
             }
             item(key = "albums_row") {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(
-                        items = visible.albums,
-                        key = { "album_${it.id}" }
-                    ) { album ->
-                        var capturedBounds by remember { mutableStateOf<Rect?>(null) }
-                        SearchAlbumCard(
-                            album = album,
-                            onCaptureBounds = { capturedBounds = it },
-                            onClick = { onOpenAlbum(album, capturedBounds) }
-                        )
+                Box(modifier = Modifier.searchRevealOnAppear("search_albums_row", revealSeen, cascade = true)) {
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(
+                            items = visible.albums,
+                            key = { "album_${it.id}" }
+                        ) { album ->
+                            var capturedBounds by remember { mutableStateOf<Rect?>(null) }
+                            SearchAlbumCard(
+                                album = album,
+                                onCaptureBounds = { capturedBounds = it },
+                                onClick = { onOpenAlbum(album, capturedBounds) },
+                                strings = strings
+                            )
+                        }
                     }
                 }
             }
@@ -731,38 +753,44 @@ private fun SearchResultsBody(
 
         if (visible.playlists.isNotEmpty()) {
             item(key = "playlists_header") {
-                SectionHeader(title = "Playlists")
+                SectionHeader(title = strings.playlistsHeader)
             }
             items(
                 items = visible.playlists,
                 key = { "playlist_${it.id}" }
             ) { playlist ->
-                var capturedBounds by remember { mutableStateOf<Rect?>(null) }
-                SearchPlaylistCard(
-                    playlist = playlist,
-                    onCaptureBounds = { capturedBounds = it },
-                    onClick = { onOpenPlaylist(playlist, capturedBounds) }
-                )
+                Box(modifier = Modifier.searchRevealOnAppear("playlist_${playlist.id}", revealSeen, cascade = true)) {
+                    var capturedBounds by remember { mutableStateOf<Rect?>(null) }
+                    SearchPlaylistCard(
+                        playlist = playlist,
+                        onCaptureBounds = { capturedBounds = it },
+                        onClick = { onOpenPlaylist(playlist, capturedBounds) },
+                        strings = strings
+                    )
+                }
             }
         }
 
         if (visible.artists.isNotEmpty()) {
             item(key = "artists_header") {
-                SectionHeader(title = "Artists")
+                SectionHeader(title = strings.artistsHeader)
             }
             item(key = "artists_row") {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(
-                        items = visible.artists,
-                        key = { "artist_${it.id}" }
-                    ) { artist ->
-                        SearchArtistChip(
-                            artist = artist,
-                            onClick = { onSearchArtist(artist) }
-                        )
+                Box(modifier = Modifier.searchRevealOnAppear("search_artists_row", revealSeen, cascade = true)) {
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(
+                            items = visible.artists,
+                            key = { "artist_${it.id}" }
+                        ) { artist ->
+                            SearchArtistChip(
+                                artist = artist,
+                                onClick = { onSearchArtist(artist) },
+                                strings = strings
+                            )
+                        }
                     }
                 }
             }
@@ -771,8 +799,8 @@ private fun SearchResultsBody(
         if (visible.localTracks.isNotEmpty()) {
             item(key = "local_header") {
                 SectionHeader(
-                    title = "Local Library",
-                    subtitle = "${visible.localTracks.size} on device"
+                    title = strings.localLibraryHeader,
+                    subtitle = strings.localCountLabel(visible.localTracks.size)
                 )
             }
             items(
@@ -785,7 +813,8 @@ private fun SearchResultsBody(
                         isCurrent = track.id == uiState.currentTrackId,
                         isPlaying = uiState.isPlaying,
                         onClick = { onPlayTrack(track, visible.localTracks) },
-                        onToggleLike = { onToggleLike(track) }
+                        onToggleLike = { onToggleLike(track) },
+                        strings = strings
                     )
                 }
             }
@@ -800,7 +829,7 @@ private fun SearchResultsBody(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "No results found in ${uiState.activeFilter.label} for \"${uiState.query.trim()}\"",
+                        text = strings.emptyResultsLabel(strings.filterLabel(uiState.activeFilter), uiState.query.trim()),
                         style = MaterialTheme.typography.bodyMedium,
                         color = OndaTheme.colors.textTertiary
                     )

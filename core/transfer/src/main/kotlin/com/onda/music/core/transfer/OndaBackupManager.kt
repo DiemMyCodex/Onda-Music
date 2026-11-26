@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.room.withTransaction
 import com.onda.music.core.database.OndaDatabase
 import com.onda.music.core.database.OndaPreferences
+import com.onda.music.core.database.OndaUserSettings
 import com.onda.music.core.database.PlaylistSongEntity
 import com.onda.music.core.database.SearchHistoryEntity
 import com.onda.music.core.database.SongArtistCrossRef
@@ -105,7 +106,7 @@ class OndaBackupManager @Inject constructor(
                 version = OndaArchiveCodec.FORMAT_VERSION,
                 exportedAtEpochMs = System.currentTimeMillis(),
                 appName = context.packageName,
-                appVersion = "1.0"
+                appVersion = ONDA_TRANSFER_APP_VERSION
             )
 
             onProgress(TransferProgress(stage = "Writing backup archive", fraction = 0.65f))
@@ -205,32 +206,16 @@ class OndaBackupManager @Inject constructor(
 
             onProgress(TransferProgress(stage = "Restoring settings", fraction = 0.85f))
             val savedAvatarPath = bundle.avatarBytes?.takeIf { it.isNotEmpty() }?.let { bytes ->
-                val avatarFile = File(context.filesDir, "onda_avatar.jpg")
-                avatarFile.writeBytes(bytes)
-                avatarFile.absolutePath
+                saveOndaAvatarBytes(context.filesDir, bytes)
             }
 
             preferences.updateSettings { current ->
-                if (policy == MergePolicy.REPLACE_EXISTING) {
-                    bundle.settings.copy(avatarPath = savedAvatarPath ?: current.avatarPath)
-                } else {
-                    current.copy(
-                        username = bundle.settings.username.ifBlank { current.username },
-                        avatarPath = savedAvatarPath ?: current.avatarPath,
-                        playerStyle = bundle.settings.playerStyle,
-                        eqConfig = bundle.settings.eqConfig,
-                        repeatMode = bundle.settings.repeatMode,
-                        shuffleEnabled = bundle.settings.shuffleEnabled,
-                        glassBlurEnabled = bundle.settings.glassBlurEnabled,
-                        dynamicMeshEnabled = bundle.settings.dynamicMeshEnabled,
-                        lyricsMotionEnabled = bundle.settings.lyricsMotionEnabled,
-                        lyricsFontScale = bundle.settings.lyricsFontScale,
-                        hapticsEnabled = bundle.settings.hapticsEnabled,
-                        monochromeEnabled = bundle.settings.monochromeEnabled,
-                        languageCode = bundle.settings.languageCode,
-                        maxCacheMb = bundle.settings.maxCacheMb
-                    )
-                }
+                mergeRestoredSettings(
+                    current = current,
+                    restored = bundle.settings,
+                    policy = policy,
+                    savedAvatarPath = savedAvatarPath
+                )
             }
 
             onProgress(TransferProgress(stage = "Restore complete", fraction = 1.0f))
@@ -282,5 +267,51 @@ class OndaBackupManager @Inject constructor(
             }
         }.getOrDefault(false)
         return track.copy(needsRelink = !accessible)
+    }
+
+    companion object {
+        internal const val ONDA_TRANSFER_APP_VERSION = "1.3.0"
+
+        internal fun mergeRestoredSettings(
+            current: OndaUserSettings,
+            restored: OndaUserSettings,
+            policy: MergePolicy,
+            savedAvatarPath: String?
+        ): OndaUserSettings {
+            if (policy == MergePolicy.REPLACE_EXISTING) {
+                return restored.copy(avatarPath = savedAvatarPath ?: current.avatarPath)
+            }
+            return restored.copy(
+                username = restored.username.ifBlank { current.username },
+                avatarPath = savedAvatarPath ?: current.avatarPath,
+                ytCookie = restored.ytCookie?.takeIf { it.isNotBlank() } ?: current.ytCookie,
+                proxyUrl = restored.proxyUrl?.takeIf { it.isNotBlank() } ?: current.proxyUrl,
+                downloadTreeUri = restored.downloadTreeUri?.takeIf { it.isNotBlank() } ?: current.downloadTreeUri,
+                onboardingCompleted = restored.onboardingCompleted || current.onboardingCompleted,
+                scrobbleService = restored.scrobbleService.ifBlank { current.scrobbleService },
+                scrobbleUsername = restored.scrobbleUsername.ifBlank { current.scrobbleUsername },
+                scrobbleSessionKey = restored.scrobbleSessionKey.ifBlank { current.scrobbleSessionKey },
+                scrobbleApiKey = restored.scrobbleApiKey.ifBlank { current.scrobbleApiKey },
+                scrobbleApiSecret = restored.scrobbleApiSecret.ifBlank { current.scrobbleApiSecret },
+                discordUserToken = restored.discordUserToken?.takeIf { it.isNotBlank() } ?: current.discordUserToken
+            )
+        }
+
+        internal fun saveOndaAvatarBytes(
+            filesDir: File,
+            bytes: ByteArray,
+            timestampMs: Long = System.currentTimeMillis()
+        ): String? {
+            if (bytes.isEmpty()) return null
+            if (!filesDir.exists()) {
+                filesDir.mkdirs()
+            }
+            filesDir.listFiles { file ->
+                file.name.startsWith("onda_avatar")
+            }?.forEach { it.delete() }
+            val avatarFile = File(filesDir, "onda_avatar_$timestampMs.jpg")
+            avatarFile.writeBytes(bytes)
+            return avatarFile.absolutePath
+        }
     }
 }

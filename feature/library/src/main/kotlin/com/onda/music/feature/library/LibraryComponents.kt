@@ -2,11 +2,15 @@ package com.onda.music.feature.library
 
 import android.os.Build
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,9 +33,8 @@ import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -81,6 +84,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -88,15 +92,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
@@ -122,13 +134,14 @@ import com.onda.music.core.model.SourceKind
 import com.onda.music.core.model.Track
 import java.util.Locale
 import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
 private val LibraryTopInset = 12.dp
-private val LibraryRow1Height = 42.dp
+private val LibraryRow1Height = 44.dp
 private val LibraryHeaderSearchGap = 16.dp
 private val LibraryRowGap = 12.dp
 private val LibrarySearchHeight = 48.dp
-private val LibraryTabRowHeight = 34.dp
+private val LibraryTabRowHeight = 44.dp
 private val LibraryHeaderBottomPad = 12.dp
 
 private val CardSurfaceObsidian = Color(0xFF141416)
@@ -171,7 +184,9 @@ internal fun LibraryGlassTopBar(
     onSelectTab: (LibraryTab) -> Unit,
     onCreatePlaylist: () -> Unit,
     onOpenSettings: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    blurEnabled: Boolean = true,
+    strings: LibraryStrings = resolveLibraryStrings("en")
 ) {
     val reducedMotion = OndaTheme.reducedMotion
     val statusBar = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -185,6 +200,7 @@ internal fun LibraryGlassTopBar(
             direction = BlurDirection.BOTTOM_TO_TOP,
             maxBlurRadius = { 28f },
             foundationColor = Color.Black,
+            blurEnabled = blurEnabled,
             modifier = Modifier.matchParentSize()
         )
 
@@ -220,15 +236,17 @@ internal fun LibraryGlassTopBar(
                                 scaleY = s
                                 translationY = if (reducedMotion) 0f else -p * row1TotalPx * 0.45f
                                 transformOrigin = TransformOrigin(0f, 0.5f)
-                                if (!reducedMotion && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                if (blurEnabled && !reducedMotion && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                                     renderEffect = if (p > 0.06f) LibraryBlurCache.blur(p * 10f) else null
+                                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                    renderEffect = null
                                 }
                             },
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = "Library",
+                            text = strings.libraryTitle,
                             fontSize = 28.sp,
                             lineHeight = 34.sp,
                             fontWeight = FontWeight.Bold,
@@ -244,13 +262,13 @@ internal fun LibraryGlassTopBar(
                             val actionsActive = collapseProgress() < 0.45f
                             ObsidianCircleActionPill(
                                 icon = Icons.Rounded.Add,
-                                contentDescription = "New playlist",
+                                contentDescription = strings.newPlaylistDesc,
                                 enabled = actionsActive,
                                 onClick = onCreatePlaylist
                             )
                             ObsidianCircleActionPill(
                                 icon = Icons.Rounded.Settings,
-                                contentDescription = "Settings",
+                                contentDescription = strings.settingsDesc,
                                 enabled = actionsActive,
                                 onClick = onOpenSettings
                             )
@@ -271,6 +289,7 @@ internal fun LibraryGlassTopBar(
                 LibrarySearchPill(
                     query = searchQuery,
                     onQueryChange = onSearchQueryChange,
+                    strings = strings,
                     modifier = Modifier.weight(1f)
                 )
 
@@ -304,13 +323,13 @@ internal fun LibraryGlassTopBar(
                     ) {
                         ObsidianCircleActionPill(
                             icon = Icons.Rounded.Add,
-                            contentDescription = "New playlist",
+                            contentDescription = strings.newPlaylistDesc,
                             enabled = inlineActive,
                             onClick = onCreatePlaylist
                         )
                         ObsidianCircleActionPill(
                             icon = Icons.Rounded.Settings,
-                            contentDescription = "Settings",
+                            contentDescription = strings.settingsDesc,
                             enabled = inlineActive,
                             onClick = onOpenSettings
                         )
@@ -322,7 +341,8 @@ internal fun LibraryGlassTopBar(
 
             LibraryCategoryPills(
                 selectedTab = selectedTab,
-                onSelectTab = onSelectTab
+                onSelectTab = onSelectTab,
+                strings = strings
             )
         }
     }
@@ -339,13 +359,13 @@ private fun ObsidianCircleActionPill(
     val interactionSource = remember { MutableInteractionSource() }
     Box(
         modifier = modifier
-            .size(42.dp)
+            .size(44.dp)
             .libraryPressBounce(interactionSource, pressedScale = 0.90f)
             .clip(CircleShape)
             .background(ActionPillObsidian)
             .clickable(
                 interactionSource = interactionSource,
-                indication = LibraryHighlightIndication(cornerRadius = 21.dp),
+                indication = LibraryHighlightIndication(cornerRadius = 22.dp),
                 enabled = enabled,
                 onClick = onClick
             ),
@@ -364,7 +384,8 @@ private fun ObsidianCircleActionPill(
 internal fun LibrarySearchPill(
     query: String,
     onQueryChange: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    strings: LibraryStrings = resolveLibraryStrings("en")
 ) {
     val focusManager = LocalFocusManager.current
     var isFocused by remember { mutableStateOf(false) }
@@ -391,7 +412,7 @@ internal fun LibrarySearchPill(
         ) {
             if (query.isEmpty()) {
                 Text(
-                    text = "Search library...",
+                    text = strings.searchPlaceholder,
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color(0xFF7C7C84),
                     maxLines = 1,
@@ -419,19 +440,19 @@ internal fun LibrarySearchPill(
             val clearInteraction = remember { MutableInteractionSource() }
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(44.dp)
                     .libraryPressBounce(clearInteraction, pressedScale = 0.88f)
                     .clip(CircleShape)
                     .clickable(
                         interactionSource = clearInteraction,
-                        indication = LibraryHighlightIndication(cornerRadius = 20.dp),
+                        indication = LibraryHighlightIndication(cornerRadius = 22.dp),
                         onClick = { onQueryChange("") }
                     ),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Rounded.Close,
-                    contentDescription = "Clear search",
+                    contentDescription = strings.clearSearchDesc,
                     tint = MutedTextGray,
                     modifier = Modifier.size(17.dp)
                 )
@@ -444,73 +465,137 @@ internal fun LibrarySearchPill(
 internal fun LibraryCategoryPills(
     selectedTab: LibraryTab,
     onSelectTab: (LibraryTab) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    strings: LibraryStrings = resolveLibraryStrings("en")
 ) {
     val reducedMotion = OndaTheme.reducedMotion
-    val listState = rememberLazyListState()
-    LaunchedEffect(selectedTab) {
-        val index = LibraryTab.entries.indexOf(selectedTab)
-        if (index >= 0) {
-            if (reducedMotion) {
-                listState.scrollToItem(index)
+    val scrollState = rememberScrollState()
+    val tabs = LibraryTab.entries
+    val tabStartsPx = remember { FloatArray(tabs.size) }
+    val tabWidthsPx = remember { FloatArray(tabs.size) }
+    var measuredGeneration by remember { mutableIntStateOf(0) }
+    var viewportWidthPx by remember { mutableIntStateOf(0) }
+    val indicatorX = remember { Animatable(0f) }
+    val indicatorWidth = remember { Animatable(0f) }
+    var indicatorInitialized by remember { mutableStateOf(false) }
+
+    val density = LocalDensity.current
+    val horizontalPadPx = with(density) { 24.dp.toPx() }
+    val pillVisualHeightPx = with(density) { 36.dp.toPx() }
+    val pillBorderStrokePx = with(density) { 0.5.dp.toPx() }
+
+    LaunchedEffect(selectedTab, strings.isVi, measuredGeneration, viewportWidthPx, reducedMotion) {
+        val index = tabs.indexOf(selectedTab).coerceAtLeast(0)
+        val targetX = tabStartsPx[index]
+        val targetW = tabWidthsPx[index]
+        if (targetW > 0f) {
+            if (!indicatorInitialized || reducedMotion) {
+                indicatorX.snapTo(targetX)
+                indicatorWidth.snapTo(targetW)
+                indicatorInitialized = true
             } else {
-                listState.animateScrollToItem(index)
+                val spec = spring<Float>(dampingRatio = 0.82f, stiffness = 380f)
+                launch { indicatorX.animateTo(targetX, spec) }
+                launch { indicatorWidth.animateTo(targetW, spec) }
+            }
+            if (viewportWidthPx > 0 && scrollState.maxValue > 0) {
+                val desiredScroll = (targetX + horizontalPadPx + targetW * 0.5f - viewportWidthPx * 0.5f)
+                    .roundToInt()
+                    .coerceIn(0, scrollState.maxValue)
+                if (reducedMotion) {
+                    scrollState.scrollTo(desiredScroll)
+                } else {
+                    scrollState.animateScrollTo(desiredScroll)
+                }
             }
         }
     }
 
-    LazyRow(
-        state = listState,
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(LibraryTabRowHeight),
-        contentPadding = PaddingValues(horizontal = 24.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .height(LibraryTabRowHeight)
+            .onSizeChanged { viewportWidthPx = it.width }
+            .horizontalScroll(scrollState),
+        contentAlignment = Alignment.CenterStart
     ) {
-        items(LibraryTab.entries, key = { it.name }) { tab ->
-            val selected = tab == selectedTab
-            val interactionSource = remember { MutableInteractionSource() }
-            val shape = RoundedCornerShape(50)
-            val fill by animateColorAsState(
-                targetValue = if (selected) Color.White else CardSurfaceObsidian,
-                animationSpec = if (reducedMotion) snap() else tween(160),
-                label = "tabPillFill"
-            )
-            val textColor by animateColorAsState(
-                targetValue = if (selected) Color.Black else MutedTextGray,
-                animationSpec = if (reducedMotion) snap() else tween(160),
-                label = "tabPillText"
-            )
-
-            Box(
-                modifier = Modifier
-                    .height(LibraryTabRowHeight)
-                    .libraryPressBounce(interactionSource, pressedScale = 0.94f)
-                    .clip(shape)
-                    .background(fill)
-                    .then(
-                        if (selected) {
-                            Modifier
-                        } else {
-                            Modifier.border(0.5.dp, Color(0x14FFFFFF), shape)
+        Box(modifier = Modifier.padding(horizontal = 24.dp)) {
+            Row(
+                modifier = Modifier.drawBehind {
+                    val pillTop = (size.height - pillVisualHeightPx) * 0.5f
+                    val pillCorner = CornerRadius(pillVisualHeightPx * 0.5f)
+                    for (i in tabs.indices) {
+                        val w = tabWidthsPx[i]
+                        if (w > 0f) {
+                            val x = tabStartsPx[i]
+                            drawRoundRect(
+                                color = CardSurfaceObsidian,
+                                topLeft = Offset(x, pillTop),
+                                size = Size(w, pillVisualHeightPx),
+                                cornerRadius = pillCorner
+                            )
+                            drawRoundRect(
+                                color = Color(0x14FFFFFF),
+                                topLeft = Offset(x, pillTop),
+                                size = Size(w, pillVisualHeightPx),
+                                cornerRadius = pillCorner,
+                                style = Stroke(width = pillBorderStrokePx)
+                            )
                         }
-                    )
-                    .clickable(
-                        interactionSource = interactionSource,
-                        indication = LibraryHighlightIndication(cornerRadius = 17.dp),
-                        onClick = { onSelectTab(tab) }
-                    )
-                    .padding(horizontal = 15.dp),
-                contentAlignment = Alignment.Center
+                    }
+                    val activeW = indicatorWidth.value
+                    if (activeW > 0f) {
+                        drawRoundRect(
+                            color = Color.White,
+                            topLeft = Offset(indicatorX.value, pillTop),
+                            size = Size(activeW, pillVisualHeightPx),
+                            cornerRadius = pillCorner
+                        )
+                    }
+                },
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = tab.label,
-                    fontSize = 13.sp,
-                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                    color = textColor,
-                    maxLines = 1
-                )
+                tabs.forEachIndexed { index, tab ->
+                    val selected = tab == selectedTab
+                    val interactionSource = remember { MutableInteractionSource() }
+                    val textColor by animateColorAsState(
+                        targetValue = if (selected) Color.Black else MutedTextGray,
+                        animationSpec = if (reducedMotion) snap() else tween(160),
+                        label = "tabPillText"
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .defaultMinSize(minWidth = 44.dp, minHeight = LibraryTabRowHeight)
+                            .onGloballyPositioned { coords ->
+                                val newX = coords.positionInParent().x
+                                val newW = coords.size.width.toFloat()
+                                if (tabStartsPx[index] != newX || tabWidthsPx[index] != newW) {
+                                    tabStartsPx[index] = newX
+                                    tabWidthsPx[index] = newW
+                                    measuredGeneration++
+                                }
+                            }
+                            .libraryPressBounce(interactionSource, pressedScale = 0.94f)
+                            .clip(RoundedCornerShape(50))
+                            .clickable(
+                                interactionSource = interactionSource,
+                                indication = LibraryHighlightIndication(cornerRadius = 18.dp),
+                                onClick = { onSelectTab(tab) }
+                            )
+                            .padding(horizontal = 15.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = strings.tabLabel(tab),
+                            fontSize = 13.sp,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                            color = textColor,
+                            maxLines = 1
+                        )
+                    }
+                }
             }
         }
     }
@@ -530,7 +615,8 @@ internal fun LibraryOverviewHubGrid(
     onOpenLocal: () -> Unit,
     onOpenDownloads: () -> Unit,
     onOpenHistory: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    strings: LibraryStrings = resolveLibraryStrings("en")
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -541,16 +627,16 @@ internal fun LibraryOverviewHubGrid(
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             OverviewHubCard(
-                title = "Playlists",
-                countText = if (playlistsCount == 1) "1 list" else "$playlistsCount lists",
+                title = strings.hubPlaylistsTitle,
+                countText = strings.playlistCountText(playlistsCount),
                 covers = playlistsCovers,
                 fallbackIcon = Icons.AutoMirrored.Rounded.QueueMusic,
                 onClick = onOpenPlaylists,
                 modifier = Modifier.weight(1f)
             )
             OverviewHubCard(
-                title = "Local",
-                countText = if (localCount == 1) "1 track" else "$localCount tracks",
+                title = strings.hubLocalTitle,
+                countText = strings.trackCountText(localCount),
                 covers = localCovers,
                 fallbackIcon = Icons.Rounded.Folder,
                 onClick = onOpenLocal,
@@ -562,16 +648,16 @@ internal fun LibraryOverviewHubGrid(
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             OverviewHubCard(
-                title = "Downloads",
-                countText = "$downloadsCount offline",
+                title = strings.hubDownloadsTitle,
+                countText = strings.offlineCountText(downloadsCount),
                 covers = downloadsCovers,
                 fallbackIcon = Icons.Rounded.DownloadDone,
                 onClick = onOpenDownloads,
                 modifier = Modifier.weight(1f)
             )
             OverviewHubCard(
-                title = "History",
-                countText = "$recentCount recent",
+                title = strings.hubHistoryTitle,
+                countText = strings.recentCountText(recentCount),
                 covers = recentCovers,
                 fallbackIcon = Icons.Rounded.History,
                 onClick = onOpenHistory,
@@ -651,7 +737,8 @@ internal fun LikedSongsSignatureCard(
     count: Int,
     onOpen: () -> Unit,
     onQuickShuffle: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    strings: LibraryStrings = resolveLibraryStrings("en")
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val shuffleInteraction = remember { MutableInteractionSource() }
@@ -705,7 +792,7 @@ internal fun LikedSongsSignatureCard(
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             Text(
-                text = "Liked Songs",
+                text = strings.likedSongsTitle,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
@@ -713,7 +800,7 @@ internal fun LikedSongsSignatureCard(
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                text = if (count == 1) "1 song" else "$count songs",
+                text = strings.songCountText(count),
                 style = TextStyle(
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium,
@@ -744,7 +831,7 @@ internal fun LikedSongsSignatureCard(
         ) {
             Icon(
                 imageVector = Icons.Rounded.Shuffle,
-                contentDescription = "Shuffle liked songs",
+                contentDescription = strings.shuffleLikedDesc,
                 tint = if (count > 0) Color.White else Color(0x55FFFFFF),
                 modifier = Modifier.size(20.dp)
             )
@@ -758,7 +845,8 @@ internal fun RecentlyPlayedTelemetryCard(
     totalPlayCount: Int,
     totalPlayDurationMs: Long,
     onOpen: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    strings: LibraryStrings = resolveLibraryStrings("en")
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val shape = remember { SmoothCornerShape(20.dp) }
@@ -795,7 +883,7 @@ internal fun RecentlyPlayedTelemetryCard(
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             Text(
-                text = "Recently Played",
+                text = strings.recentlyPlayedTitle,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
@@ -803,7 +891,7 @@ internal fun RecentlyPlayedTelemetryCard(
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                text = "$totalPlayCount plays | $hoursText",
+                text = strings.playsHoursText(totalPlayCount, hoursText),
                 style = TextStyle(
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium,
@@ -853,17 +941,17 @@ internal fun LibrarySectionHeader(
             val pillShape = RoundedCornerShape(50)
             Row(
                 modifier = Modifier
-                    .defaultMinSize(minHeight = 32.dp)
+                    .defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
                     .libraryPressBounce(interactionSource, pressedScale = 0.94f)
                     .clip(pillShape)
                     .background(CardSurfaceObsidian)
                     .border(0.5.dp, CardHairlineBorder, pillShape)
                     .clickable(
                         interactionSource = interactionSource,
-                        indication = LibraryHighlightIndication(cornerRadius = 16.dp),
+                        indication = LibraryHighlightIndication(cornerRadius = 22.dp),
                         onClick = onAction
                     )
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
@@ -901,7 +989,8 @@ internal fun PlaylistGridCard(
     playlist: Playlist,
     covers: List<String>,
     onOpen: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    strings: LibraryStrings = resolveLibraryStrings("en")
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val cardShape = remember { SmoothCornerShape(18.dp) }
@@ -1046,7 +1135,7 @@ internal fun PlaylistGridCard(
         )
         Spacer(modifier = Modifier.height(2.dp))
         Text(
-            text = if (playlist.trackCount == 1) "1 track" else "${playlist.trackCount} tracks",
+            text = strings.trackCountText(playlist.trackCount),
             style = TextStyle(
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Normal,
@@ -1065,7 +1154,8 @@ internal fun QuickPlayActionRow(
     hasTracks: Boolean,
     onPlayAll: () -> Unit,
     onShuffleAll: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    strings: LibraryStrings = resolveLibraryStrings("en")
 ) {
     Row(
         modifier = modifier
@@ -1097,7 +1187,7 @@ internal fun QuickPlayActionRow(
                 modifier = Modifier.size(18.dp)
             )
             Spacer(modifier = Modifier.width(6.dp))
-            Text(text = "Shuffle", maxLines = 1)
+            Text(text = strings.shuffleLabel, maxLines = 1)
         }
         Button(
             onClick = onPlayAll,
@@ -1115,7 +1205,7 @@ internal fun QuickPlayActionRow(
                 modifier = Modifier.size(18.dp)
             )
             Spacer(modifier = Modifier.width(4.dp))
-            Text(text = "Play", maxLines = 1)
+            Text(text = strings.playLabel, maxLines = 1)
         }
     }
 }
@@ -1127,7 +1217,8 @@ internal fun PlaylistRowCard(
     onRename: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
-    coverPool: List<String?> = emptyList()
+    coverPool: List<String?> = emptyList(),
+    strings: LibraryStrings = resolveLibraryStrings("en")
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     val interactionSource = remember { MutableInteractionSource() }
@@ -1170,11 +1261,11 @@ internal fun PlaylistRowCard(
                 overflow = TextOverflow.Ellipsis
             )
             val subtitle = buildString {
-                append(playlist.trackCount)
-                append(if (playlist.trackCount == 1) " track" else " tracks")
-                if (!playlist.description.isNullOrBlank()) {
+                append(strings.trackCountText(playlist.trackCount))
+                val desc = playlist.description
+                if (!desc.isNullOrBlank()) {
                     append("  |  ")
-                    append(playlist.description)
+                    append(desc)
                 }
             }
             Text(
@@ -1192,7 +1283,7 @@ internal fun PlaylistRowCard(
             ) {
                 Icon(
                     imageVector = Icons.Rounded.MoreVert,
-                    contentDescription = "Playlist actions",
+                    contentDescription = strings.playlistActionsDesc,
                     tint = MutedTextGray
                 )
             }
@@ -1202,7 +1293,7 @@ internal fun PlaylistRowCard(
                 containerColor = GlassTokens.ObsidianSurface
             ) {
                 DropdownMenuItem(
-                    text = { Text("Rename", color = OndaTheme.colors.textPrimary) },
+                    text = { Text(strings.renameLabel, color = OndaTheme.colors.textPrimary) },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Rounded.Edit,
@@ -1216,7 +1307,7 @@ internal fun PlaylistRowCard(
                     }
                 )
                 DropdownMenuItem(
-                    text = { Text("Delete", color = OndaTheme.colors.error) },
+                    text = { Text(strings.deleteLabel, color = OndaTheme.colors.error) },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Rounded.DeleteOutline,
@@ -1244,7 +1335,8 @@ internal fun LibraryTrackRow(
     onAddToPlaylist: () -> Unit,
     onDownloadClick: () -> Unit,
     modifier: Modifier = Modifier,
-    isPlaying: Boolean = false
+    isPlaying: Boolean = false,
+    strings: LibraryStrings = resolveLibraryStrings("en")
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     val interactionSource = remember { MutableInteractionSource() }
@@ -1292,7 +1384,7 @@ internal fun LibraryTrackRow(
                 when (downloadStatus) {
                     DownloadStatus.COMPLETED -> Icon(
                         imageVector = Icons.Rounded.DownloadDone,
-                        contentDescription = "Downloaded",
+                        contentDescription = strings.downloadedDesc,
                         tint = OndaTheme.colors.success,
                         modifier = Modifier.size(14.dp)
                     )
@@ -1318,7 +1410,7 @@ internal fun LibraryTrackRow(
         ) {
             Icon(
                 imageVector = if (track.liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                contentDescription = if (track.liked) "Unlike" else "Like",
+                contentDescription = if (track.liked) strings.unlikeLabel else strings.likeLabel,
                 tint = if (track.liked) GlassTokens.ErrorCoral else MutedTextGray
             )
         }
@@ -1329,7 +1421,7 @@ internal fun LibraryTrackRow(
             ) {
                 Icon(
                     imageVector = Icons.Rounded.MoreVert,
-                    contentDescription = "Track actions",
+                    contentDescription = strings.trackActionsDesc,
                     tint = MutedTextGray
                 )
             }
@@ -1339,7 +1431,7 @@ internal fun LibraryTrackRow(
                 containerColor = GlassTokens.ObsidianSurface
             ) {
                 DropdownMenuItem(
-                    text = { Text("Add to playlist", color = OndaTheme.colors.textPrimary) },
+                    text = { Text(strings.addToPlaylistLabel, color = OndaTheme.colors.textPrimary) },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.AutoMirrored.Rounded.PlaylistAdd,
@@ -1353,10 +1445,10 @@ internal fun LibraryTrackRow(
                     }
                 )
                 val downloadLabel = when (downloadStatus) {
-                    DownloadStatus.COMPLETED -> "Remove download"
-                    DownloadStatus.QUEUED, DownloadStatus.DOWNLOADING -> "Cancel download"
-                    DownloadStatus.FAILED -> "Retry download"
-                    null -> "Download offline"
+                    DownloadStatus.COMPLETED -> strings.removeDownloadLabel
+                    DownloadStatus.QUEUED, DownloadStatus.DOWNLOADING -> strings.cancelDownloadLabel
+                    DownloadStatus.FAILED -> strings.retryDownloadLabel
+                    null -> strings.downloadOfflineLabel
                 }
                 DropdownMenuItem(
                     text = { Text(downloadLabel, color = OndaTheme.colors.textPrimary) },
@@ -1481,13 +1573,20 @@ internal fun DownloadRowCard(
     onPlay: () -> Unit,
     onRetry: () -> Unit,
     onDeleteOrCancel: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    strings: LibraryStrings = resolveLibraryStrings("en")
 ) {
     val item = entry.item
     val track = entry.track
     val title = track?.title ?: item.trackId
-    val artist = track?.artist ?: "Saved track"
+    val artist = track?.artist ?: strings.savedTrackFallbackArtist
     val isActive = item.status == DownloadStatus.QUEUED || item.status == DownloadStatus.DOWNLOADING
+    val reducedMotion = OndaTheme.reducedMotion
+    val smoothedProgress by animateFloatAsState(
+        targetValue = item.progress.coerceIn(0f, 1f),
+        animationSpec = if (reducedMotion) snap() else spring(dampingRatio = 0.82f, stiffness = 380f),
+        label = "downloadRowProgress"
+    )
     val interactionSource = remember { MutableInteractionSource() }
     val shape = remember { SmoothCornerShape(16.dp) }
 
@@ -1522,13 +1621,13 @@ internal fun DownloadRowCard(
                     overflow = TextOverflow.Ellipsis
                 )
                 val statusLabel = when (item.status) {
-                    DownloadStatus.QUEUED -> "$artist  |  Queued"
+                    DownloadStatus.QUEUED -> strings.downloadQueuedText(artist)
                     DownloadStatus.DOWNLOADING -> {
                         val pct = (item.progress * 100f).toInt().coerceIn(0, 100)
-                        "$artist  |  Downloading $pct%"
+                        strings.downloadingPercentText(artist, pct)
                     }
                     DownloadStatus.COMPLETED -> "$artist  |  ${formatBytes(item.totalBytes.coerceAtLeast(item.bytesDownloaded))}"
-                    DownloadStatus.FAILED -> "$artist  |  Download failed"
+                    DownloadStatus.FAILED -> strings.downloadFailedText(artist)
                 }
                 Text(
                     text = statusLabel,
@@ -1545,7 +1644,7 @@ internal fun DownloadRowCard(
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.Refresh,
-                        contentDescription = "Retry download",
+                        contentDescription = strings.retryDownloadDesc,
                         tint = OndaTheme.colors.accent
                     )
                 }
@@ -1556,14 +1655,14 @@ internal fun DownloadRowCard(
             ) {
                 Icon(
                     imageVector = if (isActive) Icons.Rounded.Close else Icons.Rounded.DeleteOutline,
-                    contentDescription = if (isActive) "Cancel download" else "Delete download",
+                    contentDescription = if (isActive) strings.cancelDownloadDesc else strings.deleteDownloadDesc,
                     tint = if (isActive) MutedTextGray else OndaTheme.colors.error
                 )
             }
         }
         if (isActive) {
             LinearProgressIndicator(
-                progress = { item.progress.coerceIn(0f, 1f) },
+                progress = { smoothedProgress.coerceIn(0f, 1f) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(4.dp)
@@ -1582,7 +1681,8 @@ internal fun LocalScannerBanner(
     lastScanMessage: String?,
     onRequestPermission: () -> Unit,
     onScan: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    strings: LibraryStrings = resolveLibraryStrings("en")
 ) {
     val shape = remember { SmoothCornerShape(18.dp) }
     Column(
@@ -1606,7 +1706,7 @@ internal fun LocalScannerBanner(
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Local Audio Scanner",
+                    text = strings.localScannerTitle,
                     style = MaterialTheme.typography.titleSmall,
                     color = Color.White,
                     maxLines = 1,
@@ -1614,9 +1714,9 @@ internal fun LocalScannerBanner(
                 )
                 Text(
                     text = lastScanMessage ?: if (hasPermission) {
-                        "Scan MediaStore folders for offline audio"
+                        strings.localScannerReadyDesc
                     } else {
-                        "Grant audio permission to discover device tracks"
+                        strings.localScannerPermissionDesc
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MutedTextGray,
@@ -1641,7 +1741,7 @@ internal fun LocalScannerBanner(
                     )
                 } else {
                     Text(
-                        text = if (hasPermission) "Scan" else "Allow",
+                        text = if (hasPermission) strings.scanLabel else strings.allowLabel,
                         maxLines = 1
                     )
                 }
@@ -1654,7 +1754,8 @@ internal fun LocalScannerBanner(
 internal fun RelinkTracksCard(
     tracks: List<Track>,
     onRelinkTrack: (Track) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    strings: LibraryStrings = resolveLibraryStrings("en")
 ) {
     val shape = remember { SmoothCornerShape(18.dp) }
     Column(
@@ -1667,12 +1768,12 @@ internal fun RelinkTracksCard(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(
-            text = "Needs Relink (${tracks.size})",
+            text = strings.needsRelinkTitle(tracks.size),
             style = MaterialTheme.typography.titleSmall,
             color = OndaTheme.colors.warning
         )
         Text(
-            text = "Imported local tracks missing a file URI. Scan local storage or pick an audio file manually.",
+            text = strings.needsRelinkDesc,
             style = MaterialTheme.typography.bodySmall,
             color = MutedTextGray
         )
@@ -1707,7 +1808,7 @@ internal fun RelinkTracksCard(
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text(text = "Relink", maxLines = 1)
+                    Text(text = strings.relinkLabel, maxLines = 1)
                 }
             }
         }
@@ -1772,7 +1873,8 @@ internal fun PlaylistEditorDialog(
     initialName: String,
     initialDescription: String,
     onDismiss: () -> Unit,
-    onConfirm: (String, String?) -> Unit
+    onConfirm: (String, String?) -> Unit,
+    strings: LibraryStrings = resolveLibraryStrings("en")
 ) {
     var name by remember(initialName) { mutableStateOf(initialName) }
     var description by remember(initialDescription) { mutableStateOf(initialDescription) }
@@ -1788,7 +1890,7 @@ internal fun PlaylistEditorDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Playlist name") },
+                    label = { Text(strings.playlistNameFieldLabel) },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = OndaTheme.colors.textPrimary,
@@ -1800,7 +1902,7 @@ internal fun PlaylistEditorDialog(
                 OutlinedTextField(
                     value = description,
                     onValueChange = { description = it },
-                    label = { Text("Description (optional)") },
+                    label = { Text(strings.descriptionOptionalLabel) },
                     maxLines = 2,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = OndaTheme.colors.textPrimary,
@@ -1829,7 +1931,7 @@ internal fun PlaylistEditorDialog(
                 onClick = onDismiss,
                 modifier = Modifier.heightIn(min = 48.dp)
             ) {
-                Text(text = "Cancel", color = OndaTheme.colors.textSecondary)
+                Text(text = strings.cancelLabel, color = OndaTheme.colors.textSecondary)
             }
         }
     )
@@ -1839,15 +1941,16 @@ internal fun PlaylistEditorDialog(
 internal fun DeletePlaylistDialog(
     playlistName: String,
     onDismiss: () -> Unit,
-    onConfirm: () -> Unit
+    onConfirm: () -> Unit,
+    strings: LibraryStrings = resolveLibraryStrings("en")
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = GlassTokens.ObsidianSurface,
         titleContentColor = OndaTheme.colors.textPrimary,
         textContentColor = OndaTheme.colors.textSecondary,
-        title = { Text(text = "Delete Playlist") },
-        text = { Text(text = "Remove \"$playlistName\" from your library? Tracks remain in your library.") },
+        title = { Text(text = strings.deletePlaylistTitle) },
+        text = { Text(text = strings.deletePlaylistConfirmText(playlistName)) },
         confirmButton = {
             Button(
                 onClick = onConfirm,
@@ -1857,7 +1960,7 @@ internal fun DeletePlaylistDialog(
                     contentColor = GlassTokens.AmoledBlack
                 )
             ) {
-                Text(text = "Delete")
+                Text(text = strings.deleteLabel)
             }
         },
         dismissButton = {
@@ -1865,7 +1968,7 @@ internal fun DeletePlaylistDialog(
                 onClick = onDismiss,
                 modifier = Modifier.heightIn(min = 48.dp)
             ) {
-                Text(text = "Cancel", color = OndaTheme.colors.textSecondary)
+                Text(text = strings.cancelLabel, color = OndaTheme.colors.textSecondary)
             }
         }
     )
@@ -1878,7 +1981,8 @@ internal fun PickPlaylistSheet(
     playlists: List<Playlist>,
     onSelectPlaylist: (Playlist) -> Unit,
     onCreatePlaylist: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    strings: LibraryStrings = resolveLibraryStrings("en")
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -1897,7 +2001,7 @@ internal fun PickPlaylistSheet(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Add to Playlist",
+                        text = strings.addToPlaylistSheetTitle,
                         style = MaterialTheme.typography.titleLarge,
                         color = OndaTheme.colors.textPrimary
                     )
@@ -1913,13 +2017,13 @@ internal fun PickPlaylistSheet(
                     onClick = onCreatePlaylist,
                     modifier = Modifier.heightIn(min = 48.dp)
                 ) {
-                    Text(text = "New", color = OndaTheme.colors.accent)
+                    Text(text = strings.newLabel, color = OndaTheme.colors.accent)
                 }
             }
             if (playlists.isEmpty()) {
                 EmptyLibrarySection(
-                    title = "No playlists yet",
-                    subtitle = "Create a playlist to save tracks into collections."
+                    title = strings.noPlaylistsYetTitle,
+                    subtitle = strings.noPlaylistsSheetSubtitle
                 )
             } else {
                 LazyColumn(
@@ -1976,7 +2080,8 @@ internal fun AddTracksToPlaylistSheet(
     candidateTracks: List<Track>,
     existingTrackIds: Set<String>,
     onAddTrack: (Track) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    strings: LibraryStrings = resolveLibraryStrings("en")
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -1990,7 +2095,7 @@ internal fun AddTracksToPlaylistSheet(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Text(
-                text = "Add Tracks to $playlistName",
+                text = strings.addTracksToPlaylistTitle(playlistName),
                 style = MaterialTheme.typography.titleLarge,
                 color = OndaTheme.colors.textPrimary,
                 maxLines = 1,
@@ -1998,8 +2103,8 @@ internal fun AddTracksToPlaylistSheet(
             )
             if (candidateTracks.isEmpty()) {
                 EmptyLibrarySection(
-                    title = "No saved tracks found",
-                    subtitle = "Like songs, scan local audio, or play tracks first."
+                    title = strings.noSavedTracksTitle,
+                    subtitle = strings.noSavedTracksSubtitle
                 )
             } else {
                 LazyColumn(
@@ -2046,7 +2151,7 @@ internal fun AddTracksToPlaylistSheet(
                             ) {
                                 Icon(
                                     imageVector = if (added) Icons.Rounded.Check else Icons.Rounded.Add,
-                                    contentDescription = if (added) "Added" else "Add track",
+                                    contentDescription = if (added) strings.addedDesc else strings.addTrackDesc,
                                     tint = if (added) OndaTheme.colors.success else OndaTheme.colors.accent
                                 )
                             }

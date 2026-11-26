@@ -28,6 +28,8 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -63,7 +65,7 @@ class LyricsRepository @Inject constructor(
                 } else {
                     cached
                 }
-                return@runCatching enriched.copy(source = LyricsSource.CACHE)
+                return@runCatching enriched
             }
         }
 
@@ -368,37 +370,11 @@ class LyricsRepository @Inject constructor(
     private suspend fun applyOnDemandTranslation(
         document: LyricsDocument,
         targetLanguageCode: String
-    ): LyricsDocument {
-        val targetLang = if (targetLanguageCode.startsWith("vi", ignoreCase = true)) "vi" else "en"
-        val translatableIndices = document.lines.indices.filter { idx ->
-            val line = document.lines[idx]
-            !line.isInterlude && line.text.isNotBlank() && line.translatedText.isNullOrBlank()
-        }
-        if (translatableIndices.isEmpty()) return document
-
-        val translatedByIndex = HashMap<Int, String>(translatableIndices.size)
-        val chunks = translatableIndices.chunked(12)
-        for (chunk in chunks) {
-            val joined = chunk.joinToString("\n") { document.lines[it].text }
-            val translatedText = requestLineTranslation(joined, targetLang) ?: continue
-            val translatedLines = translatedText.lines()
-            if (translatedLines.size == chunk.size) {
-                chunk.forEachIndexed { offset, lineIdx ->
-                    val original = document.lines[lineIdx].text.trim()
-                    val candidate = translatedLines[offset].trim()
-                    if (candidate.isNotEmpty() && !candidate.equals(original, ignoreCase = true)) {
-                        translatedByIndex[lineIdx] = candidate
-                    }
-                }
-            }
-        }
-        if (translatedByIndex.isEmpty()) return document
-        val updated = document.lines.mapIndexed { idx, line ->
-            val t = translatedByIndex[idx]
-            if (t != null) line.copy(translatedText = t) else line
-        }
-        return document.copy(lines = updated)
-    }
+    ): LyricsDocument = translateDocumentLines(
+        document = document,
+        targetLanguageCode = targetLanguageCode,
+        translate = ::requestLineTranslation
+    )
 
     private suspend fun requestLineTranslation(text: String, targetLang: String): String? = try {
         val response = withTimeoutOrNull(TRANSLATE_TIMEOUT_MS) {
@@ -416,7 +392,10 @@ class LyricsRepository @Inject constructor(
         val segments = root.firstOrNull()?.jsonArray ?: return null
         buildString {
             segments.forEach { seg ->
-                val translatedChunk = seg.jsonArray.firstOrNull()?.jsonPrimitive?.content
+                val translatedChunk = (seg as? JsonArray)
+                    ?.firstOrNull()
+                    ?.let { it as? JsonPrimitive }
+                    ?.contentOrNull
                 if (!translatedChunk.isNullOrEmpty()) {
                     append(translatedChunk)
                 }
@@ -530,7 +509,7 @@ class LyricsRepository @Inject constructor(
     )
 
     companion object {
-        private const val ONDA_LYRICS_USER_AGENT = "OndaMusic/1.2.9 (+https://github.com/DiemMyCodex/Onda-Music)"
+        internal const val ONDA_LYRICS_USER_AGENT = "OndaMusic/1.3.0 (+https://github.com/DiemMyCodex/Onda-Music)"
         private const val BETTER_LYRICS_ENDPOINT = "https://lyrics-api.boidu.dev/getLyrics"
         private const val SIMP_MUSIC_BASE_URL = "https://api-lyrics.simpmusic.org/v1"
         private const val NETEASE_SEARCH_ENDPOINT = "https://music.163.com/api/search/get"
@@ -538,6 +517,56 @@ class LyricsRepository @Inject constructor(
         private const val TRANSLATE_ENDPOINT = "https://translate.googleapis.com/translate_a/single"
         private const val PROVIDER_TIMEOUT_MS = 5_500L
         private const val TRANSLATE_TIMEOUT_MS = 5_000L
+
+        internal suspend fun translateDocumentLines(
+            document: LyricsDocument,
+            targetLanguageCode: String,
+            translate: suspend (text: String, targetLang: String) -> String?
+        ): LyricsDocument {
+            val targetLang = if (targetLanguageCode.startsWith("vi", ignoreCase = true)) "vi" else "en"
+            val translatableIndices = document.lines.indices.filter { idx ->
+                val line = document.lines[idx]
+                !line.isInterlude && line.text.isNotBlank() && line.translatedText.isNullOrBlank()
+            }
+            if (translatableIndices.isEmpty()) return document
+
+            val translatedByIndex = HashMap<Int, String>(translatableIndices.size)
+            val chunks = translatableIndices.chunked(12)
+            for (chunk in chunks) {
+                val joined = chunk.joinToString("\n") { document.lines[it].text }
+                val translatedText = translate(joined, targetLang)
+                val translatedLines = translatedText
+                    ?.trimEnd('\r', '\n')
+                    ?.lines()
+                if (translatedLines != null && translatedLines.size == chunk.size) {
+                    chunk.forEachIndexed { offset, lineIdx ->
+                        val original = document.lines[lineIdx].text.trim()
+                        val candidate = translatedLines[offset].trim()
+                        if (candidate.isNotEmpty() && !candidate.equals(original, ignoreCase = true)) {
+                            translatedByIndex[lineIdx] = candidate
+                        }
+                    }
+                } else {
+                    for (lineIdx in chunk) {
+                        val original = document.lines[lineIdx].text.trim()
+                        val single = translate(original, targetLang)
+                            ?.lines()
+                            ?.joinToString(" ") { it.trim() }
+                            ?.trim()
+                            .orEmpty()
+                        if (single.isNotEmpty() && !single.equals(original, ignoreCase = true)) {
+                            translatedByIndex[lineIdx] = single
+                        }
+                    }
+                }
+            }
+            if (translatedByIndex.isEmpty()) return document
+            val updated = document.lines.mapIndexed { idx, line ->
+                val t = translatedByIndex[idx]
+                if (t != null) line.copy(translatedText = t) else line
+            }
+            return document.copy(lines = updated)
+        }
 
         internal fun selectBestLyricsCandidate(candidates: List<LyricsDocument>): LyricsDocument? {
             return candidates.filter { it.lines.isNotEmpty() }.maxByOrNull { doc ->

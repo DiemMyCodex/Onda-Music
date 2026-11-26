@@ -14,6 +14,7 @@ import android.view.TextureView
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Format
+import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.HeartRating
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -60,6 +61,7 @@ import com.onda.music.core.model.Track
 import dagger.hilt.android.AndroidEntryPoint
 import java.io.IOException
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -98,6 +100,7 @@ class OndaMediaService : MediaLibraryService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var player: ExoPlayer
     private var mediaLibrarySession: MediaLibrarySession? = null
+    private var notificationBitmapLoader: OndaNotificationBitmapLoader? = null
 
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
@@ -159,6 +162,8 @@ class OndaMediaService : MediaLibraryService() {
         sessionStore.setActivePlayer(null)
         mediaLibrarySession?.release()
         mediaLibrarySession = null
+        notificationBitmapLoader?.release()
+        notificationBitmapLoader = null
         if (::player.isInitialized) {
             player.release()
         }
@@ -286,8 +291,13 @@ class OndaMediaService : MediaLibraryService() {
         val initialState = currentButtonsState()
         val initialButtons = buildNotificationButtons(initialState)
         lastPublishedButtonsState = initialState
-        val builder = MediaLibrarySession.Builder(this, player, librarySessionCallback)
+        val bitmapLoader = OndaNotificationBitmapLoader(applicationContext, sessionStore, songDao)
+        notificationBitmapLoader = bitmapLoader
+        val sessionPlayer = OndaSessionForwardingPlayer(player)
+        val builder = MediaLibrarySession.Builder(this, sessionPlayer, librarySessionCallback)
+            .setBitmapLoader(bitmapLoader)
             .setMediaButtonPreferences(initialButtons)
+            .setCustomLayout(initialButtons)
         if (sessionActivity != null) {
             builder.setSessionActivity(sessionActivity)
         }
@@ -383,101 +393,124 @@ class OndaMediaService : MediaLibraryService() {
                 .collectLatest { (trackId, buttonsState) ->
                     if (trackId != null) {
                         syncTrackLikedCache(trackId, buttonsState.isLiked)
-                        syncCurrentMediaItemRating(trackId, buttonsState.isLiked)
                     }
                     if (lastPublishedButtonsState != buttonsState) {
                         lastPublishedButtonsState = buttonsState
-                        mediaLibrarySession?.setMediaButtonPreferences(buildNotificationButtons(buttonsState))
+                        val buttons = buildNotificationButtons(buttonsState)
+                        mediaLibrarySession?.setMediaButtonPreferences(buttons)
+                        mediaLibrarySession?.setCustomLayout(buttons)
                     }
                 }
         }
     }
 
     private fun buildNotificationButtons(state: NotificationButtonsState): List<CommandButton> {
-        val likeButton = CommandButton.Builder(
-            if (state.isLiked) CommandButton.ICON_HEART_FILLED else CommandButton.ICON_HEART_UNFILLED
-        )
-            .setCustomIconResId(
-                if (state.isLiked) {
-                    R.drawable.ic_onda_notif_heart_filled
-                } else {
-                    R.drawable.ic_onda_notif_heart_outline
-                }
-            )
-            .setDisplayName(getString(if (state.isLiked) R.string.onda_notif_unlike else R.string.onda_notif_like))
-            .setSessionCommand(SessionCommand(ACTION_TOGGLE_LIKE, Bundle.EMPTY))
-            .setEnabled(true)
-            .build()
+        return buildNotificationButtonSpecs(state).map { spec ->
+            when (spec.action) {
+                ACTION_TOGGLE_LIKE -> CommandButton.Builder(
+                    if (state.isLiked) CommandButton.ICON_HEART_FILLED else CommandButton.ICON_HEART_UNFILLED
+                )
+                    .setCustomIconResId(
+                        if (state.isLiked) {
+                            R.drawable.ic_onda_notif_heart_filled
+                        } else {
+                            R.drawable.ic_onda_notif_heart_outline
+                        }
+                    )
+                    .setDisplayName(getString(if (state.isLiked) R.string.onda_notif_unlike else R.string.onda_notif_like))
+                    .setSessionCommand(SessionCommand(ACTION_TOGGLE_LIKE, Bundle.EMPTY))
+                    .setSlots(*spec.slot.toCommandButtonSlots())
+                    .setEnabled(true)
+                    .build()
 
-        val (repeatIcon, repeatResId, repeatLabelRes) = when (state.repeatMode) {
-            RepeatMode.OFF -> Triple(
-                CommandButton.ICON_REPEAT_OFF,
-                R.drawable.ic_onda_notif_repeat_off,
-                R.string.onda_notif_repeat_off
-            )
-            RepeatMode.ALL -> Triple(
-                CommandButton.ICON_REPEAT_ALL,
-                R.drawable.ic_onda_notif_repeat_all,
-                R.string.onda_notif_repeat_all
-            )
-            RepeatMode.ONE -> Triple(
-                CommandButton.ICON_REPEAT_ONE,
-                R.drawable.ic_onda_notif_repeat_one,
-                R.string.onda_notif_repeat_one
-            )
+                ACTION_CYCLE_REPEAT -> {
+                    val (repeatIcon, repeatResId, repeatLabelRes) = when (state.repeatMode) {
+                        RepeatMode.OFF -> Triple(
+                            CommandButton.ICON_REPEAT_OFF,
+                            R.drawable.ic_onda_notif_repeat_off,
+                            R.string.onda_notif_repeat_off
+                        )
+                        RepeatMode.ALL -> Triple(
+                            CommandButton.ICON_REPEAT_ALL,
+                            R.drawable.ic_onda_notif_repeat_all,
+                            R.string.onda_notif_repeat_all
+                        )
+                        RepeatMode.ONE -> Triple(
+                            CommandButton.ICON_REPEAT_ONE,
+                            R.drawable.ic_onda_notif_repeat_one,
+                            R.string.onda_notif_repeat_one
+                        )
+                    }
+                    CommandButton.Builder(repeatIcon)
+                        .setCustomIconResId(repeatResId)
+                        .setDisplayName(getString(repeatLabelRes))
+                        .setSessionCommand(SessionCommand(ACTION_CYCLE_REPEAT, Bundle.EMPTY))
+                        .setSlots(*spec.slot.toCommandButtonSlots())
+                        .setEnabled(true)
+                        .build()
+                }
+
+                ACTION_TOGGLE_SHUFFLE -> CommandButton.Builder(
+                    if (state.shuffleEnabled) CommandButton.ICON_SHUFFLE_ON else CommandButton.ICON_SHUFFLE_OFF
+                )
+                    .setCustomIconResId(
+                        if (state.shuffleEnabled) {
+                            R.drawable.ic_onda_notif_shuffle_on
+                        } else {
+                            R.drawable.ic_onda_notif_shuffle_off
+                        }
+                    )
+                    .setDisplayName(
+                        getString(
+                            if (state.shuffleEnabled) {
+                                R.string.onda_notif_shuffle_on
+                            } else {
+                                R.string.onda_notif_shuffle_off
+                            }
+                        )
+                    )
+                    .setSessionCommand(SessionCommand(ACTION_TOGGLE_SHUFFLE, Bundle.EMPTY))
+                    .setSlots(*spec.slot.toCommandButtonSlots())
+                    .setEnabled(true)
+                    .build()
+
+                else -> CommandButton.Builder(CommandButton.ICON_UNDEFINED)
+                    .setCustomIconResId(
+                        if (state.sleepTimerActive) {
+                            R.drawable.ic_onda_notif_sleep_on
+                        } else {
+                            R.drawable.ic_onda_notif_sleep_off
+                        }
+                    )
+                    .setDisplayName(
+                        getString(
+                            if (state.sleepTimerActive) {
+                                R.string.onda_notif_sleep_on
+                            } else {
+                                R.string.onda_notif_sleep_off
+                            }
+                        )
+                    )
+                    .setSessionCommand(SessionCommand(ACTION_TOGGLE_SLEEP_TIMER, Bundle.EMPTY))
+                    .setSlots(*spec.slot.toCommandButtonSlots())
+                    .setEnabled(true)
+                    .build()
+            }
         }
-        val repeatButton = CommandButton.Builder(repeatIcon)
-            .setCustomIconResId(repeatResId)
-            .setDisplayName(getString(repeatLabelRes))
-            .setSessionCommand(SessionCommand(ACTION_CYCLE_REPEAT, Bundle.EMPTY))
-            .setEnabled(true)
-            .build()
+    }
 
-        val shuffleButton = CommandButton.Builder(
-            if (state.shuffleEnabled) CommandButton.ICON_SHUFFLE_ON else CommandButton.ICON_SHUFFLE_OFF
+    private fun NotificationButtonSlot.toCommandButtonSlots(): IntArray = when (this) {
+        NotificationButtonSlot.BACK_SECONDARY -> intArrayOf(
+            CommandButton.SLOT_BACK_SECONDARY,
+            CommandButton.SLOT_OVERFLOW
         )
-            .setCustomIconResId(
-                if (state.shuffleEnabled) {
-                    R.drawable.ic_onda_notif_shuffle_on
-                } else {
-                    R.drawable.ic_onda_notif_shuffle_off
-                }
-            )
-            .setDisplayName(
-                getString(
-                    if (state.shuffleEnabled) {
-                        R.string.onda_notif_shuffle_on
-                    } else {
-                        R.string.onda_notif_shuffle_off
-                    }
-                )
-            )
-            .setSessionCommand(SessionCommand(ACTION_TOGGLE_SHUFFLE, Bundle.EMPTY))
-            .setEnabled(true)
-            .build()
-
-        val sleepButton = CommandButton.Builder(CommandButton.ICON_UNDEFINED)
-            .setCustomIconResId(
-                if (state.sleepTimerActive) {
-                    R.drawable.ic_onda_notif_sleep_on
-                } else {
-                    R.drawable.ic_onda_notif_sleep_off
-                }
-            )
-            .setDisplayName(
-                getString(
-                    if (state.sleepTimerActive) {
-                        R.string.onda_notif_sleep_on
-                    } else {
-                        R.string.onda_notif_sleep_off
-                    }
-                )
-            )
-            .setSessionCommand(SessionCommand(ACTION_TOGGLE_SLEEP_TIMER, Bundle.EMPTY))
-            .setEnabled(true)
-            .build()
-
-        return listOf(likeButton, repeatButton, shuffleButton, sleepButton)
+        NotificationButtonSlot.FORWARD_SECONDARY -> intArrayOf(
+            CommandButton.SLOT_FORWARD_SECONDARY,
+            CommandButton.SLOT_OVERFLOW
+        )
+        NotificationButtonSlot.OVERFLOW -> intArrayOf(
+            CommandButton.SLOT_OVERFLOW
+        )
     }
 
     private fun currentButtonsState(): NotificationButtonsState {
@@ -531,36 +564,17 @@ class OndaMediaService : MediaLibraryService() {
         }
     }
 
-    private fun syncCurrentMediaItemRating(trackId: String, isLiked: Boolean) {
-        if (!::player.isInitialized || player.mediaItemCount == 0) return
-        val currentIndex = player.currentMediaItemIndex
-        if (currentIndex !in 0 until player.mediaItemCount) return
-        val currentItem = player.getMediaItemAt(currentIndex)
-        if (currentItem.mediaId != trackId) return
-        val existingRating = currentItem.mediaMetadata.userRating as? HeartRating
-        if (existingRating != null && existingRating.isRated && existingRating.isHeart == isLiked) {
-            return
-        }
-        val updatedMetadata = currentItem.mediaMetadata.buildUpon()
-            .setUserRating(HeartRating(isLiked))
-            .build()
-        val updatedItem = currentItem.buildUpon()
-            .setMediaMetadata(updatedMetadata)
-            .build()
-        player.replaceMediaItem(currentIndex, updatedItem)
-    }
-
     private suspend fun updateTrackLikeInDb(trackId: String, resolveLiked: (Boolean) -> Boolean) {
-        withContext(Dispatchers.IO) {
+        val targetLiked = withContext(Dispatchers.IO) {
             val existing = songDao.getById(trackId)
-            val currentlyLiked = existing?.liked ?: sessionStore.getTrack(trackId)?.liked ?: false
-            val targetLiked = resolveLiked(currentlyLiked)
-            if (existing == null) {
-                val track = sessionStore.getTrack(trackId) ?: return@withContext
-                songDao.upsertAndMerge(track.toEntity())
-            }
-            songDao.setLiked(trackId, targetLiked)
-        }
+            val cachedTrack = sessionStore.getTrack(trackId)
+            val currentlyLiked = existing?.liked ?: cachedTrack?.liked ?: false
+            val nextLiked = resolveLiked(currentlyLiked)
+            val baseEntity = existing ?: cachedTrack?.toEntity() ?: return@withContext null
+            songDao.toggleLikedOrInsert(baseEntity, nextLiked)
+            nextLiked
+        } ?: return
+        syncTrackLikedCache(trackId, targetLiked)
     }
 
     private fun cycleRepeatMode() {
@@ -1160,11 +1174,151 @@ class OndaMediaService : MediaLibraryService() {
             controller: MediaSession.ControllerInfo,
             mediaItems: List<MediaItem>
         ): ListenableFuture<List<MediaItem>> {
-            val resolvedItems = mediaItems.map { item ->
-                val track = sessionStore.getTrack(item.mediaId)
-                if (track != null) trackToMediaItem(track) else item
+            val cachedTracks = mediaItems.map { item ->
+                item.mediaId.takeIf { it.isNotBlank() }?.let { sessionStore.getTrack(it) }
             }
-            return Futures.immediateFuture(resolvedItems)
+            if (mediaItems.indices.all { idx -> mediaItems[idx].mediaId.isBlank() || cachedTracks[idx] != null }) {
+                val resolvedItems = mediaItems.mapIndexed { idx, item ->
+                    val track = cachedTracks[idx]
+                    if (track != null) trackToMediaItem(track) else item
+                }
+                return Futures.immediateFuture(resolvedItems)
+            }
+            return serviceScope.future(Dispatchers.IO) {
+                val restoredTracks = mutableListOf<Track>()
+                val resolvedItems = mediaItems.mapIndexed { idx, item ->
+                    val mediaId = item.mediaId
+                    val track = cachedTracks[idx] ?: mediaId.takeIf { it.isNotBlank() }?.let { id ->
+                        songDao.getById(id)?.toModel()?.also { restored ->
+                            restoredTracks.add(restored)
+                        }
+                    }
+                    if (track != null) trackToMediaItem(track) else item
+                }
+                if (restoredTracks.isNotEmpty()) {
+                    sessionStore.registerTracks(restoredTracks)
+                }
+                resolvedItems
+            }
+        }
+    }
+
+    private class OndaSessionForwardingPlayer(
+        private val delegatePlayer: Player
+    ) : ForwardingPlayer(delegatePlayer) {
+
+        private val wrappedListeners = ConcurrentHashMap<Player.Listener, Player.Listener>()
+
+        override fun getAvailableCommands(): Player.Commands {
+            return augmentAvailableCommands(super.getAvailableCommands())
+        }
+
+        override fun isCommandAvailable(command: Int): Boolean {
+            return when (command) {
+                Player.COMMAND_SEEK_TO_NEXT,
+                Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+                Player.COMMAND_SEEK_TO_PREVIOUS,
+                Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> {
+                    delegatePlayer.mediaItemCount > 0 || super.isCommandAvailable(command)
+                }
+                else -> super.isCommandAvailable(command)
+            }
+        }
+
+        override fun addListener(listener: Player.Listener) {
+            if (wrappedListeners.containsKey(listener)) return
+            val wrapped = object : Player.Listener by listener {
+                override fun onAvailableCommandsChanged(availableCommands: Player.Commands) {
+                    listener.onAvailableCommandsChanged(augmentAvailableCommands(availableCommands))
+                }
+
+                override fun onEvents(player: Player, events: Player.Events) {
+                    listener.onEvents(this@OndaSessionForwardingPlayer, events)
+                }
+            }
+            val previous = wrappedListeners.putIfAbsent(listener, wrapped)
+            if (previous == null) {
+                super.addListener(wrapped)
+            }
+        }
+
+        override fun removeListener(listener: Player.Listener) {
+            val wrapped = wrappedListeners.remove(listener)
+            super.removeListener(wrapped ?: listener)
+        }
+
+        override fun hasNextMediaItem(): Boolean {
+            return delegatePlayer.mediaItemCount > 0 || super.hasNextMediaItem()
+        }
+
+        override fun hasPreviousMediaItem(): Boolean {
+            return delegatePlayer.mediaItemCount > 0 || super.hasPreviousMediaItem()
+        }
+
+        override fun seekToNext() {
+            when (
+                resolveSkipNextBehavior(
+                    hasNextMediaItem = super.hasNextMediaItem(),
+                    mediaItemCount = delegatePlayer.mediaItemCount
+                )
+            ) {
+                SkipNextBehavior.SEEK_NEXT -> super.seekToNext()
+                SkipNextBehavior.WRAP_TO_FIRST -> wrapToFirstAndPlay()
+                SkipNextBehavior.NO_OP -> Unit
+            }
+        }
+
+        override fun seekToNextMediaItem() {
+            when (
+                resolveSkipNextBehavior(
+                    hasNextMediaItem = super.hasNextMediaItem(),
+                    mediaItemCount = delegatePlayer.mediaItemCount
+                )
+            ) {
+                SkipNextBehavior.SEEK_NEXT -> super.seekToNextMediaItem()
+                SkipNextBehavior.WRAP_TO_FIRST -> wrapToFirstAndPlay()
+                SkipNextBehavior.NO_OP -> Unit
+            }
+        }
+
+        override fun seekToPrevious() {
+            when (
+                resolveSkipPreviousBehavior(
+                    hasPreviousMediaItem = super.hasPreviousMediaItem(),
+                    mediaItemCount = delegatePlayer.mediaItemCount,
+                    currentPositionMs = delegatePlayer.currentPosition.coerceAtLeast(0L)
+                )
+            ) {
+                SkipPreviousBehavior.SEEK_TO_START -> delegatePlayer.seekTo(0L)
+                SkipPreviousBehavior.SEEK_PREVIOUS -> super.seekToPreviousMediaItem()
+                SkipPreviousBehavior.NO_OP -> Unit
+            }
+        }
+
+        override fun seekToPreviousMediaItem() {
+            if (super.hasPreviousMediaItem()) {
+                super.seekToPreviousMediaItem()
+            } else if (delegatePlayer.mediaItemCount > 0) {
+                delegatePlayer.seekTo(0L)
+            }
+        }
+
+        private fun wrapToFirstAndPlay() {
+            delegatePlayer.seekTo(0, 0L)
+            if (delegatePlayer.playbackState == Player.STATE_IDLE) {
+                delegatePlayer.prepare()
+            }
+            delegatePlayer.play()
+        }
+
+        private fun augmentAvailableCommands(commands: Player.Commands): Player.Commands {
+            if (delegatePlayer.mediaItemCount <= 0) return commands
+            return commands.buildUpon()
+                .add(Player.COMMAND_SEEK_TO_NEXT)
+                .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+                .add(Player.COMMAND_SEEK_TO_PREVIOUS)
+                .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                .build()
         }
     }
 
@@ -1178,11 +1332,22 @@ class OndaMediaService : MediaLibraryService() {
         fun trackToMediaItem(track: Track): MediaItem {
             val upgradedArtworkUrl = upgradeNotificationArtworkUrl(track.artworkUrl)
                 ?.takeIf { it.isNotBlank() }
+            val localFallbackArtwork = if (upgradedArtworkUrl == null && track.source == SourceKind.LOCAL) {
+                val localUri = track.localUri?.trim()?.takeIf { it.isNotBlank() }
+                when {
+                    localUri == null -> null
+                    localUri.startsWith("/") -> Uri.fromFile(java.io.File(localUri)).toString()
+                    else -> localUri
+                }
+            } else {
+                null
+            }
+            val artworkUriString = upgradedArtworkUrl ?: localFallbackArtwork
             val metadata = MediaMetadata.Builder()
                 .setTitle(track.title)
                 .setArtist(track.artist)
                 .setAlbumTitle(track.album)
-                .setArtworkUri(upgradedArtworkUrl?.let { Uri.parse(it) })
+                .setArtworkUri(artworkUriString?.let { Uri.parse(it) })
                 .setUserRating(HeartRating(track.liked))
                 .build()
             return MediaItem.Builder()

@@ -124,14 +124,43 @@ private tailrec fun Context.findHostActivity(): Activity? = when (this) {
     else -> null
 }
 
+private val activeBedsideWindows = mutableMapOf<Int, Int>()
+
 @Composable
-private fun KeepBedsideScreenOn() {
+private fun KeepBedsideScreenOn(
+    keepScreenOnSetting: Boolean,
+    isPreview: Boolean = false
+) {
+    if (isPreview) return
     val context = LocalContext.current
+    val currentKeepScreenOn by rememberUpdatedState(keepScreenOnSetting)
     DisposableEffect(context) {
         val window = context.findHostActivity()?.window
-        window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        val windowKey = window?.let { System.identityHashCode(it) }
+        if (window != null && windowKey != null) {
+            activeBedsideWindows[windowKey] = (activeBedsideWindows[windowKey] ?: 0) + 1
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
         onDispose {
-            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            if (window != null && windowKey != null) {
+                val remaining = ((activeBedsideWindows[windowKey] ?: 1) - 1).coerceAtLeast(0)
+                if (remaining == 0) {
+                    activeBedsideWindows.remove(windowKey)
+                    if (!currentKeepScreenOn) {
+                        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    }
+                } else {
+                    activeBedsideWindows[windowKey] = remaining
+                }
+            }
+        }
+    }
+    LaunchedEffect(context, keepScreenOnSetting) {
+        withFrameNanos { }
+        val window = context.findHostActivity()?.window ?: return@LaunchedEffect
+        val windowKey = System.identityHashCode(window)
+        if ((activeBedsideWindows[windowKey] ?: 0) > 0) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
     }
 }
@@ -183,14 +212,6 @@ fun TimelinePlayerStyle(
                 }
                 lastNanos = frameNanos
             }
-        }
-    }
-
-    val streamChipLabel = remember(state.activeStream) {
-        state.activeStream?.let { stream ->
-            val codecText = stream.codec.ifBlank { stream.qualityLabel }.uppercase(Locale.US)
-            val rateText = if (stream.bitrateKbps > 0) "${stream.bitrateKbps}K" else stream.qualityLabel
-            "${stream.source.name} · $codecText · $rateText"
         }
     }
 
@@ -415,28 +436,6 @@ fun TimelinePlayerStyle(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    if (isCurrent && streamChipLabel != null) {
-                                        Text(
-                                            text = streamChipLabel,
-                                            style = MaterialTheme.typography.labelSmall.copy(
-                                                fontFamily = FontFamily.Monospace,
-                                                fontSize = 10.sp
-                                            ),
-                                            color = palette.primary,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier
-                                                .padding(top = 2.dp)
-                                                .clip(RoundedCornerShape(GlassTokens.RadiusPill))
-                                                .background(Color(0xFF141417))
-                                                .border(
-                                                    1.dp,
-                                                    palette.primary.copy(alpha = 0.28f),
-                                                    RoundedCornerShape(GlassTokens.RadiusPill)
-                                                )
-                                                .padding(horizontal = 8.dp, vertical = 2.dp)
-                                        )
-                                    }
                                 }
                                 if (isCurrent) {
                                     LikeActionButton(
@@ -472,7 +471,10 @@ fun TimelinePlayerStyle(
             PlayerSeekSection(
                 playbackState = state,
                 onSeekToFraction = ctx.onSeekToFraction,
-                accentColor = Color.White
+                accentColor = Color.White,
+                seekbarStyle = ctx.settings.studioConfig.seekbarStyle,
+                lyrics = ctx.lyrics,
+                lyricsOffsetMs = ctx.lyricsOffsetMs
             )
             PlayerTransportControls(
                 playbackState = state,
@@ -655,7 +657,10 @@ fun LyricsStagePlayerStyle(
             PlayerSeekSection(
                 playbackState = state,
                 onSeekToFraction = ctx.onSeekToFraction,
-                accentColor = Color.White
+                accentColor = Color.White,
+                seekbarStyle = ctx.settings.studioConfig.seekbarStyle,
+                lyrics = ctx.lyrics,
+                lyricsOffsetMs = ctx.lyricsOffsetMs
             )
             PlayerTransportControls(
                 playbackState = state,
@@ -799,7 +804,10 @@ fun BedsidePlayerStyle(
     ctx: PlayerStageContext,
     modifier: Modifier = Modifier
 ) {
-    KeepBedsideScreenOn()
+    KeepBedsideScreenOn(
+        keepScreenOnSetting = ctx.settings.keepScreenOn,
+        isPreview = ctx.isPreview
+    )
 
     val reducedMotion = OndaTheme.reducedMotion
     val palette = OndaTheme.palette
@@ -891,7 +899,8 @@ fun BedsidePlayerStyle(
     var scrubFraction by remember { mutableStateOf<Float?>(null) }
     val shownProgress = scrubFraction ?: baseProgress
 
-    var mediaSwipeOffsetX by remember { mutableFloatStateOf(0f) }
+    val mediaSwipeOffsetX = remember { Animatable(0f) }
+    val currentReducedMotion by rememberUpdatedState(reducedMotion)
     val playInteraction = remember { MutableInteractionSource() }
     val currentHaptics by rememberUpdatedState(ctx.settings.hapticsEnabled)
     val currentOnSkipNext by rememberUpdatedState(ctx.onSkipNext)
@@ -1146,29 +1155,55 @@ fun BedsidePlayerStyle(
                     .fillMaxWidth()
                     .graphicsLayer {
                         alpha = restLuminanceAlpha
-                        translationX = mediaSwipeOffsetX * 0.35f
+                        translationX = mediaSwipeOffsetX.value * 0.35f
                     }
                     .pointerInput(Unit) {
+                        var dragTotalX = 0f
                         detectHorizontalDragGestures(
+                            onDragStart = {
+                                dragTotalX = mediaSwipeOffsetX.value
+                            },
                             onHorizontalDrag = { _, dragAmount ->
-                                mediaSwipeOffsetX = (mediaSwipeOffsetX + dragAmount).coerceIn(-160f, 160f)
+                                dragTotalX = (dragTotalX + dragAmount).coerceIn(-160f, 160f)
+                                scope.launch {
+                                    mediaSwipeOffsetX.snapTo(dragTotalX)
+                                }
                             },
                             onDragEnd = {
-                                if (mediaSwipeOffsetX < -64f) {
+                                val offset = dragTotalX
+                                if (offset < -64f) {
                                     if (currentHaptics) {
                                         haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     }
                                     currentOnSkipNext()
-                                } else if (mediaSwipeOffsetX > 64f) {
+                                } else if (offset > 64f) {
                                     if (currentHaptics) {
                                         haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     }
                                     currentOnSkipPrevious()
                                 }
-                                mediaSwipeOffsetX = 0f
+                                scope.launch {
+                                    if (currentReducedMotion) {
+                                        mediaSwipeOffsetX.snapTo(0f)
+                                    } else {
+                                        mediaSwipeOffsetX.animateTo(
+                                            targetValue = 0f,
+                                            animationSpec = spring(dampingRatio = 0.62f, stiffness = 480f)
+                                        )
+                                    }
+                                }
                             },
                             onDragCancel = {
-                                mediaSwipeOffsetX = 0f
+                                scope.launch {
+                                    if (currentReducedMotion) {
+                                        mediaSwipeOffsetX.snapTo(0f)
+                                    } else {
+                                        mediaSwipeOffsetX.animateTo(
+                                            targetValue = 0f,
+                                            animationSpec = spring(dampingRatio = 0.62f, stiffness = 480f)
+                                        )
+                                    }
+                                }
                             }
                         )
                     },
@@ -1328,7 +1363,10 @@ fun BedsideTilesPlayerStyle(
     ctx: PlayerStageContext,
     modifier: Modifier = Modifier
 ) {
-    KeepBedsideScreenOn()
+    KeepBedsideScreenOn(
+        keepScreenOnSetting = ctx.settings.keepScreenOn,
+        isPreview = ctx.isPreview
+    )
 
     val reducedMotion = OndaTheme.reducedMotion
     val palette = OndaTheme.palette
@@ -1727,7 +1765,10 @@ fun BedsideTilesPlayerStyle(
                     PlayerSeekSection(
                         playbackState = state,
                         onSeekToFraction = ctx.onSeekToFraction,
-                        accentColor = Color.White
+                        accentColor = Color.White,
+                        seekbarStyle = ctx.settings.studioConfig.seekbarStyle,
+                        lyrics = ctx.lyrics,
+                        lyricsOffsetMs = ctx.lyricsOffsetMs
                     )
 
                     Box(

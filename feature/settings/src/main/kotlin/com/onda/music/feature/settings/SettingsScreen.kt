@@ -91,6 +91,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -101,9 +102,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -188,7 +191,7 @@ fun SettingsRoute(
         onClearCache = viewModel::clearCache,
         onMaxCacheMbChange = viewModel::setMaxCacheMb,
         onDownloadFolderPicked = viewModel::setDownloadTreeUri,
-    onResetDefaults = viewModel::resetToDefaults,
+        onResetDefaults = viewModel::resetToDefaults,
         onClearStatusMessage = viewModel::clearStatusMessage,
         onScrobbleEnabledChange = viewModel::setScrobbleEnabled,
         onSaveScrobbleConfig = viewModel::saveScrobbleConfig,
@@ -311,7 +314,7 @@ fun SettingsScreen(
         if (uri != null) onDownloadFolderPicked(uri)
     }
 
-    val bottomPadding = DockMetrics.rememberBottomPadding(hasMiniPlayer = true)
+    val bottomPadding = DockMetrics.rememberBottomPadding(hasMiniPlayer = uiState.hasMiniPlayer)
     val expandedTopBarHeight = rememberSettingsTopBarExpandedHeight()
     val collapsedTopBarHeight = rememberSettingsTopBarCollapsedHeight()
     val detailTopBarHeight = rememberSettingsDetailTopBarHeight()
@@ -755,7 +758,8 @@ fun SettingsScreen(
             autoEqResults = uiState.autoEqResults,
             autoEqTotalCount = uiState.autoEqTotalCount,
             onAutoEqQueryChange = onAutoEqQueryChange,
-            onApplyAutoEqProfile = onApplyAutoEqProfile
+            onApplyAutoEqProfile = onApplyAutoEqProfile,
+            hapticsEnabled = settings.hapticsEnabled
         )
     }
 
@@ -1284,12 +1288,31 @@ private fun SettingsEntryRow(
                         color = SettingsOledColors.TextPrimary
                     )
                 }
+                val haptic = LocalHapticFeedback.current
+                var isDraggingFontScale by remember { mutableStateOf(false) }
+                var lastFontScaleStep by remember {
+                    mutableIntStateOf(round(settings.lyricsFontScale.coerceIn(0.75f, 1.75f) * 20f).toInt())
+                }
+                LaunchedEffect(settings.lyricsFontScale, isDraggingFontScale) {
+                    if (!isDraggingFontScale) {
+                        lastFontScaleStep = round(settings.lyricsFontScale.coerceIn(0.75f, 1.75f) * 20f).toInt()
+                    }
+                }
                 Slider(
                     value = settings.lyricsFontScale,
                     onValueChange = { raw ->
+                        isDraggingFontScale = true
                         val snapped = (round(raw * 20f) / 20f).coerceIn(0.75f, 1.75f)
+                        val newStep = round(snapped * 20f).toInt()
+                        if (newStep != lastFontScaleStep) {
+                            lastFontScaleStep = newStep
+                            if (haptics) {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            }
+                        }
                         onLyricsFontScaleChange(snapped)
                     },
+                    onValueChangeFinished = { isDraggingFontScale = false },
                     valueRange = 0.75f..1.75f,
                     colors = SliderDefaults.colors(
                         thumbColor = SettingsOledColors.TextPrimary,

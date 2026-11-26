@@ -225,9 +225,6 @@ class MomiTransferImporter @Inject constructor(
     }
 
     private fun saveAvatarBytes(bytes: ByteArray): String? {
-        if (bytes.isEmpty()) return null
-        val target = File(context.filesDir, "onda_avatar.jpg")
-        target.writeBytes(bytes)
-        return target.absolutePath
+        return OndaBackupManager.saveOndaAvatarBytes(context.filesDir, bytes)
     }
 }

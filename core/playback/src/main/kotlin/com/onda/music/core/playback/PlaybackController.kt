@@ -137,10 +137,12 @@ class PlaybackController @Inject constructor(
     fun togglePlayPause() {
         scope.launch {
             val controller = ensureController() ?: return@launch
-            if (controller.isPlaying) {
+            if (shouldPauseOnToggle(controller.isPlaying, controller.playWhenReady, controller.playbackState)) {
                 controller.pause()
             } else {
-                if (controller.playbackState == Player.STATE_IDLE && controller.mediaItemCount > 0) {
+                if (controller.playbackState == Player.STATE_ENDED && controller.mediaItemCount > 0) {
+                    controller.seekTo(0L)
+                } else if (controller.playbackState == Player.STATE_IDLE && controller.mediaItemCount > 0) {
                     controller.prepare()
                 }
                 controller.play()
@@ -158,9 +160,10 @@ class PlaybackController @Inject constructor(
     fun skipNext() {
         scope.launch {
             val controller = ensureController() ?: return@launch
+            if (controller.mediaItemCount <= 0) return@launch
             if (controller.hasNextMediaItem()) {
                 controller.seekToNextMediaItem()
-            } else if (controller.mediaItemCount > 0) {
+            } else {
                 controller.seekTo(0, 0L)
             }
             controller.play()
@@ -170,6 +173,7 @@ class PlaybackController @Inject constructor(
     fun skipPrevious() {
         scope.launch {
             val controller = ensureController() ?: return@launch
+            if (controller.mediaItemCount <= 0) return@launch
             if (controller.currentPosition > 3_000L || !controller.hasPreviousMediaItem()) {
                 controller.seekTo(0L)
             } else {
@@ -406,4 +410,12 @@ class PlaybackController @Inject constructor(
             }.getOrNull()
         }
     }
+}
+
+internal fun shouldPauseOnToggle(
+    isPlaying: Boolean,
+    playWhenReady: Boolean,
+    playbackState: Int
+): Boolean {
+    return isPlaying || (playWhenReady && playbackState == Player.STATE_BUFFERING)
 }

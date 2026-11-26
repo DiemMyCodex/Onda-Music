@@ -237,7 +237,7 @@ class OndaBackupRestoreTest {
     }
 
     @Test
-    fun backupManifestVersionIs130() {
-        assertEquals("1.3.0", OndaBackupManager.ONDA_TRANSFER_APP_VERSION)
+    fun backupManifestVersionIs131() {
+        assertEquals("1.3.1", OndaBackupManager.ONDA_TRANSFER_APP_VERSION)
     }
 }

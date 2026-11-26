@@ -71,7 +71,7 @@ class SettingsStateTest {
         assertEquals(1, discordMatches.size)
         assertEquals(SettingsEntryId.DISCORD_RPC, discordMatches.first().id)
 
-        assertTrue(strings.appVersionFooter.contains("1.3.0"))
+        assertTrue(strings.appVersionFooter.contains("1.3.1"))
     }
 
     @Test
@@ -114,13 +114,13 @@ class SettingsStateTest {
     }
 
     @Test
-    fun `settingsStringsFor reports v1_3_0 footer in both en and vi`() {
+    fun `settingsStringsFor reports v1_3_1 footer in both en and vi`() {
         val en = settingsStringsFor("en")
         val vi = settingsStringsFor("vi")
-        assertTrue(en.appVersionFooter.contains("v1.3.0"))
-        assertTrue(vi.appVersionFooter.contains("v1.3.0"))
-        assertFalse(en.appVersionFooter.contains("1.2.9"))
-        assertFalse(vi.appVersionFooter.contains("1.2.9"))
+        assertTrue(en.appVersionFooter.contains("v1.3.1"))
+        assertTrue(vi.appVersionFooter.contains("v1.3.1"))
+        assertFalse(en.appVersionFooter.contains("1.3.0"))
+        assertFalse(vi.appVersionFooter.contains("1.3.0"))
     }
 
     @Test

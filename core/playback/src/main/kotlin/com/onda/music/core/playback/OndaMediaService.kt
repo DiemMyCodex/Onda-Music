@@ -22,6 +22,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.Rating
+import androidx.media3.common.Timeline
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
@@ -61,7 +62,7 @@ import com.onda.music.core.model.Track
 import dagger.hilt.android.AndroidEntryPoint
 import java.io.IOException
 import java.util.Locale
-import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArraySet
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -297,7 +298,6 @@ class OndaMediaService : MediaLibraryService() {
         val builder = MediaLibrarySession.Builder(this, sessionPlayer, librarySessionCallback)
             .setBitmapLoader(bitmapLoader)
             .setMediaButtonPreferences(initialButtons)
-            .setCustomLayout(initialButtons)
         if (sessionActivity != null) {
             builder.setSessionActivity(sessionActivity)
         }
@@ -398,7 +398,6 @@ class OndaMediaService : MediaLibraryService() {
                         lastPublishedButtonsState = buttonsState
                         val buttons = buildNotificationButtons(buttonsState)
                         mediaLibrarySession?.setMediaButtonPreferences(buttons)
-                        mediaLibrarySession?.setCustomLayout(buttons)
                     }
                 }
         }
@@ -1117,7 +1116,6 @@ class OndaMediaService : MediaLibraryService() {
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(availableCommands)
                 .setMediaButtonPreferences(buttons)
-                .setCustomLayout(buttons)
                 .build()
         }
 
@@ -1203,125 +1201,6 @@ class OndaMediaService : MediaLibraryService() {
         }
     }
 
-    private class OndaSessionForwardingPlayer(
-        private val delegatePlayer: Player
-    ) : ForwardingPlayer(delegatePlayer) {
-
-        private val wrappedListeners = ConcurrentHashMap<Player.Listener, Player.Listener>()
-
-        override fun getAvailableCommands(): Player.Commands {
-            return augmentAvailableCommands(super.getAvailableCommands())
-        }
-
-        override fun isCommandAvailable(command: Int): Boolean {
-            return when (command) {
-                Player.COMMAND_SEEK_TO_NEXT,
-                Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
-                Player.COMMAND_SEEK_TO_PREVIOUS,
-                Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> {
-                    delegatePlayer.mediaItemCount > 0 || super.isCommandAvailable(command)
-                }
-                else -> super.isCommandAvailable(command)
-            }
-        }
-
-        override fun addListener(listener: Player.Listener) {
-            if (wrappedListeners.containsKey(listener)) return
-            val wrapped = object : Player.Listener by listener {
-                override fun onAvailableCommandsChanged(availableCommands: Player.Commands) {
-                    listener.onAvailableCommandsChanged(augmentAvailableCommands(availableCommands))
-                }
-
-                override fun onEvents(player: Player, events: Player.Events) {
-                    listener.onEvents(this@OndaSessionForwardingPlayer, events)
-                }
-            }
-            val previous = wrappedListeners.putIfAbsent(listener, wrapped)
-            if (previous == null) {
-                super.addListener(wrapped)
-            }
-        }
-
-        override fun removeListener(listener: Player.Listener) {
-            val wrapped = wrappedListeners.remove(listener)
-            super.removeListener(wrapped ?: listener)
-        }
-
-        override fun hasNextMediaItem(): Boolean {
-            return delegatePlayer.mediaItemCount > 0 || super.hasNextMediaItem()
-        }
-
-        override fun hasPreviousMediaItem(): Boolean {
-            return delegatePlayer.mediaItemCount > 0 || super.hasPreviousMediaItem()
-        }
-
-        override fun seekToNext() {
-            when (
-                resolveSkipNextBehavior(
-                    hasNextMediaItem = super.hasNextMediaItem(),
-                    mediaItemCount = delegatePlayer.mediaItemCount
-                )
-            ) {
-                SkipNextBehavior.SEEK_NEXT -> super.seekToNext()
-                SkipNextBehavior.WRAP_TO_FIRST -> wrapToFirstAndPlay()
-                SkipNextBehavior.NO_OP -> Unit
-            }
-        }
-
-        override fun seekToNextMediaItem() {
-            when (
-                resolveSkipNextBehavior(
-                    hasNextMediaItem = super.hasNextMediaItem(),
-                    mediaItemCount = delegatePlayer.mediaItemCount
-                )
-            ) {
-                SkipNextBehavior.SEEK_NEXT -> super.seekToNextMediaItem()
-                SkipNextBehavior.WRAP_TO_FIRST -> wrapToFirstAndPlay()
-                SkipNextBehavior.NO_OP -> Unit
-            }
-        }
-
-        override fun seekToPrevious() {
-            when (
-                resolveSkipPreviousBehavior(
-                    hasPreviousMediaItem = super.hasPreviousMediaItem(),
-                    mediaItemCount = delegatePlayer.mediaItemCount,
-                    currentPositionMs = delegatePlayer.currentPosition.coerceAtLeast(0L)
-                )
-            ) {
-                SkipPreviousBehavior.SEEK_TO_START -> delegatePlayer.seekTo(0L)
-                SkipPreviousBehavior.SEEK_PREVIOUS -> super.seekToPreviousMediaItem()
-                SkipPreviousBehavior.NO_OP -> Unit
-            }
-        }
-
-        override fun seekToPreviousMediaItem() {
-            if (super.hasPreviousMediaItem()) {
-                super.seekToPreviousMediaItem()
-            } else if (delegatePlayer.mediaItemCount > 0) {
-                delegatePlayer.seekTo(0L)
-            }
-        }
-
-        private fun wrapToFirstAndPlay() {
-            delegatePlayer.seekTo(0, 0L)
-            if (delegatePlayer.playbackState == Player.STATE_IDLE) {
-                delegatePlayer.prepare()
-            }
-            delegatePlayer.play()
-        }
-
-        private fun augmentAvailableCommands(commands: Player.Commands): Player.Commands {
-            if (delegatePlayer.mediaItemCount <= 0) return commands
-            return commands.buildUpon()
-                .add(Player.COMMAND_SEEK_TO_NEXT)
-                .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
-                .add(Player.COMMAND_SEEK_TO_PREVIOUS)
-                .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
-                .build()
-        }
-    }
-
     companion object {
         const val ONDA_TRACK_SCHEME = "onda://track/"
         private const val CHECKPOINT_INTERVAL_MS = 5_000L
@@ -1356,5 +1235,145 @@ class OndaMediaService : MediaLibraryService() {
                 .setMediaMetadata(metadata)
                 .build()
         }
+    }
+}
+
+@UnstableApi
+internal class OndaSessionForwardingPlayer(
+    private val delegatePlayer: Player
+) : ForwardingPlayer(delegatePlayer) {
+
+    private val registeredListeners = CopyOnWriteArraySet<Player.Listener>()
+    private var dispatchingAugmentedCommands = false
+
+    private val commandSyncListener = object : Player.Listener {
+        override fun onAvailableCommandsChanged(availableCommands: Player.Commands) {
+            dispatchAugmentedCommandsIfNeeded(availableCommands)
+        }
+
+        override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+            if (delegatePlayer.mediaItemCount > 0) {
+                dispatchAugmentedCommandsIfNeeded(delegatePlayer.availableCommands)
+            }
+        }
+    }
+
+    override fun getAvailableCommands(): Player.Commands {
+        return augmentAvailableCommands(super.getAvailableCommands())
+    }
+
+    override fun isCommandAvailable(command: Int): Boolean {
+        return when (command) {
+            Player.COMMAND_SEEK_TO_NEXT,
+            Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+            Player.COMMAND_SEEK_TO_PREVIOUS,
+            Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> {
+                delegatePlayer.mediaItemCount > 0 || super.isCommandAvailable(command)
+            }
+            else -> super.isCommandAvailable(command)
+        }
+    }
+
+    override fun addListener(listener: Player.Listener) {
+        super.addListener(listener)
+        registeredListeners.add(listener)
+        delegatePlayer.removeListener(commandSyncListener)
+        delegatePlayer.addListener(commandSyncListener)
+    }
+
+    override fun removeListener(listener: Player.Listener) {
+        super.removeListener(listener)
+        registeredListeners.remove(listener)
+        if (registeredListeners.isEmpty()) {
+            delegatePlayer.removeListener(commandSyncListener)
+        }
+    }
+
+    override fun hasNextMediaItem(): Boolean {
+        return delegatePlayer.mediaItemCount > 0 || super.hasNextMediaItem()
+    }
+
+    override fun hasPreviousMediaItem(): Boolean {
+        return delegatePlayer.mediaItemCount > 0 || super.hasPreviousMediaItem()
+    }
+
+    override fun seekToNext() {
+        when (
+            resolveSkipNextBehavior(
+                hasNextMediaItem = super.hasNextMediaItem(),
+                mediaItemCount = delegatePlayer.mediaItemCount
+            )
+        ) {
+            SkipNextBehavior.SEEK_NEXT -> super.seekToNext()
+            SkipNextBehavior.WRAP_TO_FIRST -> wrapToFirstAndPlay()
+            SkipNextBehavior.NO_OP -> Unit
+        }
+    }
+
+    override fun seekToNextMediaItem() {
+        when (
+            resolveSkipNextBehavior(
+                hasNextMediaItem = super.hasNextMediaItem(),
+                mediaItemCount = delegatePlayer.mediaItemCount
+            )
+        ) {
+            SkipNextBehavior.SEEK_NEXT -> super.seekToNextMediaItem()
+            SkipNextBehavior.WRAP_TO_FIRST -> wrapToFirstAndPlay()
+            SkipNextBehavior.NO_OP -> Unit
+        }
+    }
+
+    override fun seekToPrevious() {
+        when (
+            resolveSkipPreviousBehavior(
+                hasPreviousMediaItem = super.hasPreviousMediaItem(),
+                mediaItemCount = delegatePlayer.mediaItemCount,
+                currentPositionMs = delegatePlayer.currentPosition.coerceAtLeast(0L)
+            )
+        ) {
+            SkipPreviousBehavior.SEEK_TO_START -> delegatePlayer.seekTo(0L)
+            SkipPreviousBehavior.SEEK_PREVIOUS -> super.seekToPreviousMediaItem()
+            SkipPreviousBehavior.NO_OP -> Unit
+        }
+    }
+
+    override fun seekToPreviousMediaItem() {
+        if (super.hasPreviousMediaItem()) {
+            super.seekToPreviousMediaItem()
+        } else if (delegatePlayer.mediaItemCount > 0) {
+            delegatePlayer.seekTo(0L)
+        }
+    }
+
+    private fun wrapToFirstAndPlay() {
+        delegatePlayer.seekTo(0, 0L)
+        if (delegatePlayer.playbackState == Player.STATE_IDLE) {
+            delegatePlayer.prepare()
+        }
+        delegatePlayer.play()
+    }
+
+    private fun dispatchAugmentedCommandsIfNeeded(baseCommands: Player.Commands) {
+        if (dispatchingAugmentedCommands || registeredListeners.isEmpty()) return
+        val augmented = augmentAvailableCommands(baseCommands)
+        if (augmented == baseCommands) return
+        dispatchingAugmentedCommands = true
+        try {
+            registeredListeners.forEach { listener ->
+                listener.onAvailableCommandsChanged(augmented)
+            }
+        } finally {
+            dispatchingAugmentedCommands = false
+        }
+    }
+
+    private fun augmentAvailableCommands(commands: Player.Commands): Player.Commands {
+        if (delegatePlayer.mediaItemCount <= 0) return commands
+        return commands.buildUpon()
+            .add(Player.COMMAND_SEEK_TO_NEXT)
+            .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+            .add(Player.COMMAND_SEEK_TO_PREVIOUS)
+            .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+            .build()
     }
 }

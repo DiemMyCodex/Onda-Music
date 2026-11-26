@@ -509,7 +509,7 @@ class LyricsRepository @Inject constructor(
     )
 
     companion object {
-        internal const val ONDA_LYRICS_USER_AGENT = "OndaMusic/1.3.0 (+https://github.com/DiemMyCodex/Onda-Music)"
+        internal const val ONDA_LYRICS_USER_AGENT = "OndaMusic/1.3.1 (+https://github.com/DiemMyCodex/Onda-Music)"
         private const val BETTER_LYRICS_ENDPOINT = "https://lyrics-api.boidu.dev/getLyrics"
         private const val SIMP_MUSIC_BASE_URL = "https://api-lyrics.simpmusic.org/v1"
         private const val NETEASE_SEARCH_ENDPOINT = "https://music.163.com/api/search/get"

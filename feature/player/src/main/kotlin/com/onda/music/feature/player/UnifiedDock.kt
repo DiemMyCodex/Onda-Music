@@ -741,9 +741,9 @@ private fun MiniPlayerBar(
                                 scaleX = t.scale
                                 scaleY = t.scale
                                 cameraDistance = if (reducedMotion) {
-                                    8f * density
+                                    8f * this.density
                                 } else {
-                                    (w * 3f).coerceAtLeast(12f * density)
+                                    (w * 3f).coerceAtLeast(12f * this.density)
                                 }
                             }
                     )
@@ -768,9 +768,9 @@ private fun MiniPlayerBar(
                             scaleX = t.scale
                             scaleY = t.scale
                             cameraDistance = if (reducedMotion) {
-                                8f * density
+                                8f * this.density
                             } else {
-                                (w * 3f).coerceAtLeast(12f * density)
+                                (w * 3f).coerceAtLeast(12f * this.density)
                             }
                         }
                 )
@@ -795,9 +795,9 @@ private fun MiniPlayerBar(
                                 scaleX = t.scale
                                 scaleY = t.scale
                                 cameraDistance = if (reducedMotion) {
-                                    8f * density
+                                    8f * this.density
                                 } else {
-                                    (w * 3f).coerceAtLeast(12f * density)
+                                    (w * 3f).coerceAtLeast(12f * this.density)
                                 }
                             }
                     )

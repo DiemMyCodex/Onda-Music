@@ -315,7 +315,7 @@ class DatabaseMappersAndPrefsTest {
             val device = AudioOutputDevice("bt:xm5", "Sony XM5", AudioOutputKind.BLUETOOTH)
             val profile = AudioOutputEqProfile.fromEqConfig(
                 device = device,
-                eqConfig = EqConfig(enabled = true, activePresetId = "rock"),
+                config = EqConfig(enabled = true, activePresetId = "rock"),
                 updatedAtMs = 1_234L
             )
             val checkpoint = PlaybackCheckpoint(

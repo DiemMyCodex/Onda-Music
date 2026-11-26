@@ -6,7 +6,7 @@
   <br/>
 <p align="center">
   <a href="https://github.com/DiemMyCodex/Onda-Music/releases">
-    <img src="https://shieldcn.dev/github/downloads/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff&v=1.2.9r" alt="Downloads" />
+    <img src="https://shieldcn.dev/github/downloads/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff&v=1.3.1r" alt="Downloads" />
   </a>
   <a href="https://github.com/DiemMyCodex/Onda-Music/stargazers">
     <img src="https://shieldcn.dev/github/stars/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff" alt="Stars" />
@@ -18,7 +18,7 @@
     <img src="https://shieldcn.dev/badge/Android-10%2B-1e1e1e.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logo=android&logoColor=ffffff" alt="Android 10+" />
   </a>
   <a href="https://github.com/DiemMyCodex/Onda-Music/releases/latest">
-    <img src="https://shieldcn.dev/github/release/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff&v=1.2.9r" alt="Latest Release" />
+    <img src="https://shieldcn.dev/github/release/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff&v=1.3.1r" alt="Latest Release" />
   </a>
 </p>
 </div>
@@ -32,10 +32,10 @@
 
 <p>
   <a href="https://github.com/DiemMyCodex/Onda-Music/releases/latest">
-    <img src="https://shieldcn.dev/github/release/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff&v=1.2.9r" alt="Latest Release" />
+    <img src="https://shieldcn.dev/github/release/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff&v=1.3.1r" alt="Latest Release" />
   </a>
   <a href="https://github.com/DiemMyCodex/Onda-Music/releases">
-    <img src="https://shieldcn.dev/github/downloads/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff&v=1.2.9r" alt="Total Downloads" />
+    <img src="https://shieldcn.dev/github/downloads/DiemMyCodex/Onda-Music.svg?mode=dark&radius=999&font=geist&split=true&height=28&fontSize=13&labelColor=141414&labelTextColor=9e9e9e&color=1e1e1e&valueColor=ffffff&logoColor=ffffff&v=1.3.1r" alt="Total Downloads" />
   </a>
 </p>
 
@@ -51,13 +51,14 @@ Updating works the same way: install the newer APK right over the old one and yo
 
 ---
 
-## What is inside (`v1.2.9`)
+## What is inside (`v1.3.1`)
 
-- Pure `#000000` OLED monochrome look with squircle geometry, seamless black system splash into Acoustic Ignition launch choreography, smoked glass blur, optional AGSL artwork mesh, and opt-in **OLED Adaptive Accent** (high-contrast WCAG AA artwork tint with `#000000` locked surfaces).
-- Pro-grade **32-bit Float Parametric EQ** (`31Hz` to `16kHz`) supporting `PCM_16BIT`, `PCM_24BIT`, `PCM_32BIT`, and `PCM_FLOAT` (so 24-bit FLAC never bypasses EQ), bundled offline **AutoEq** search across **2,287 headphone/IEM/TWS profiles** bound per audio output (Bluetooth, Wired, USB DAC, Speaker), real-time Media3/FFmpeg **Audio Signal Path Telemetry** badge (`FLAC · 24-bit/96kHz · USB DAC`), and per-session or global speed/pitch persistence.
-- **Hedged Multi-Source Word-Timed Lyrics Engine** combining BetterLyrics (Apple Music TTML syllable timing), SimpMusic Lyrics, LRCLIB, NetEase JSON (native bilingual translations), and YouTube Music fallback, rendered at 120Hz across 4 selectable styles (`Onda Kinetic`, `Acoustic Wave`, `Clean Rise`, `Pure Sweep`) with bilingual subtitles and opt-in on-demand translation cached in Room.
-- **Local-First Power Features:** pure-black `#000000` **Offline Listening Stats & Shareable OLED Recap** (7d / 30d / All Time, zero telemetry), pure-Kotlin **Local Audio Tag & Artwork Editor** (MP3 ID3v2.3/2.4, FLAC Vorbis Comment + `METADATA_BLOCK_PICTURE`, M4A/MP4 atoms with atomic temp-file replace via MediaStore/SAF), and opt-in (off by default) lightweight **Libre.fm / Last.fm Audioscrobbler v2.0** & **Discord Gateway Rich Presence**.
-- 10 switchable Now Playing styles (`Poster`, `Flagship`, `Classic`, `Turntable`, `Video`, `iPod`, `Timeline`, `Lyrics`, `Bedside`, and `Bedside Tiles` with OLED burn-in pixel shift) plus portable ZIP backups and `momi-export-*.zip` migration.
+- Pure `#000000` OLED monochrome look with squircle geometry, seamless black system splash into Acoustic Ignition launch choreography, smoked glass blur, optional AGSL artwork mesh, `Aurora Ribbons` studio backdrop, and opt-in **OLED Adaptive Accent** (high-contrast WCAG AA artwork tint with `#000000` locked surfaces).
+- **120fps GPU-Only Studio Motion:** minimal Now Playing chrome, floating lyric-aware scrub preview capsule, `Liquid Spectrum` seekbar style, live sleep timer countdown pill, 3D perspective MiniPlayer swipe, sliding spring filter/tab pills across Library and Search, and `reducedMotion` fallbacks across all animations.
+- Pro-grade **32-bit Float Parametric EQ** (`31Hz` to `16kHz`) supporting `PCM_16BIT`, `PCM_24BIT`, `PCM_32BIT`, and `PCM_FLOAT` (so 24-bit FLAC never bypasses EQ), bundled offline **AutoEq** search across **2,287 headphone/IEM/TWS profiles** bound per audio output (Bluetooth, Wired, USB DAC, Speaker), real-time Media3/FFmpeg **Audio Signal Path Telemetry** (`FLAC · 24-bit/96kHz · USB DAC`) inside the More Action Sheet, and per-session or global speed/pitch persistence.
+- **Hedged Multi-Source Word-Timed Lyrics Engine** combining BetterLyrics (Apple Music TTML syllable timing), SimpMusic Lyrics, LRCLIB, NetEase JSON (native bilingual translations), and YouTube Music fallback, rendered at 120Hz across 4 selectable styles (`Onda Kinetic`, `Acoustic Wave`, `Clean Rise`, `Pure Sweep`) with cached source preservation, bilingual subtitles, and opt-in per-line translation cached in Room.
+- **Local-First Power Features & Reliable Playback:** hardened Media3 1.7.1 `MediaSession` transport sync and system media notification controls with dedicated artwork loading, pure-black `#000000` **Offline Listening Stats & Shareable OLED Recap** (7d / 30d / All Time, zero telemetry), pure-Kotlin **Local Audio Tag & Artwork Editor** (MP3 ID3v2.3/2.4, FLAC Vorbis Comment + `METADATA_BLOCK_PICTURE`, M4A/MP4 atoms with atomic temp-file replace via MediaStore/SAF), and opt-in (off by default) lightweight **Libre.fm / Last.fm Audioscrobbler v2.0** & **Discord Gateway Rich Presence**.
+- 10 switchable Now Playing styles (`Poster`, `Flagship`, `Classic`, `Turntable`, `Video`, `iPod`, `Timeline`, `Lyrics`, `Bedside`, and `Bedside Tiles` with keep-screen-on spring swipe and OLED burn-in pixel shift) plus full portable ZIP backups/settings restore and `momi-export-*.zip` migration.
 
 ---
 

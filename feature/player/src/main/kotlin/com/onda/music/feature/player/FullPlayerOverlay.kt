@@ -5,6 +5,7 @@ import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -18,6 +19,8 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -42,6 +45,8 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -72,11 +77,15 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.input.pointer.util.addPointerInputChange
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -131,7 +140,45 @@ import java.util.Locale
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.sign
 import kotlin.math.sin
+
+internal enum class PlayerSwipeDirection {
+    NONE,
+    NEXT,
+    PREVIOUS
+}
+
+internal fun computeNowPlayingSwipeOffsetPx(
+    rawDeltaX: Float,
+    maxVisualShiftPx: Float
+): Float {
+    if (!rawDeltaX.isFinite() || !maxVisualShiftPx.isFinite()) return 0f
+    val limit = maxVisualShiftPx.coerceAtLeast(1f)
+    val absDelta = abs(rawDeltaX)
+    if (absDelta < 0.001f) return 0f
+    val elastic = (absDelta * 0.36f) / (1f + (absDelta * 0.36f) / limit)
+    return sign(rawDeltaX) * elastic.coerceIn(0f, limit)
+}
+
+internal fun resolveNowPlayingSwipeAction(
+    totalDragX: Float,
+    velocityX: Float,
+    distanceThresholdPx: Float,
+    velocityThresholdPx: Float
+): PlayerSwipeDirection {
+    if (!totalDragX.isFinite() || !velocityX.isFinite()) return PlayerSwipeDirection.NONE
+    val dist = if (distanceThresholdPx.isFinite()) distanceThresholdPx.coerceAtLeast(1f) else return PlayerSwipeDirection.NONE
+    val vel = if (velocityThresholdPx.isFinite()) velocityThresholdPx.coerceAtLeast(1f) else Float.MAX_VALUE
+    val minFlickDistance = dist * 0.28f
+    val swipeNext = (totalDragX <= -dist || (velocityX <= -vel && totalDragX <= -minFlickDistance)) &&
+        velocityX <= vel
+    if (swipeNext) return PlayerSwipeDirection.NEXT
+    val swipePrev = (totalDragX >= dist || (velocityX >= vel && totalDragX >= minFlickDistance)) &&
+        velocityX >= -vel
+    if (swipePrev) return PlayerSwipeDirection.PREVIOUS
+    return PlayerSwipeDirection.NONE
+}
 
 internal fun formatSleepTimerBadgeLabel(
     remainingMs: Long?,
@@ -388,6 +435,8 @@ fun FullPlayerOverlay(
     }
 
     val collapseTravelOffsetPx = with(density) { 64.dp.toPx() }
+    val trackSwipeOffsetX = remember { Animatable(0f) }
+    var trackSwipePreview by remember { mutableStateOf(PlayerSwipeDirection.NONE) }
 
     CompositionLocalProvider(
         LocalOndaPalette provides palette,
@@ -426,12 +475,23 @@ fun FullPlayerOverlay(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .horizontalTrackSwipe(
+                        enabled = !anySheetOpen && playbackState.currentTrack != null,
+                        morphFractionProvider = morphFractionProvider,
+                        reducedMotion = reducedMotion,
+                        hapticsEnabled = settings.hapticsEnabled,
+                        swipeOffsetX = trackSwipeOffsetX,
+                        onPreviewDirectionChange = { trackSwipePreview = it },
+                        onSkipNext = viewModel::skipNext,
+                        onSkipPrevious = viewModel::skipPrevious
+                    )
                     .graphicsLayer {
                         val morph = morphFractionProvider().coerceIn(0f, 1f)
                         if (!reducedMotion) {
                             val backdropScale = lerp(1.06f, 1f, morph)
                             scaleX = backdropScale
                             scaleY = backdropScale
+                            translationX = trackSwipeOffsetX.value
                         }
                         alpha = ((morph - 0.12f) / 0.56f).coerceIn(0f, 1f)
                     }
@@ -651,6 +711,17 @@ fun FullPlayerOverlay(
             OndaLikeBurstOverlay(
                 state = likeBurstState,
                 modifier = Modifier.fillMaxSize()
+            )
+
+            NowPlayingSwipePreviewPill(
+                direction = trackSwipePreview,
+                playbackState = playbackState,
+                languageCode = settings.languageCode,
+                reducedMotion = reducedMotion,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = 68.dp, start = 24.dp, end = 24.dp)
             )
 
             if (showQueueSheet) {
@@ -1179,6 +1250,244 @@ private fun OndaPlayerStyleStage(
         PlayerStyle.LYRICS -> LyricsStagePlayerStyle(playbackState = playbackState, ctx = ctx, modifier = modifier)
         PlayerStyle.BEDSIDE -> BedsidePlayerStyle(playbackState = playbackState, ctx = ctx, modifier = modifier)
         PlayerStyle.BEDSIDE_TILES -> BedsideTilesPlayerStyle(playbackState = playbackState, ctx = ctx, modifier = modifier)
+    }
+}
+
+@Composable
+private fun NowPlayingSwipePreviewPill(
+    direction: PlayerSwipeDirection,
+    playbackState: PlaybackState,
+    languageCode: String,
+    reducedMotion: Boolean,
+    modifier: Modifier = Modifier
+) {
+    var lastDirection by remember { mutableStateOf(PlayerSwipeDirection.NEXT) }
+    if (direction != PlayerSwipeDirection.NONE && lastDirection != direction) {
+        SideEffect {
+            lastDirection = direction
+        }
+    }
+    val activeDir = if (direction != PlayerSwipeDirection.NONE) direction else lastDirection
+    val isVi = languageCode.startsWith("vi", ignoreCase = true)
+    val queue = playbackState.queue
+    val idx = playbackState.currentIndex
+    val isRestartPrevious = activeDir == PlayerSwipeDirection.PREVIOUS &&
+        (playbackState.positionMs > 3_000L || idx <= 0 || queue.size <= 1)
+    val actionLabel = when {
+        activeDir == PlayerSwipeDirection.NEXT -> if (isVi) "Bài tiếp" else "Next"
+        isRestartPrevious -> if (isVi) "Phát lại" else "Restart"
+        else -> if (isVi) "Bài trước" else "Previous"
+    }
+    val previewTitle = when {
+        activeDir == PlayerSwipeDirection.NEXT -> {
+            queue.getOrNull(idx + 1)?.title
+                ?: queue.firstOrNull()?.title
+                ?: playbackState.currentTrack?.title
+        }
+        isRestartPrevious -> playbackState.currentTrack?.title
+        else -> queue.getOrNull(idx - 1)?.title ?: playbackState.currentTrack?.title
+    }
+    val pillShape = remember { SmoothCornerShape(999.dp) }
+
+    AnimatedVisibility(
+        visible = direction != PlayerSwipeDirection.NONE,
+        enter = if (reducedMotion) {
+            fadeIn(tween(80))
+        } else {
+            fadeIn(tween(110)) + scaleIn(
+                animationSpec = spring(dampingRatio = 0.82f, stiffness = 520f),
+                initialScale = 0.90f
+            )
+        },
+        exit = if (reducedMotion) {
+            fadeOut(tween(70))
+        } else {
+            fadeOut(tween(100)) + scaleOut(
+                animationSpec = tween(100),
+                targetScale = 0.92f
+            )
+        },
+        modifier = modifier
+    ) {
+        Row(
+            modifier = Modifier
+                .clip(pillShape)
+                .background(Color(0xE8141414))
+                .border(0.75.dp, Color(0x30FFFFFF), pillShape)
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                imageVector = if (activeDir == PlayerSwipeDirection.NEXT) {
+                    Icons.Rounded.SkipNext
+                } else {
+                    Icons.Rounded.SkipPrevious
+                },
+                contentDescription = actionLabel,
+                tint = Color.White,
+                modifier = Modifier.size(18.dp)
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(
+                    text = actionLabel,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = Color(0xFFA8A8AE),
+                    maxLines = 1
+                )
+                if (!previewTitle.isNullOrBlank()) {
+                    Text(
+                        text = previewTitle,
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun Modifier.horizontalTrackSwipe(
+    enabled: Boolean,
+    morphFractionProvider: () -> Float,
+    reducedMotion: Boolean,
+    hapticsEnabled: Boolean,
+    swipeOffsetX: Animatable<Float, *>,
+    onPreviewDirectionChange: (PlayerSwipeDirection) -> Unit,
+    onSkipNext: () -> Unit,
+    onSkipPrevious: () -> Unit
+): Modifier {
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val haptics = LocalHapticFeedback.current
+    val distanceThresholdPx = with(density) { 72.dp.toPx() }
+    val velocityThresholdPx = with(density) { 460.dp.toPx() }
+    val maxVisualShiftPx = with(density) { 48.dp.toPx() }
+
+    val currentMorphProvider by rememberUpdatedState(morphFractionProvider)
+    val currentReducedMotion by rememberUpdatedState(reducedMotion)
+    val currentHaptics by rememberUpdatedState(hapticsEnabled)
+    val currentOnPreview by rememberUpdatedState(onPreviewDirectionChange)
+    val currentOnSkipNext by rememberUpdatedState(onSkipNext)
+    val currentOnSkipPrevious by rememberUpdatedState(onSkipPrevious)
+    var dragSnapJob by remember { mutableStateOf<Job?>(null) }
+    var settleJob by remember { mutableStateOf<Job?>(null) }
+
+    return this.pointerInput(enabled) {
+        if (!enabled) return@pointerInput
+        val touchSlop = viewConfiguration.touchSlop
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = true, pass = PointerEventPass.Main)
+            if (currentMorphProvider() < 0.92f) return@awaitEachGesture
+
+            val velocityTracker = VelocityTracker()
+            velocityTracker.addPointerInputChange(down)
+
+            var totalDx = 0f
+            var totalDy = 0f
+            var lockedHorizontal = false
+            var lastPreview = PlayerSwipeDirection.NONE
+            var hapticFired = false
+
+            try {
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Main)
+                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    velocityTracker.addPointerInputChange(change)
+
+                    if (!change.pressed) {
+                        if (lockedHorizontal) {
+                            change.consume()
+                            val vx = velocityTracker.calculateVelocity().x
+                            val action = resolveNowPlayingSwipeAction(
+                                totalDragX = totalDx,
+                                velocityX = vx,
+                                distanceThresholdPx = distanceThresholdPx,
+                                velocityThresholdPx = velocityThresholdPx
+                            )
+                            if (action != PlayerSwipeDirection.NONE) {
+                                if (currentHaptics && !hapticFired) {
+                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                }
+                                when (action) {
+                                    PlayerSwipeDirection.NEXT -> currentOnSkipNext()
+                                    PlayerSwipeDirection.PREVIOUS -> currentOnSkipPrevious()
+                                    PlayerSwipeDirection.NONE -> Unit
+                                }
+                            }
+                        }
+                        break
+                    }
+
+                    if (!lockedHorizontal) {
+                        if (change.isConsumed) break
+                        val delta = change.positionChange()
+                        totalDx += delta.x
+                        totalDy += delta.y
+                        if (abs(totalDy) > touchSlop && abs(totalDy) >= abs(totalDx)) {
+                            break
+                        }
+                        if (abs(totalDx) > touchSlop && abs(totalDx) > abs(totalDy) * 1.2f) {
+                            lockedHorizontal = true
+                            settleJob?.cancel()
+                            change.consume()
+                        } else {
+                            continue
+                        }
+                    } else {
+                        val delta = change.positionChange()
+                        totalDx += delta.x
+                        totalDy += delta.y
+                        change.consume()
+                    }
+
+                    val targetShift = if (currentReducedMotion) {
+                        0f
+                    } else {
+                        computeNowPlayingSwipeOffsetPx(totalDx, maxVisualShiftPx)
+                    }
+                    dragSnapJob?.cancel()
+                    dragSnapJob = scope.launch {
+                        swipeOffsetX.snapTo(targetShift)
+                    }
+
+                    val nextPreview = when {
+                        totalDx <= -distanceThresholdPx -> PlayerSwipeDirection.NEXT
+                        totalDx >= distanceThresholdPx -> PlayerSwipeDirection.PREVIOUS
+                        else -> PlayerSwipeDirection.NONE
+                    }
+                    if (nextPreview != lastPreview) {
+                        lastPreview = nextPreview
+                        currentOnPreview(nextPreview)
+                        if (nextPreview != PlayerSwipeDirection.NONE && currentHaptics) {
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            hapticFired = true
+                        }
+                    }
+                }
+            } finally {
+                if (lastPreview != PlayerSwipeDirection.NONE) {
+                    currentOnPreview(PlayerSwipeDirection.NONE)
+                }
+                if (lockedHorizontal || swipeOffsetX.value != 0f) {
+                    dragSnapJob?.cancel()
+                    settleJob?.cancel()
+                    settleJob = scope.launch {
+                        if (currentReducedMotion) {
+                            swipeOffsetX.snapTo(0f)
+                        } else {
+                            swipeOffsetX.animateTo(
+                                targetValue = 0f,
+                                animationSpec = spring(dampingRatio = 0.78f, stiffness = 480f)
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

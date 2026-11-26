@@ -226,4 +226,46 @@ class PlayerMotionHelpersTest {
         )
         assertTrue(nonFiniteSafe.isFinite() && nonFiniteSafe in 0.08f..1f)
     }
+
+    @Test
+    fun nowPlayingSwipeHelpers_dampElasticOffsetAndResolveDirectionCleanly() {
+        assertEquals(0f, computeNowPlayingSwipeOffsetPx(0f, 48f), 0.001f)
+        val rightShift = computeNowPlayingSwipeOffsetPx(120f, 48f)
+        val leftShift = computeNowPlayingSwipeOffsetPx(-120f, 48f)
+        assertTrue(rightShift in 0f..48f)
+        assertTrue(leftShift in -48f..0f)
+        assertEquals(-rightShift, leftShift, 0.001f)
+        assertTrue(computeNowPlayingSwipeOffsetPx(10_000f, 48f) <= 48f)
+        assertEquals(0f, computeNowPlayingSwipeOffsetPx(Float.NaN, 48f), 0.001f)
+        assertEquals(0f, computeNowPlayingSwipeOffsetPx(100f, Float.POSITIVE_INFINITY), 0.001f)
+
+        assertEquals(
+            PlayerSwipeDirection.NEXT,
+            resolveNowPlayingSwipeAction(totalDragX = -90f, velocityX = 0f, distanceThresholdPx = 72f, velocityThresholdPx = 460f)
+        )
+        assertEquals(
+            PlayerSwipeDirection.PREVIOUS,
+            resolveNowPlayingSwipeAction(totalDragX = 85f, velocityX = 0f, distanceThresholdPx = 72f, velocityThresholdPx = 460f)
+        )
+        assertEquals(
+            PlayerSwipeDirection.NEXT,
+            resolveNowPlayingSwipeAction(totalDragX = -30f, velocityX = -600f, distanceThresholdPx = 72f, velocityThresholdPx = 460f)
+        )
+        assertEquals(
+            PlayerSwipeDirection.PREVIOUS,
+            resolveNowPlayingSwipeAction(totalDragX = 30f, velocityX = 600f, distanceThresholdPx = 72f, velocityThresholdPx = 460f)
+        )
+        assertEquals(
+            PlayerSwipeDirection.NONE,
+            resolveNowPlayingSwipeAction(totalDragX = -30f, velocityX = 0f, distanceThresholdPx = 72f, velocityThresholdPx = 460f)
+        )
+        assertEquals(
+            PlayerSwipeDirection.NONE,
+            resolveNowPlayingSwipeAction(totalDragX = -90f, velocityX = 600f, distanceThresholdPx = 72f, velocityThresholdPx = 460f)
+        )
+        assertEquals(
+            PlayerSwipeDirection.NONE,
+            resolveNowPlayingSwipeAction(totalDragX = Float.NaN, velocityX = 0f, distanceThresholdPx = 72f, velocityThresholdPx = 460f)
+        )
+    }
 }

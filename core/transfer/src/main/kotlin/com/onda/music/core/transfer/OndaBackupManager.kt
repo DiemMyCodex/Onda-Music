@@ -270,7 +270,7 @@ class OndaBackupManager @Inject constructor(
     }
 
     companion object {
-        internal const val ONDA_TRANSFER_APP_VERSION = "1.3.1"
+        internal const val ONDA_TRANSFER_APP_VERSION = "1.3.2"
 
         internal fun mergeRestoredSettings(
             current: OndaUserSettings,

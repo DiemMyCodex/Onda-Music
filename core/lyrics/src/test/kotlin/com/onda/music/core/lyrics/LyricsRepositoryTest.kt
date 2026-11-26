@@ -185,9 +185,9 @@ class LyricsRepositoryTest {
     }
 
     @Test
-    fun userAgentMatchesVersion131() {
+    fun userAgentMatchesVersion132() {
         assertEquals(
-            "OndaMusic/1.3.1 (+https://github.com/DiemMyCodex/Onda-Music)",
+            "OndaMusic/1.3.2 (+https://github.com/DiemMyCodex/Onda-Music)",
             LyricsRepository.ONDA_LYRICS_USER_AGENT
         )
     }

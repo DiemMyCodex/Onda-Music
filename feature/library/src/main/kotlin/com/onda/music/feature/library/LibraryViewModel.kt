@@ -415,9 +415,24 @@ class LibraryViewModel @Inject constructor(
 
     fun playTrackById(trackId: String) {
         viewModelScope.launch {
-            val entity = songDao.getById(trackId) ?: return@launch
-            val track = entity.toModel()
-            playbackController.playQueue(listOf(track), startIndex = 0)
+            val state = uiState.value
+            val topIds = state.topTracks.map { it.trackId }
+            val queryIds = (topIds + trackId).distinct()
+            val tracksById = songDao.getByIds(queryIds)
+                .associate { entity -> entity.id to entity.toModel() }
+            val fallbackTrack = if (trackId !in tracksById) {
+                songDao.getById(trackId)?.toModel()
+            } else {
+                null
+            }
+            val resolved = resolveStatsPlaybackQueue(
+                clickedTrackId = trackId,
+                topTrackIds = topIds,
+                tracksById = tracksById,
+                recentSongs = state.recentSongs,
+                fallbackTrack = fallbackTrack
+            ) ?: return@launch
+            playbackController.playQueue(resolved.tracks, startIndex = resolved.startIndex)
         }
     }
 
@@ -610,6 +625,48 @@ class LibraryViewModel @Inject constructor(
             }
         }
     }
+}
+
+internal data class StatsPlaybackQueue(
+    val tracks: List<Track>,
+    val startIndex: Int
+)
+
+internal fun resolveStatsPlaybackQueue(
+    clickedTrackId: String,
+    topTrackIds: List<String>,
+    tracksById: Map<String, Track>,
+    recentSongs: List<Track>,
+    fallbackTrack: Track? = null
+): StatsPlaybackQueue? {
+    val queue = ArrayList<Track>()
+    val seenIds = HashSet<String>()
+
+    topTrackIds.forEach { id ->
+        val track = tracksById[id]
+        if (track != null && seenIds.add(track.id)) {
+            queue.add(track)
+        }
+    }
+
+    recentSongs.forEach { track ->
+        if (seenIds.add(track.id)) {
+            queue.add(track)
+        }
+    }
+
+    if (clickedTrackId !in seenIds) {
+        val clicked = tracksById[clickedTrackId] ?: fallbackTrack
+        if (clicked != null) {
+            queue.add(0, clicked)
+            seenIds.add(clicked.id)
+        }
+    }
+
+    if (queue.isEmpty()) return null
+    val startIndex = queue.indexOfFirst { it.id == clickedTrackId }
+    if (startIndex < 0) return null
+    return StatsPlaybackQueue(tracks = queue, startIndex = startIndex)
 }
 
 internal fun reorderTrackList(tracks: List<Track>, fromIndex: Int, toIndex: Int): List<Track> {

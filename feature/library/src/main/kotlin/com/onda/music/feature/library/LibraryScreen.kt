@@ -1391,6 +1391,13 @@ private fun HistoryTabContent(
     val displayedRecent = remember(recentSongs, query) {
         filterTracksByQuery(recentSongs, query)
     }
+    val historyPlayQueue = remember(displayedRecent, recentSongs) {
+        if (displayedRecent.size > 1) {
+            displayedRecent
+        } else {
+            (displayedRecent + recentSongs).distinctBy { it.id }
+        }
+    }
     val showSummary = query.isEmpty()
     val reducedMotion = OndaTheme.reducedMotion
     var barsRevealed by remember { mutableStateOf(false) }
@@ -1658,7 +1665,7 @@ private fun HistoryTabContent(
                             isActive = track.id == activeTrackId,
                             isPlaying = isPlaying,
                             downloadStatus = status,
-                            onPlay = { onPlayTrack(track, displayedRecent) },
+                            onPlay = { onPlayTrack(track, historyPlayQueue) },
                             onToggleLike = { onToggleLike(track) },
                             onAddToPlaylist = { onAddToPlaylist(track) },
                             onToggleDownload = { onToggleDownload(track) },

@@ -122,4 +122,69 @@ class LibraryHelpersTest {
         assertTrue(state.glassBlurEnabled)
         assertTrue(state.localTrackFolders.isEmpty())
     }
+
+    @Test
+    fun resolveStatsPlaybackQueueBuildsMultiTrackQueueFromTopAndRecent() {
+        val t1 = Track(id = "t1", title = "Top 1", artist = "Artist A")
+        val t2 = Track(id = "t2", title = "Top 2", artist = "Artist B")
+        val t3 = Track(id = "t3", title = "Top 3", artist = "Artist C")
+        val r1 = Track(id = "r1", title = "Recent 1", artist = "Artist D")
+
+        val resolved = resolveStatsPlaybackQueue(
+            clickedTrackId = "t2",
+            topTrackIds = listOf("t1", "t2", "t3"),
+            tracksById = mapOf("t1" to t1, "t2" to t2, "t3" to t3),
+            recentSongs = listOf(t2, r1)
+        )
+
+        assertEquals(listOf("t1", "t2", "t3", "r1"), resolved?.tracks?.map { it.id })
+        assertEquals(1, resolved?.startIndex)
+    }
+
+    @Test
+    fun resolveStatsPlaybackQueueAppendsRecentWhenOnlyOneTopTrackExists() {
+        val t1 = Track(id = "t1", title = "Top 1", artist = "Artist A")
+        val r1 = Track(id = "r1", title = "Recent 1", artist = "Artist B")
+        val r2 = Track(id = "r2", title = "Recent 2", artist = "Artist C")
+
+        val resolved = resolveStatsPlaybackQueue(
+            clickedTrackId = "t1",
+            topTrackIds = listOf("t1"),
+            tracksById = mapOf("t1" to t1),
+            recentSongs = listOf(t1, r1, r2)
+        )
+
+        assertEquals(listOf("t1", "r1", "r2"), resolved?.tracks?.map { it.id })
+        assertEquals(0, resolved?.startIndex)
+    }
+
+    @Test
+    fun resolveStatsPlaybackQueuePrependsFallbackTrackWhenMissingFromPools() {
+        val fallback = Track(id = "fx", title = "Fallback", artist = "Artist X")
+        val r1 = Track(id = "r1", title = "Recent 1", artist = "Artist B")
+
+        val resolved = resolveStatsPlaybackQueue(
+            clickedTrackId = "fx",
+            topTrackIds = emptyList(),
+            tracksById = emptyMap(),
+            recentSongs = listOf(r1),
+            fallbackTrack = fallback
+        )
+
+        assertEquals(listOf("fx", "r1"), resolved?.tracks?.map { it.id })
+        assertEquals(0, resolved?.startIndex)
+    }
+
+    @Test
+    fun resolveStatsPlaybackQueueReturnsNullWhenClickedTrackMissing() {
+        val r1 = Track(id = "r1", title = "Recent 1", artist = "Artist B")
+        val resolved = resolveStatsPlaybackQueue(
+            clickedTrackId = "missing",
+            topTrackIds = emptyList(),
+            tracksById = emptyMap(),
+            recentSongs = listOf(r1),
+            fallbackTrack = null
+        )
+        assertEquals(null, resolved)
+    }
 }
